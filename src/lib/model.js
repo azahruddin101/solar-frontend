@@ -242,10 +242,11 @@ export function buildDesign({ sections: rawSections, objects, config, lat }) {
   for (const z of objects.filter((o) => o.type === 'zone')) {
     for (const t of fillZone(z, ctx)) {
       if (budget <= 0) break;
-      const cols = Math.min(t.cols, Math.floor(budget / t.rows));
-      if (cols < 1) continue;
-      budget -= cols * t.rows;
-      tables.push({ ...expandTable({ ...t, cols }, ctx), valid: true });
+      // trim the last table to the remaining budget (fewer columns, or a single short row)
+      const rows = Math.min(t.rows, budget);
+      const cols = Math.max(1, Math.min(t.cols, Math.floor(budget / rows)));
+      budget -= cols * rows;
+      tables.push({ ...expandTable({ ...t, rows, cols }, ctx), valid: true });
     }
   }
 

@@ -11,6 +11,7 @@ import { buildDesign } from '@/lib/model';
 import { useStore } from '@/lib/store';
 import Editor2D from '../editor/Editor2D';
 import { cx } from '../ui';
+import { Adjust } from './DesignPanel';
 
 const Scene3D = dynamic(() => import('../scene/Scene3D'), { ssr: false });
 const FT = 3.281;
@@ -22,6 +23,18 @@ function Pills({ value, options, onChange }) {
         <button key={o.label} type="button" onClick={() => onChange(o.value)} className={cx('rounded-xl border px-2 py-2.5 text-center transition', value === o.value ? 'border-[#f5a524] bg-amber-50 ring-2 ring-[#f5a524]/40' : 'border-slate-200 hover:bg-slate-50')}>
           <div className="text-sm font-semibold">{o.label}</div>
           {o.sub && <div className="text-[11px] text-slate-500">{o.sub}</div>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Chips({ value, options, onChange }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map(([v, label]) => (
+        <button key={label} type="button" onClick={() => onChange(v)} className={cx('rounded-full border px-3 py-1 text-xs font-medium', Math.abs(value - v) < 0.01 ? 'border-[#f5a524] bg-amber-50 text-amber-800' : 'border-slate-200 text-slate-600 hover:bg-slate-50')}>
+          {label}
         </button>
       ))}
     </div>
@@ -64,9 +77,8 @@ export default function StepSimpleDesign({ design }) {
     if (units > 0) setCount(Math.ceil(units / perPanelMonth));
   };
   const money = (v) => formatMoney(v, finance.currency);
-  const floors = main ? Math.max(1, Math.round(main.height / 3)) : 1;
-  const legChoice = config.frontLeg < 0.7 ? 0.4 : config.frontLeg < 1.8 ? 1 : 2.4;
-  const tiltChoice = config.tilt <= 7 ? 5 : config.tilt >= 27 ? 30 : opt;
+  const slopeLen = (config.orientation === 'landscape' ? spec.width : spec.length) * config.rowsPerTable;
+  const backLeg = config.frontLeg + slopeLen * Math.sin((config.tilt * Math.PI) / 180);
 
   return (
     <>
@@ -82,15 +94,17 @@ export default function StepSimpleDesign({ design }) {
         {view === '3d' && <div className="pointer-events-none absolute left-1/2 top-5 -translate-x-1/2 rounded-full bg-white/15 px-4 py-1.5 text-xs text-white">Drag to look around · scroll to zoom · press ▶ to watch the sun and shadows</div>}
       </div>
 
-      <aside className="absolute inset-y-0 right-0 w-[380px] space-y-6 overflow-y-auto border-l border-slate-200 bg-white p-5">
-        <div className="rounded-2xl bg-slate-900 p-4 text-white">
-          <div className="text-xs uppercase tracking-wide text-slate-400">Your solar system</div>
-          <div className="mt-1 text-3xl font-bold">{totals.kwp.toFixed(1)} kW</div>
-          <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-            <div><div className="text-slate-400">Makes every month</div><b>{Math.round(totals.acKwh / 12).toLocaleString()} units</b></div>
-            <div><div className="text-slate-400">Saves every month</div><b>{money(fin.firstYearSavings / 12)}</b></div>
-            <div><div className="text-slate-400">Approx. cost</div><b>{money(fin.cost)}</b></div>
-            <div><div className="text-slate-400">Pays back in</div><b>{fin.payback ? `${fin.payback.toFixed(1)} years` : '25+ years'}</b></div>
+      <aside className="absolute inset-y-0 right-0 w-[380px] space-y-5 overflow-y-auto border-l border-slate-200 bg-white p-5">
+        <div className="rounded-2xl bg-slate-900 px-4 py-3 text-white">
+          <div className="flex items-baseline justify-between">
+            <span className="text-2xl font-bold">{totals.kwp.toFixed(1)} kW</span>
+            <span className="text-sm text-slate-300">{count} panels × {spec.watts} W</span>
+          </div>
+          <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[13px]">
+            <div><span className="text-slate-400">Makes </span><b>{Math.round(totals.acKwh / 12).toLocaleString()} units/mo</b></div>
+            <div><span className="text-slate-400">Saves </span><b>{money(fin.firstYearSavings / 12)}/mo</b></div>
+            <div><span className="text-slate-400">Cost </span><b>{money(fin.cost)}</b></div>
+            <div><span className="text-slate-400">Payback </span><b>{fin.payback ? `${fin.payback.toFixed(1)} yrs` : '25+ yrs'}</b></div>
           </div>
         </div>
 
@@ -99,7 +113,7 @@ export default function StepSimpleDesign({ design }) {
           <div className="flex items-center gap-3">
             <button type="button" onClick={() => setCount(count - 1)} className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Minus className="h-5 w-5" /></button>
             <div className="flex-1 text-center">
-              <div className="text-4xl font-bold tabular-nums">{count}</div>
+              <div className="text-3xl font-bold tabular-nums">{count}</div>
               <div className="text-xs text-slate-500">of {maxFit} that fit on your roof</div>
             </div>
             <button type="button" onClick={() => setCount(count + 1)} className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Plus className="h-5 w-5" /></button>
@@ -109,25 +123,30 @@ export default function StepSimpleDesign({ design }) {
             <input inputMode="numeric" value={bill} onChange={(e) => setBill(e.target.value.replace(/[^\d.]/g, ''))} onKeyDown={(e) => e.key === 'Enter' && recommend()} placeholder={`Monthly electricity bill (${finance.currency})`} className="h-11 min-w-0 flex-1 rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-blue-600" />
             <button type="button" onClick={recommend} disabled={!bill} className="flex h-11 items-center gap-1.5 rounded-xl bg-[#f5a524] px-3 text-sm font-semibold text-white disabled:bg-slate-200"><Sparkles className="h-4 w-4" /> Suggest</button>
           </div>
-          <p className="mt-1 text-xs text-slate-400">Type your bill and we&apos;ll pick the number of panels that covers it.</p>
+        </div>
+
+        <div>
+          <Q n={2}>Panel height above the roof</Q>
+          <Adjust label={`Front leg · ${(config.frontLeg * FT).toFixed(1)} ft`} value={config.frontLeg} min={0.2} max={4} step={0.05} suffix="m" onChange={(frontLeg) => applyAll({ frontLeg })} />
+          <div className="mt-2"><Chips value={config.frontLeg} onChange={(frontLeg) => applyAll({ frontLeg })} options={[[0.4, 'Low'], [1, 'Medium'], [2.4, 'High · walk under']]} /></div>
+          <p className="mt-1.5 text-xs text-slate-500">Back leg becomes <b>{backLeg.toFixed(2)} m ({(backLeg * FT).toFixed(1)} ft)</b> at this tilt.</p>
+        </div>
+
+        <div>
+          <Q n={3}>Panel tilt (slope)</Q>
+          <Adjust label="Tilt angle" value={config.tilt} min={0} max={45} step={1} suffix="°" onChange={(tilt) => applyAll({ tilt })} />
+          <div className="mt-2"><Chips value={config.tilt} onChange={(tilt) => applyAll({ tilt })} options={[[5, 'Flat'], [opt, `Best ${opt}°`], [30, 'Steep']]} /></div>
+          <p className="mt-1.5 text-xs text-slate-500">This tilt gives <b>{(design.yieldModel.factor(config.tilt, design.defaultAzimuth) * 100).toFixed(0)}%</b> of the best possible output.</p>
         </div>
 
         {main && (
           <div>
-            <Q n={2}>How tall is your building?</Q>
-            <Pills value={Math.min(floors, 4)} onChange={(f) => s.updateSection(main.id, { height: f * 3 })} options={[1, 2, 3, 4].map((f) => ({ value: f, label: f === 4 ? '4+' : String(f), sub: f === 1 ? 'floor' : 'floors' }))} />
+            <Q n={4}>Your building</Q>
+            <Adjust label={`Roof height · ${Math.round(main.height * FT)} ft`} value={main.height} min={2.5} max={60} step={0.5} suffix="m" onChange={(height) => s.updateSection(main.id, { height })} />
+            <div className="mt-2"><Chips value={main.height} onChange={(height) => s.updateSection(main.id, { height })} options={[[3, '1 floor'], [6, '2 floors'], [9, '3 floors'], [12, '4 floors']]} /></div>
+            <div className="mt-3"><Adjust label="Boundary wall (parapet) height" value={main.parapetH} min={0} max={2.5} step={0.1} suffix="m" onChange={(parapetH) => s.updateSection(main.id, { parapetH })} /></div>
           </div>
         )}
-
-        <div>
-          <Q n={3}>How high should panels stand?</Q>
-          <Pills value={legChoice} onChange={(frontLeg) => applyAll({ frontLeg })} options={[{ value: 0.4, label: 'Low', sub: 'cheapest' }, { value: 1, label: 'Medium', sub: `${Math.round(1 * FT)} ft` }, { value: 2.4, label: 'High', sub: 'walk under' }]} />
-        </div>
-
-        <div>
-          <Q n={4}>Panel slope</Q>
-          <Pills value={tiltChoice} onChange={(tilt) => applyAll({ tilt })} options={[{ value: 5, label: 'Flat', sub: 'fits more' }, { value: opt, label: 'Best', sub: `${opt}° · most power` }, { value: 30, label: 'Steep', sub: 'self-cleaning' }]} />
-        </div>
 
         <div className="rounded-2xl bg-amber-50 p-4 text-sm">
           <div className="mb-1.5 font-semibold">What you will need</div>

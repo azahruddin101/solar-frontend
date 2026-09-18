@@ -83,7 +83,7 @@ function Building({ section, tex, mapSize }) {
         <meshStandardMaterial color="#6b7280" roughness={0.9} />
       </mesh>
       <mesh geometry={geos.top} receiveShadow>
-        <meshStandardMaterial map={tex} color={tex ? '#ffffff' : '#d6d3d1'} roughness={1} />
+        <meshStandardMaterial key={tex ? 'sat' : 'plain'} map={tex} color={tex ? '#ffffff' : '#d6d3d1'} roughness={1} />
       </mesh>
       {geos.parapet && (
         <mesh geometry={geos.parapet} castShadow receiveShadow>
