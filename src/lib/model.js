@@ -254,3 +254,45 @@ export function buildDesign({ sections: rawSections, objects, config, lat }) {
   const roofArea = sections.length ? polygonArea(sections[0].poly) : 0;
   return { sections, spec, trees, blocks, tables, modules, roofArea, ctx };
 }
+
+/**
+ * Magnetic placement for a dragged group: lines it up with nearby groups and, if it overlaps
+ * something slightly, nudges it to the nearest free spot (max ~0.8 m).
+ */
+export function magnetize(obj, pos, design) {
+  const { ctx, spec, tables } = design;
+  const f = { x: Math.sin(obj.azimuth * DEG), y: Math.cos(obj.azimuth * DEG) };
+  const c = { x: f.y, y: -f.x };
+  let { x, y } = pos;
+  const size = tableSize(obj, spec);
+
+  // 1. align with neighbours that face the same way (centre lines and flush edges)
+  for (const t of tables) {
+    if (t.source === obj.id || Math.abs(((t.azimuth - obj.azimuth + 540) % 360) - 180) > 1) continue;
+    const du = (x - t.x) * c.x + (y - t.y) * c.y;
+    const dv = (x - t.x) * f.x + (y - t.y) * f.y;
+    const snapTo = (d, targets) => targets.find((k) => Math.abs(d - k) < 0.35);
+    const su = snapTo(du, [0, (size.width + t.size.width) / 2 + PANEL_GAP, -(size.width + t.size.width) / 2 - PANEL_GAP]);
+    const sv = snapTo(dv, [0]);
+    if (su !== undefined && Math.abs(dv) < (size.depth + t.size.depth) / 2 + 1) {
+      x -= (du - su) * c.x;
+      y -= (du - su) * c.y;
+    }
+    if (sv !== undefined && Math.abs(du) < (size.width + t.size.width) / 2 + 1) {
+      x -= (dv - sv) * f.x;
+      y -= (dv - sv) * f.y;
+    }
+  }
+
+  // 2. resolve small overlaps
+  const ok = (px, py) => rectPlacement(tableFootprint({ ...obj, x: px, y: py }, spec), ctx, { ignoreId: obj.id, inset: 0.05 }).ok;
+  if (ok(x, y)) return { x, y };
+  for (let r = 0.05; r <= 0.8; r += 0.05) {
+    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const px = x + (c.x * a + f.x * b) * r;
+      const py = y + (c.y * a + f.y * b) * r;
+      if (ok(px, py)) return { x: px, y: py };
+    }
+  }
+  return { x, y };
+}

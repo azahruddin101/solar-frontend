@@ -120,9 +120,8 @@ function PanelTables({ design }) {
     const q = new THREE.Quaternion();
     const one = new THREE.Vector3(1, 1, 1);
     for (const t of design.tables) {
-      if (!t.valid) continue;
-      const key = `${t.size.cross.toFixed(3)}|${t.size.slope.toFixed(3)}`;
-      if (!byDim.has(key)) byDim.set(key, { cross: t.size.cross, slope: t.size.slope, list: [] });
+      const key = `${t.size.cross.toFixed(3)}|${t.size.slope.toFixed(3)}|${t.valid}`;
+      if (!byDim.has(key)) byDim.set(key, { key, bad: !t.valid, cross: t.size.cross, slope: t.size.slope, list: [] });
       for (const m of t.modules) {
         e.set(...m.rotation);
         q.setFromEuler(e);
@@ -151,9 +150,9 @@ function PanelTables({ design }) {
   return (
     <group>
       {data.groups.map((g) => (
-        <PanelGroup key={`${g.cross}|${g.slope}`} group={g} />
+        <PanelGroup key={g.key} group={g} />
       ))}
-      {design.tables.filter((t) => t.valid).map((t) => (
+      {design.tables.map((t) => (
         <TablePick key={t.id} t={t} />
       ))}
       <Instances items={data.rails} geometry={frameGeo}>
@@ -211,7 +210,7 @@ function PanelGroup({ group }) {
   }, []);
   return (
     <Instances items={group.list} geometry={geo}>
-      <meshStandardMaterial map={tex} roughness={0.25} metalness={0.35} />
+      <meshStandardMaterial map={tex} roughness={0.25} metalness={0.35} color={group.bad ? '#ff5a5a' : '#ffffff'} emissive={group.bad ? '#ff0000' : '#000000'} emissiveIntensity={group.bad ? 0.55 : 0} />
     </Instances>
   );
 }

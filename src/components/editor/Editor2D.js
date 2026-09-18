@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DEG } from '@/lib/geo';
 import { dist, polygonCentroid, rectPoly } from '@/lib/geometry';
-import { newId } from '@/lib/model';
+import { magnetize, newId } from '@/lib/model';
 import { staticMapSize, staticMapUrl } from '@/lib/staticMap';
 import { useStore } from '@/lib/store';
 
@@ -208,7 +208,11 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
       const dx = w.x - d.start.x;
       const dy = w.y - d.start.y;
       if (d.points) (d.isSection ? s.updateSection : s.updateObject)(d.id, { points: d.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) });
-      else s.updateObject(d.id, { x: d.x + dx, y: d.y + dy });
+      else {
+        const o = s.objects.find((k) => k.id === d.id);
+        const pos = { x: d.x + dx, y: d.y + dy };
+        s.updateObject(d.id, o?.type === 'array' && !e.altKey ? magnetize(o, pos, design) : pos);
+      }
     } else if (d.kind === 'vertex') {
       const points = d.points.map((p, i) => (i === d.index ? w : p));
       (d.isSection ? s.updateSection : s.updateObject)(d.id, { points });
