@@ -153,6 +153,9 @@ function PanelTables({ design }) {
       {data.groups.map((g) => (
         <PanelGroup key={`${g.cross}|${g.slope}`} group={g} />
       ))}
+      {design.tables.filter((t) => t.valid).map((t) => (
+        <TablePick key={t.id} t={t} />
+      ))}
       <Instances items={data.rails} geometry={frameGeo}>
         <meshStandardMaterial color="#4b5563" metalness={0.6} roughness={0.5} />
       </Instances>
@@ -163,6 +166,27 @@ function PanelTables({ design }) {
         <meshStandardMaterial color="#a8a29e" roughness={1} />
       </Instances>
     </group>
+  );
+}
+
+/** Invisible click target over a table; glows orange when its group is selected. */
+function TablePick({ t }) {
+  const selected = useStore((s) => s.selectedId === t.source);
+  const mid = t.base + (t.frontLeg + t.backLeg) / 2 + 0.06;
+  return (
+    <mesh
+      position={[t.x, mid, -t.y]}
+      rotation={[t.tilt * (Math.PI / 180), Math.PI - t.azimuth * (Math.PI / 180), 0, 'YXZ']}
+      onClick={(e) => {
+        e.stopPropagation();
+        useStore.getState().set({ selectedId: t.source });
+      }}
+      onPointerOver={() => (document.body.style.cursor = 'pointer')}
+      onPointerOut={() => (document.body.style.cursor = '')}
+    >
+      <boxGeometry args={[t.size.width + 0.1, 0.05, t.size.slopeLen + 0.1]} />
+      <meshBasicMaterial color="#f5a524" transparent opacity={selected ? 0.45 : 0} depthWrite={false} />
+    </mesh>
   );
 }
 

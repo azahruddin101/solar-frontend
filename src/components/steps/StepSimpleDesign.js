@@ -5,13 +5,14 @@
 import { Box, Minus, Move, Plus, Sparkles } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useState } from 'react';
-import { autoFillRoof } from '@/lib/autofill';
+import { autoGroups } from '@/lib/autofill';
 import { formatMoney } from '@/lib/energy';
 import { buildDesign } from '@/lib/model';
 import { useStore } from '@/lib/store';
 import Editor2D from '../editor/Editor2D';
 import { cx } from '../ui';
 import { Adjust } from './DesignPanel';
+import GroupList from './GroupList';
 
 const Scene3D = dynamic(() => import('../scene/Scene3D'), { ssr: false });
 const FT = 3.281;
@@ -58,17 +59,22 @@ export default function StepSimpleDesign({ design }) {
 
   // place panels automatically the first time
   useEffect(() => {
-    if (design.sections.length && !useStore.getState().objects.some((o) => o.type === 'zone' || o.type === 'array')) autoFillRoof(design);
+    if (design.sections.length && !useStore.getState().objects.some((o) => o.type === 'zone' || o.type === 'array')) autoGroups(design);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [design.sections.length]);
 
-  const maxFit = useMemo(() => buildDesign({ sections, objects, config: { ...config, maxPanels: 0 }, lat: design.lat }).modules.length, [sections, objects, config, design.lat]);
+  const obstacleKey = JSON.stringify(objects.filter((o) => o.type === 'tree' || o.type === 'block'));
+  const maxFit = useMemo(() => {
+    const keep = JSON.parse(obstacleKey);
+    const zones = design.sections.map((sec) => ({ id: `fit-${sec.id}`, type: 'zone', points: sec.poly, tilt: config.tilt, azimuth: design.defaultAzimuth, frontLeg: config.frontLeg, rowsPerTable: config.rowsPerTable, orientation: config.orientation, rowGap: config.rowGap }));
+    return buildDesign({ sections, objects: [...keep, ...zones], config: { ...config, maxPanels: 0 }, lat: design.lat }).modules.length;
+  }, [sections, config, design.sections, design.lat, design.defaultAzimuth, obstacleKey]);
   const count = totals.count;
   const setCount = (n) => {
-    const v = Math.max(1, Math.min(maxFit, Math.round(n)));
-    s.patch('config', { maxPanels: v >= maxFit ? 0 : v, targetKw: 0 });
+    const v = Math.max(1, Math.min(Math.max(maxFit, 1), Math.round(n)));
+    autoGroups(design, v >= maxFit ? 0 : v);
   };
-  const applyAll = (patch) => s.set({ config: { ...config, ...patch }, objects: objects.map((o) => (o.type === 'zone' || (o.type === 'array' && !o.elevated) ? { ...o, ...patch } : o)) });
+  const applyAll = (patch) => s.set({ config: { ...config, ...patch }, objects: objects.map((o) => (o.type === 'zone' || o.type === 'array' ? { ...o, ...patch } : o)) });
 
   const opt = Math.round(design.yieldModel.optimal.tilt);
   const perPanelMonth = count ? totals.acKwh / count / 12 : (spec.watts / 1000) * 120;
@@ -114,7 +120,7 @@ export default function StepSimpleDesign({ design }) {
             <button type="button" onClick={() => setCount(count - 1)} className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Minus className="h-5 w-5" /></button>
             <div className="flex-1 text-center">
               <div className="text-3xl font-bold tabular-nums">{count}</div>
-              <div className="text-xs text-slate-500">of {maxFit} that fit on your roof</div>
+              <div className="text-xs text-slate-500">auto layout fits up to {maxFit} · changing this re-arranges groups</div>
             </div>
             <button type="button" onClick={() => setCount(count + 1)} className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Plus className="h-5 w-5" /></button>
           </div>
@@ -126,22 +132,28 @@ export default function StepSimpleDesign({ design }) {
         </div>
 
         <div>
-          <Q n={2}>Panel height above the roof</Q>
+          <Q n={2}>Height of all groups</Q>
           <Adjust label={`Front leg · ${(config.frontLeg * FT).toFixed(1)} ft`} value={config.frontLeg} min={0.2} max={4} step={0.05} suffix="m" onChange={(frontLeg) => applyAll({ frontLeg })} />
           <div className="mt-2"><Chips value={config.frontLeg} onChange={(frontLeg) => applyAll({ frontLeg })} options={[[0.4, 'Low'], [1, 'Medium'], [2.4, 'High · walk under']]} /></div>
           <p className="mt-1.5 text-xs text-slate-500">Back leg becomes <b>{backLeg.toFixed(2)} m ({(backLeg * FT).toFixed(1)} ft)</b> at this tilt.</p>
         </div>
 
         <div>
-          <Q n={3}>Panel tilt (slope)</Q>
+          <Q n={3}>Tilt of all groups</Q>
           <Adjust label="Tilt angle" value={config.tilt} min={0} max={45} step={1} suffix="°" onChange={(tilt) => applyAll({ tilt })} />
           <div className="mt-2"><Chips value={config.tilt} onChange={(tilt) => applyAll({ tilt })} options={[[5, 'Flat'], [opt, `Best ${opt}°`], [30, 'Steep']]} /></div>
           <p className="mt-1.5 text-xs text-slate-500">This tilt gives <b>{(design.yieldModel.factor(config.tilt, design.defaultAzimuth) * 100).toFixed(0)}%</b> of the best possible output.</p>
         </div>
 
+        <div>
+          <Q n={4}>Panel groups ({objects.filter((o) => o.type === 'array').length})</Q>
+          <p className="mb-2 text-xs text-slate-500">Tap a group here or on the roof to give it its own tilt, height and size. Use “Move panels” to drag it.</p>
+          <GroupList design={design} />
+        </div>
+
         {main && (
           <div>
-            <Q n={4}>Your building</Q>
+            <Q n={5}>Your building</Q>
             <Adjust label={`Roof height · ${Math.round(main.height * FT)} ft`} value={main.height} min={2.5} max={60} step={0.5} suffix="m" onChange={(height) => s.updateSection(main.id, { height })} />
             <div className="mt-2"><Chips value={main.height} onChange={(height) => s.updateSection(main.id, { height })} options={[[3, '1 floor'], [6, '2 floors'], [9, '3 floors'], [12, '4 floors']]} /></div>
             <div className="mt-3"><Adjust label="Boundary wall (parapet) height" value={main.parapetH} min={0} max={2.5} step={0.1} suffix="m" onChange={(parapetH) => s.updateSection(main.id, { parapetH })} /></div>
@@ -162,7 +174,7 @@ export default function StepSimpleDesign({ design }) {
           </ul>
         </div>
 
-        <button type="button" onClick={() => autoFillRoof(design)} className="w-full rounded-xl border border-slate-300 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50">Re-arrange panels automatically</button>
+        <button type="button" onClick={() => autoGroups(design, 0)} className="w-full rounded-xl border border-slate-300 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50">Re-arrange panels automatically</button>
       </aside>
     </>
   );
