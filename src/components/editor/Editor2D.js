@@ -75,6 +75,7 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
   const [view, setView] = useState({ cx: 0, cy: 0, scale: 14 });
   const [draft, setDraft] = useState([]);
   const [cursor, setCursor] = useState(null);
+  const [area, setArea] = useState(null); // rectangle being dragged with the mark-area tool
   const drag = useRef(null);
   const fitted = useRef(false);
 
@@ -119,6 +120,16 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
     if (!origin) return [];
     return [18, 20].map((zoom) => ({ zoom, size: staticMapSize(origin.lat, zoom), url: staticMapUrl({ lat: origin.lat, lng: origin.lng, zoom }) }));
   }, [origin]);
+
+  const areaRect = (a, b) => {
+    const az = design.defaultAzimuth;
+    const f = { x: Math.sin(az * DEG), y: Math.cos(az * DEG) };
+    const c = { x: f.y, y: -f.x };
+    const du = (b.x - a.x) * c.x + (b.y - a.y) * c.y;
+    const dv = (b.x - a.x) * f.x + (b.y - a.y) * f.y;
+    const center = { x: a.x + (c.x * du + f.x * dv) / 2, y: a.y + (c.y * du + f.y * dv) / 2 };
+    return { center, w: Math.abs(du), d: Math.abs(dv), az, poly: rectPoly(center.x, center.y, Math.abs(du), Math.abs(dv), az) };
+  };
 
   const drawing = tool === 'draw-section' || tool === 'draw-zone';
   const snap = drawing && cursor ? snapPoint(cursor, draft, view.scale) : null;
@@ -173,6 +184,11 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
       ref.current.setPointerCapture(e.pointerId);
       return;
     }
+    if (tool === 'mark-area') {
+      drag.current = { kind: 'area', start: w };
+      ref.current.setPointerCapture(e.pointerId);
+      return;
+    }
     if (tool === 'add-tree') return s.addObject({ id: newId('t'), type: 'tree', x: w.x, y: w.y, r: 2.5, h: 8 });
     if (tool === 'add-block') return s.addObject({ id: newId('b'), type: 'block', name: 'Water tank', w: 2, d: 2, h: 1.8, ...(s.pendingBlock || {}), x: w.x, y: w.y, rot: design.defaultAzimuth });
     if (tool === 'add-array' || tool === 'add-elevated') {
@@ -186,7 +202,7 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
   };
 
   const startDrag = (e, d) => {
-    if (drawing || tool.startsWith('add')) return;
+    if (drawing || tool.startsWith('add') || tool === 'mark-area') return;
     e.stopPropagation();
     if (e.button !== 0) return;
     st().set({ selectedId: d.id });
@@ -200,6 +216,7 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
     const d = drag.current;
     if (!d) return;
     const s = st();
+    if (d.kind === 'area') return setArea({ ...areaRect(d.start, w), start: d.start, end: w });
     if (d.kind === 'pan') {
       if (d.click && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 5) return;
       d.click = null;
@@ -245,6 +262,27 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
   const onUp = () => {
     const d = drag.current;
     drag.current = null;
+    if (d?.kind === 'area') {
+      const s = st();
+      const kind = s.pendingKey;
+      const preset = s.pendingBlock || {};
+      const r = area && (area.w > 0.5 || area.d > 0.5) ? area : null;
+      const main = s.sections[0];
+      setArea(null);
+      if (kind === 'tree') {
+        const rad = r ? Math.max(1, Math.hypot(r.end.x - r.start.x, r.end.y - r.start.y) / 2) : 2.5;
+        const c = r ? { x: (r.start.x + r.end.x) / 2, y: (r.start.y + r.end.y) / 2 } : d.start;
+        s.addObject({ id: newId('t'), type: 'tree', x: c.x, y: c.y, r: rad, h: Math.max(5, rad * 3) });
+      } else if (kind === 'floor') {
+        const q = r || areaRect({ x: d.start.x - 2, y: d.start.y - 2 }, { x: d.start.x + 2, y: d.start.y + 2 });
+        s.addSection({ id: newId('r'), name: 'Roof on roof', points: rectPoly(q.center.x, q.center.y, Math.max(q.w, 1), Math.max(q.d, 1), q.az), height: (main?.height || 3) + 2.7, parapetH: 0.3, parapetT: 0.2 });
+      } else {
+        const c = r ? r.center : d.start;
+        s.addObject({ id: newId('b'), type: 'block', name: 'Object', h: 1.8, ...preset, x: c.x, y: c.y, w: r ? Math.max(r.w, 0.4) : preset.w || 1.5, d: r ? Math.max(r.d, 0.4) : preset.d || 1.5, rot: design.defaultAzimuth });
+      }
+      s.set({ pendingKey: null, pendingBlock: null });
+      return;
+    }
     if (d?.click && drawing) {
       const sn = snapPoint(d.click, draft, view.scale);
       if (sn.close) finishDraft(draft);
@@ -274,7 +312,7 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
       );
     });
 
-  const cursorStyle = drawing || tool.startsWith('add') ? 'crosshair' : 'grab';
+  const cursorStyle = drawing || tool.startsWith('add') || tool === 'mark-area' ? 'crosshair' : 'grab';
 
   return (
     <div ref={ref} className="absolute inset-0 touch-none select-none overflow-hidden bg-[#0b1020]" style={{ cursor: cursorStyle }} onWheel={onWheel} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}>
@@ -381,6 +419,19 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
             );
           })}
 
+        {area && (
+          <g pointerEvents="none">
+            {st().pendingKey === 'tree' ? (
+              <circle cx={toS({ x: (area.start.x + area.end.x) / 2, y: (area.start.y + area.end.y) / 2 }).x} cy={toS({ x: (area.start.x + area.end.x) / 2, y: (area.start.y + area.end.y) / 2 }).y} r={(Math.hypot(area.end.x - area.start.x, area.end.y - area.start.y) / 2) * view.scale} fill="rgba(74,180,90,0.4)" stroke="#2f9e44" strokeWidth={2} strokeDasharray="7 4" />
+            ) : (
+              <>
+                <polygon points={pts(area.poly)} fill="rgba(37,99,235,0.3)" stroke="#1d4ed8" strokeWidth={2.5} strokeDasharray="7 4" />
+                <EdgeLabel a={area.poly[0]} b={area.poly[1]} toS={toS} />
+                <EdgeLabel a={area.poly[1]} b={area.poly[2]} toS={toS} />
+              </>
+            )}
+          </g>
+        )}
         {/* drawing in progress */}
         {drawing && draft.length > 0 && (
           <g pointerEvents="none">

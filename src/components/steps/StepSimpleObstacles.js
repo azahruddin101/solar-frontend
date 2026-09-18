@@ -3,8 +3,6 @@
 // "What is on your roof?" — big buttons, tap to place, drag to move, corner to resize.
 
 import { Building2, Cylinder, DoorOpen, Package, Trash2, TreePine } from 'lucide-react';
-import { polygonCentroid, rectPoly } from '@/lib/geometry';
-import { newId } from '@/lib/model';
 import { useStore } from '@/lib/store';
 import Editor2D from '../editor/Editor2D';
 import { cx } from '../ui';
@@ -13,7 +11,7 @@ const FT = 3.281;
 const ITEMS = [
   { key: 'tank', icon: Cylinder, label: 'Water tank', tool: 'add-block', preset: { name: 'Water tank', w: 1.5, d: 1.5, h: 1.8 } },
   { key: 'stair', icon: DoorOpen, label: 'Staircase room', tool: 'add-block', preset: { name: 'Staircase room', w: 3, d: 3, h: 2.7 } },
-  { key: 'floor', icon: Building2, label: 'Room / floor on top', tool: 'draw-section' },
+  { key: 'floor', icon: Building2, label: 'Roof on roof (room / upper floor)', tool: 'mark-area' },
   { key: 'tree', icon: TreePine, label: 'Tree near roof', tool: 'add-tree' },
   { key: 'other', icon: Package, label: 'AC / dish / other', tool: 'add-block', preset: { name: 'Other', w: 1, d: 1, h: 1 } },
 ];
@@ -37,23 +35,13 @@ export default function StepSimpleObstacles({ design }) {
   const main = sections[0];
   const things = [...sections.slice(1).map((x) => ({ ...x, kind: 'floor' })), ...objects.filter((o) => o.type === 'block' || o.type === 'tree')];
 
-  // one tap: the object appears on the roof, already selected — the user only drags it into place
-  const pick = (it) => {
-    if (!main) return;
-    const c = polygonCentroid(main.points);
-    const n = things.length;
-    const at = { x: c.x + ((n % 3) - 1) * 2.5, y: c.y - Math.floor(n / 3) * 2.5 };
-    const rot = design.defaultAzimuth;
-    if (it.key === 'tree') {
-      const maxX = Math.max(...main.points.map((p) => p.x));
-      s.addObject({ id: newId('t'), type: 'tree', x: maxX + 3, y: c.y, r: 2.5, h: 8 });
-    } else if (it.key === 'floor') {
-      s.addSection({ id: newId('r'), name: 'Room / floor on top', points: rectPoly(at.x, at.y, 4, 4, rot), height: main.height + 2.7, parapetH: 0.3, parapetT: 0.2 });
-    } else {
-      s.addObject({ id: newId('b'), type: 'block', ...it.preset, x: at.x, y: at.y, rot });
-    }
-  };
-  const hint = things.length ? 'Drag an object to where it really is · pull a white dot to resize' : 'Nothing on the roof? Just press Continue';
+  // tap a button, then drag across the area on the picture — the object takes exactly that size
+  const armed = tool === 'mark-area' ? s.pendingKey : null;
+  const pick = (it) => (armed === it.key ? s.set({ tool: 'select', pendingKey: null, pendingBlock: null }) : s.set({ tool: 'mark-area', pendingKey: it.key, pendingBlock: it.preset || null, selectedId: null }));
+  const armedItem = ITEMS.find((i) => i.key === armed);
+  const hint = armedItem
+    ? `Press and drag across the ${armedItem.label.toLowerCase()} on the picture to select its area`
+    : things.length ? 'Drag an object to move it · pull a white dot to resize' : 'Nothing on the roof? Just press Continue';
 
   return (
     <>
@@ -73,11 +61,11 @@ export default function StepSimpleObstacles({ design }) {
         <h2 className="text-[22px] font-bold leading-tight">Roof marked</h2>
         <p className="mt-1 text-sm font-medium text-blue-800">Press Continue to see the solar plan.</p>
         <h3 className="mt-5 text-base font-semibold">Optional: objects on or near the roof</h3>
-        <p className="mt-1 text-sm text-slate-500">Tap one to add it, then drag it to the right place on the picture. Panels are kept away from these.</p>
+        <p className="mt-1 text-sm text-slate-500">Choose what it is, then press and drag over its area on the picture. Panels are kept away from these.</p>
 
         <div className="mt-4 grid grid-cols-2 gap-2">
           {ITEMS.map((it) => (
-            <button key={it.key} type="button" onClick={() => pick(it)} className={cx('flex items-center gap-2.5 rounded-lg border-2 px-3 py-3 text-left text-sm font-semibold transition', 'border-slate-200 hover:border-blue-700 hover:bg-blue-50')}>
+            <button key={it.key} type="button" onClick={() => pick(it)} className={cx('flex items-center gap-2.5 rounded-lg border-2 px-3 py-3 text-left text-sm font-semibold transition', armed === it.key ? 'border-blue-700 bg-blue-50' : 'border-slate-200 hover:border-slate-300')}>
               <it.icon className="h-5 w-5 shrink-0 text-slate-500" aria-hidden /> {it.label}
             </button>
           ))}
@@ -106,7 +94,7 @@ export default function StepSimpleObstacles({ design }) {
             return (
               <div key={o.id} onClick={() => s.set({ selectedId: o.id, tool: 'select' })} className={cx('cursor-pointer rounded-lg border-2 p-3', sel ? 'border-blue-700' : 'border-slate-200')}>
                 <div className="flex items-center justify-between">
-                  <div className="text-sm font-semibold">{isFloor ? 'Room / floor on top' : o.type === 'tree' ? 'Tree' : o.name}</div>
+                  <div className="text-sm font-semibold">{isFloor ? 'Roof on roof' : o.type === 'tree' ? 'Tree' : o.name}</div>
                   <button type="button" onClick={(e) => { e.stopPropagation(); s.remove(o.id); }} className="grid h-8 w-8 place-items-center rounded-full text-red-500 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
                 </div>
                 <div className="mt-1 text-xs text-slate-500">
