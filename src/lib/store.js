@@ -5,9 +5,9 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 export const STEPS = ['Project Setup', 'Draw Roof', 'Roof Details', 'Obstructions', 'Panel & Mounting', 'Manual Edit', '3D View & Shadows', 'Electrical Design', 'Financials', 'Report & Drawings'];
 
-export const SIMPLE_SLUGS = ['location', 'roof', 'obstacles', 'plan'];
+export const SIMPLE_SLUGS = ['location', 'roof', 'plan'];
 export const PRO_SLUGS = ['location', 'roof', 'roof-details', 'obstructions', 'panels', 'layout', 'view-3d', 'electrical', 'financials', 'report'];
-export const SIMPLE_STEPS = ['Location', 'Roof outline', 'Roof objects', 'Solar plan'];
+export const SIMPLE_STEPS = ['Location', 'Roof', 'Solar plan'];
 
 const initial = {
   step: 0,

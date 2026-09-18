@@ -36,13 +36,6 @@ export default function StepDraw({ design }) {
           </ol>
         </Card>
       )}
-      {tool !== 'draw-section' && sections.length > 0 && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2" onPointerDown={(e) => e.stopPropagation()}>
-          <button type="button" onClick={() => useStore.getState().setStep(2)} className="h-14 rounded-lg bg-blue-700 px-8 text-base font-semibold text-white shadow-xl hover:bg-blue-800">
-            Roof marked — continue
-          </button>
-        </div>
-      )}
       {tool === 'draw-section' && (
         <div className="absolute bottom-6 right-6 flex gap-2" onPointerDown={(e) => e.stopPropagation()}>
           <button type="button" onClick={() => key('Backspace')} className="h-12 rounded-md bg-white px-5 text-sm font-semibold shadow-lg hover:bg-slate-50">Undo last point</button>

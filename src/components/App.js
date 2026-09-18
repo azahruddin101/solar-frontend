@@ -17,7 +17,7 @@ import StepObstructions from './steps/StepObstructions';
 import StepPanelConfig from './steps/StepPanelConfig';
 import StepReport from './steps/StepReport';
 import StepRoofDetails from './steps/StepRoofDetails';
-import StepSimpleObstacles from './steps/StepSimpleObstacles';
+import StepRoof from './steps/StepRoof';
 import { cx } from './ui';
 
 const StepSimpleDesign = dynamic(() => import('./steps/StepSimpleDesign'), { ssr: false });
@@ -54,7 +54,7 @@ function useCatalog() {
   }, [set]);
 }
 
-const SIMPLE_SCREENS = [StepLocation, StepDraw, StepSimpleObstacles, StepSimpleDesign];
+const SIMPLE_SCREENS = [StepLocation, StepRoof, StepSimpleDesign];
 const PRO_SCREENS = [StepLocation, StepDraw, StepRoofDetails, StepObstructions, StepPanelConfig, StepManualEdit, Step3D, StepElectrical, StepFinancials, StepReport];
 
 export default function App({ slug }) {
@@ -94,7 +94,7 @@ export default function App({ slug }) {
 
   const blocker =
     Screen === StepLocation ? !ready[0] && 'Confirm the location to continue'
-    : Screen === StepDraw ? !ready[1] && 'Mark the roof outline to continue'
+    : Screen === StepDraw || Screen === StepRoof ? !ready[1] && 'Mark the roof outline to continue'
     : Screen === StepManualEdit ? !design.totals.count && 'Place at least one panel'
     : null;
 
@@ -103,7 +103,7 @@ export default function App({ slug }) {
     state.setStep(i);
   };
   const switchMode = () => {
-    const map = simple ? [0, 1, 3, 5] : [0, 1, 2, 2, 3, 3, 3, 3, 3, 3];
+    const map = simple ? [0, 1, 5] : [0, 1, 1, 1, 2, 2, 2, 2, 2, 2];
     const target = (simple ? PRO_SLUGS : SIMPLE_SLUGS)[map[step] ?? 0];
     state.set({ mode: simple ? 'pro' : 'simple' });
     router.push(`/design/${target}`);
@@ -122,13 +122,6 @@ export default function App({ slug }) {
         </div>
         <div className="ml-auto flex items-center gap-2">
           <span className="hidden text-xs text-slate-400 lg:inline">Saved automatically</span>
-          <div role="group" aria-label="Workspace" className="flex rounded-md border border-slate-300 p-0.5 text-xs font-medium">
-            {[['Quick quote', true], ['Engineering', false]].map(([label, isSimple]) => (
-              <button key={label} type="button" aria-pressed={simple === isSimple} onClick={() => simple !== isSimple && switchMode()} className={cx('rounded px-3 py-1.5', simple === isSimple ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100')}>
-                {label}
-              </button>
-            ))}
-          </div>
           <button type="button" onClick={() => window.confirm('Start a new project? The current design will be cleared.') && router.push('/design/location?new=1')} className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100">
             New project
           </button>

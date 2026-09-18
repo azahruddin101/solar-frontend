@@ -65,7 +65,7 @@ export default function StepSimpleDesign({ design }) {
   const { config, objects, sections, finance } = s;
   const [view, setView] = useState('3d');
   const [bill, setBill] = useState('');
-  const [useMode, setUseMode] = useState('bill');
+  const useMode = 'bill';
   const [page, setPage] = useState(0);
   const [tune, setTune] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -102,6 +102,10 @@ export default function StepSimpleDesign({ design }) {
   const perPanelMonth = count ? totals.acKwh / count / 12 : (spec.watts / 1000) * 120;
   const needUnits = useMode === 'units' ? Number(bill) || 0 : (Number(bill) || 0) / (design.catalog.tariff || 1);
   const needPanels = needUnits > 0 ? Math.ceil(needUnits / perPanelMonth) : 0;
+  const sizeFor = (v) => {
+    const units = (Number(v) || 0) / (design.catalog.tariff || 1);
+    autoGroups(design, units > 0 ? Math.min(maxFit, Math.max(1, Math.ceil(units / perPanelMonth))) : 0);
+  };
   const pickPanel = (specId) => {
     s.patch('config', { specId });
     // panel size changed → re-arrange with the same count on the next tick
@@ -145,158 +149,76 @@ export default function StepSimpleDesign({ design }) {
       </div>
 
       <aside className="absolute inset-y-0 right-0 flex w-[400px] flex-col border-l border-slate-200 bg-white">
-        {/* progress */}
-        <div className="flex items-center gap-1.5 px-6 pt-5">
-          {TITLES.map((t, i) => (
-            <button key={t} type="button" onClick={() => setPage(i)} className="flex-1 text-left">
-              <div className={cx('h-1.5 rounded-full', i <= page ? 'bg-blue-700' : 'bg-slate-200')} />
-              <div className={cx('mt-1 text-[11px] font-medium', i === page ? 'text-slate-900' : 'text-slate-400')}>{t}</div>
-            </button>
-          ))}
-        </div>
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+          {/* 1 — the only question */}
+          <div>
+            <label htmlFor="bill" className="text-base font-semibold">Monthly electricity bill ({finance.currency})</label>
+            <input id="bill" inputMode="numeric" value={bill} onChange={(e) => { const v = e.target.value.replace(/[^\d.]/g, ''); setBill(v); sizeFor(v); }} placeholder="e.g. 3500" className="mt-2 h-14 w-full rounded-md border-2 border-slate-300 px-4 text-2xl font-semibold outline-none focus:border-blue-700" />
+            <p className="mt-1.5 text-sm text-slate-500">
+              {needUnits > 0
+                ? <>About <b>{Math.round(needUnits)} units</b>/month → <b>{needPanels} panels</b> needed{needPanels > maxFit ? `; the roof fits ${maxFit} (${Math.round((maxFit / needPanels) * 100)}% of the bill)` : ''}.</>
+                : 'Leave empty to fill the whole roof.'}
+            </p>
+          </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
-          {page === 0 && (
-            <>
-              <Big>Monthly electricity consumption</Big>
-              <Sub>Enter the bill or units to size the system. You can skip this and fill the whole roof.</Sub>
-              <div className="flex gap-1 rounded-md bg-slate-100 p-1 text-sm font-medium">
-                {[['bill', `Bill amount (${finance.currency})`], ['units', 'Units (kWh)']].map(([k, l]) => (
-                  <button key={k} type="button" onClick={() => setUseMode(k)} className={cx('h-9 flex-1 rounded-lg', useMode === k ? 'bg-white shadow-sm' : 'text-slate-500')}>{l}</button>
-                ))}
+          {/* 2 — result */}
+          <div className="rounded-lg bg-slate-900 p-5 text-white" aria-live="polite">
+            <div className="text-3xl font-bold">{count} panels <span className="text-lg font-medium text-slate-300">· {totals.kwp.toFixed(1)} kW</span></div>
+            <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
+              <div><div className="text-slate-400">Generates</div><div className="text-lg font-bold">{Math.round(totals.acKwh / 12).toLocaleString()} units<span className="text-xs font-normal"> / month</span></div><div className="text-xs text-slate-400">{Math.round(totals.acKwh).toLocaleString()} kWh / year</div></div>
+              <div><div className="text-slate-400">Saves</div><div className="text-lg font-bold">{money(fin.firstYearSavings / 12)}<span className="text-xs font-normal"> / month</span></div></div>
+              <div><div className="text-slate-400">Total price</div><div className="text-lg font-bold">{money(design.cost.total)}</div></div>
+              <div><div className="text-slate-400">Payback</div><div className="text-lg font-bold">{fin.payback ? `${fin.payback.toFixed(1)} years` : '25+ years'}</div></div>
+            </div>
+          </div>
+
+          <button type="button" onClick={download} disabled={busy || !count} className="flex h-14 w-full items-center justify-center gap-2 rounded-md bg-blue-700 text-base font-semibold text-white hover:bg-blue-800 disabled:bg-slate-300">
+            {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />} Download proposal (PDF)
+          </button>
+          {totals.invalid > 0 && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{totals.invalid} red group{totals.invalid > 1 ? 's are' : ' is'} overlapping something and not counted. Drag it to a free place.</p>}
+
+          {/* 3 — two dropdowns */}
+          <div className="grid gap-3">
+            <label className="text-sm font-medium">Panel
+              <select className="mt-1 h-11 w-full rounded-md border border-slate-300 px-3 text-sm" value={spec.id} onChange={(e) => pickPanel(e.target.value)}>
+                {design.catalog.panels.map((p) => <option key={p.id} value={p.id}>{p.brand} {p.model} · {p.watts} W · {money(p.price)}</option>)}
+              </select>
+            </label>
+            <label className="text-sm font-medium">Mounting pole
+              <select className="mt-1 h-11 w-full rounded-md border border-slate-300 px-3 text-sm" value={design.pillar.id} onChange={(e) => s.patch('config', { pillarId: e.target.value })}>
+                {design.catalog.pillars.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.shape.replace('-', ' ')}) · {money(p.pricePerFt)}/ft</option>)}
+              </select>
+            </label>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 p-4 text-sm">
+            <div className="flex justify-between py-0.5"><span>{count} × {spec.watts} W panel</span><b>{money(design.cost.panels)}</b></div>
+            <div className="flex justify-between py-0.5"><span>{structure.columns} poles · {Math.round(design.cost.pillarFt)} ft</span><b>{money(design.cost.pillars)}</b></div>
+            <div className="flex justify-between py-0.5"><span>Inverter, wiring, installation</span><b>{money(design.cost.other)}</b></div>
+            <div className="mt-1 flex justify-between border-t border-slate-200 pt-1.5 text-base"><span className="font-semibold">Total</span><b>{money(design.cost.total)}</b></div>
+          </div>
+
+          {/* everything else is optional */}
+          <button type="button" aria-expanded={tune} onClick={() => setTune(!tune)} className="flex w-full items-center justify-between border-t border-slate-200 pt-4 text-sm font-medium text-slate-600">
+            Adjust design (optional) <ChevronDown className={cx('h-4 w-4 transition', tune && 'rotate-180')} />
+          </button>
+          {tune && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <button type="button" aria-label="One panel less" onClick={() => setCount(count - 1)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Minus className="h-4 w-4" /></button>
+                <div className="flex-1 text-center text-sm"><b className="text-lg">{count}</b> panels <span className="text-xs text-slate-400">(max {maxFit})</span></div>
+                <button type="button" aria-label="One panel more" onClick={() => setCount(count + 1)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Plus className="h-4 w-4" /></button>
               </div>
-              <input autoFocus inputMode="numeric" value={bill} onChange={(e) => setBill(e.target.value.replace(/[^\d.]/g, ''))} placeholder={useMode === 'bill' ? 'e.g. 3500' : 'e.g. 450'} className="h-16 w-full rounded-lg border-2 border-slate-300 px-5 text-2xl font-semibold outline-none focus:border-blue-700" />
-              <div className="flex flex-wrap gap-2">
-                {(useMode === 'bill' ? [1500, 3000, 5000, 8000] : [150, 300, 500, 800]).map((v) => (
-                  <button key={v} type="button" onClick={() => setBill(String(v))} className="rounded-full border border-slate-300 px-4 py-1.5 text-sm hover:bg-slate-50">{useMode === 'bill' ? money(v) : `${v} units`}</button>
-                ))}
-              </div>
-              {needUnits > 0 && (
-                <div className="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-900">
-                  You use about <b>{Math.round(needUnits)} units</b> a month.<br />
-                  You need <b className="text-lg">{needPanels} panels</b> ({((needPanels * spec.watts) / 1000).toFixed(1)} kW).
-                  {needPanels > maxFit && <div className="mt-1 text-blue-800">Your roof has space for {maxFit} panels — that covers about {Math.round((maxFit / needPanels) * 100)}% of your bill.</div>}
-                </div>
-              )}
-            </>
-          )}
-
-          {page === 1 && (
-            <>
-              <Big>Select the panel</Big>
-              <Sub>Bigger watt = more electricity from each panel.</Sub>
-              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by brand">
-                {['All', ...new Set(design.catalog.panels.map((p) => p.brand))].map((b) => (
-                  <button key={b} type="button" aria-pressed={brand === b} onClick={() => setBrand(b)} className={cx('rounded-full border px-3 py-1 text-xs font-medium', brand === b ? 'border-blue-700 bg-blue-50 text-blue-800' : 'border-slate-300 text-slate-600 hover:bg-slate-50')}>{b}</button>
-                ))}
-              </div>
-              {design.catalog.panels.filter((p) => brand === 'All' || p.brand === brand).map((p) => (
-                <button key={p.id} type="button" aria-pressed={p.id === spec.id} onClick={() => pickPanel(p.id)} className={card(p.id === spec.id)}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xl font-bold">{p.watts} W</span>
-                    <span className="text-base font-semibold">{money(p.price)} <span className="text-xs font-normal text-slate-400">each</span></span>
-                  </div>
-                  <div className="text-sm text-slate-500">{p.brand} · {p.model}</div>
-                </button>
-              ))}
-            </>
-          )}
-
-          {page === 2 && (
-            <>
-              <Big>Select the mounting pole</Big>
-              <Sub>Poles are priced per foot; total length follows the tilt and height.</Sub>
-              <div className="grid grid-cols-3 gap-2">
-                {design.catalog.pillars.map((p) => (
-                  <button key={p.id} type="button" onClick={() => s.patch('config', { pillarId: p.id })} className={cx(card(p.id === design.pillar.id), 'px-2 text-center')}>
-                    <div className="mx-auto mb-1 grid h-8 w-8 place-items-center"><PillarIcon shape={p.shape} /></div>
-                    <div className="text-sm font-semibold capitalize">{p.shape.replace('-', ' ')}</div>
-                    <div className="text-xs text-slate-500">{money(p.pricePerFt)} / ft</div>
-                  </button>
-                ))}
-              </div>
-              <div className="pt-2 text-[15px] font-semibold">How high above the roof?</div>
-              <Pills value={config.frontLeg < 0.7 ? 0.4 : config.frontLeg < 1.8 ? 1 : 2.4} onChange={(frontLeg) => applyAll({ frontLeg })} options={[{ value: 0.4, label: 'Low', sub: 'cheapest' }, { value: 1, label: 'Medium', sub: '3 ft' }, { value: 2.4, label: 'High', sub: 'walk under it' }]} />
-              <p className="text-xs text-slate-400">Look at the 3D picture — it changes as you choose.</p>
-            </>
-          )}
-
-          {page === 3 && (
-            <>
-              <div className="rounded-lg bg-slate-900 p-5 text-white">
-                <div className="text-sm text-slate-300">Your solar system</div>
-                <div className="text-4xl font-bold">{count} panels <span className="text-xl font-medium text-slate-300">· {totals.kwp.toFixed(1)} kW</span></div>
-                <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
-                  <div><div className="text-slate-400">Electricity made</div><div className="text-lg font-bold">{Math.round(totals.acKwh / 12).toLocaleString()} units<span className="text-xs font-normal"> / month</span></div><div className="text-xs text-slate-400">{Math.round(totals.acKwh).toLocaleString()} kWh a year</div></div>
-                  <div><div className="text-slate-400">You save</div><div className="text-lg font-bold">{money(fin.firstYearSavings / 12)}<span className="text-xs font-normal"> / month</span></div>{needUnits > 0 && <div className="text-xs text-slate-400">covers {Math.min(100, Math.round((totals.acKwh / 12 / needUnits) * 100))}% of your bill</div>}</div>
-                  <div><div className="text-slate-400">Total price</div><div className="text-lg font-bold">{money(design.cost.total)}</div></div>
-                  <div><div className="text-slate-400">Money back in</div><div className="text-lg font-bold">{fin.payback ? `${fin.payback.toFixed(1)} years` : '25+ years'}</div></div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 rounded-lg border border-slate-200 p-3">
-                <button type="button" onClick={() => setCount(count - 1)} className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Minus className="h-5 w-5" /></button>
-                <div className="flex-1 text-center text-sm"><b className="text-lg">{count}</b> panels<div className="text-xs text-slate-400">roof fits up to {maxFit}</div></div>
-                <button type="button" onClick={() => setCount(count + 1)} className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Plus className="h-5 w-5" /></button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => { setView('2d'); s.set({ tool: 'add-array', selectedId: null }); }} className="rounded-md border-2 border-slate-200 py-2.5 text-sm font-semibold hover:border-slate-300">Add panels manually</button>
-                <button type="button" onClick={() => autoGroups(design, 0)} className="rounded-md border-2 border-slate-200 py-2.5 text-sm font-semibold hover:border-slate-300">Auto-fill roof</button>
-              </div>
-              {totals.invalid > 0 && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{totals.invalid} red group{totals.invalid > 1 ? 's are' : ' is'} touching a wall, tank or another group and is not counted. Drag it to a free place.</p>}
-
-              <div className="rounded-lg bg-blue-50 p-4 text-sm">
-                <div className="mb-1.5 font-semibold">Price details</div>
-                <div className="flex justify-between py-0.5"><span>{count} × {spec.watts} W panel ({spec.brand})</span><b>{money(design.cost.panels)}</b></div>
-                <div className="flex justify-between py-0.5"><span>{structure.columns} pillars · {Math.round(design.cost.pillarFt)} ft {design.pillar.shape.replace('-', ' ')}</span><b>{money(design.cost.pillars)}</b></div>
-                <div className="flex justify-between py-0.5"><span>Inverter, wiring, fitting</span><b>{money(design.cost.other)}</b></div>
-                <div className="mt-1 flex justify-between border-t border-blue-200 pt-1.5 text-base"><span className="font-semibold">Total</span><b>{money(design.cost.total)}</b></div>
-              </div>
-
-              <button type="button" onClick={download} disabled={busy || !count} className="flex h-14 w-full items-center justify-center gap-2 rounded-lg bg-blue-700 text-base font-semibold text-white hover:bg-blue-800 disabled:bg-slate-300">
-                {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />} Download proposal (PDF)
-              </button>
-
-              <button type="button" onClick={() => setTune(!tune)} className="flex w-full items-center justify-between rounded-md px-1 py-2 text-sm font-medium text-slate-600">
-                Change tilt, height or move panel groups <ChevronDown className={cx('h-4 w-4 transition', tune && 'rotate-180')} />
-              </button>
-              {tune && (
-                <div className="space-y-4 border-t border-slate-100 pt-3">
-                  <Adjust label={`Height of all panels · ${(config.frontLeg * FT).toFixed(1)} ft`} value={config.frontLeg} min={0.2} max={4} step={0.05} suffix="m" onChange={(frontLeg) => applyAll({ frontLeg })} />
-                  <Adjust label={`Tilt of all panels (best is ${opt}°)`} value={config.tilt} min={0} max={45} suffix="°" onChange={(tilt) => applyAll({ tilt })} />
-                  <p className="text-xs text-slate-500">Back pillar becomes {backLeg.toFixed(2)} m ({(backLeg * FT).toFixed(1)} ft).</p>
-                  {main && <Adjust label={`Building height · ${Math.round(main.height * FT)} ft`} value={main.height} min={2.5} max={60} step={0.5} suffix="m" onChange={(height) => s.updateSection(main.id, { height })} />}
-                  {main && <Adjust label="Boundary wall height" value={main.parapetH} min={0} max={2.5} step={0.1} suffix="m" onChange={(parapetH) => s.updateSection(main.id, { parapetH })} />}
-                  <div className="text-sm font-semibold">Panel groups</div>
-                  <GroupList design={design} />
-                  <div className="text-xs text-slate-500">Pillar cutting list: {structure.cutList.map((c) => `${c.qty} × ${(c.len * FT).toFixed(1)} ft`).join(', ') || '—'}</div>
-                  <button id="rearrange" type="button" onClick={() => autoGroups(design, count >= maxFit ? 0 : count)} className="w-full rounded-md border border-slate-300 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50">Arrange panels again automatically</button>
-                </div>
-              )}
-            </>
+              <Adjust label={`Panel height · ${(config.frontLeg * FT).toFixed(1)} ft`} value={config.frontLeg} min={0.2} max={4} step={0.05} suffix="m" onChange={(frontLeg) => applyAll({ frontLeg })} />
+              <Adjust label={`Tilt (best ${opt}°)`} value={config.tilt} min={0} max={45} suffix="°" onChange={(tilt) => applyAll({ tilt })} />
+              <p className="text-xs text-slate-500">Back pole {backLeg.toFixed(2)} m ({(backLeg * FT).toFixed(1)} ft). Cut list: {structure.cutList.map((c) => `${c.qty} × ${(c.len * FT).toFixed(1)} ft`).join(', ') || '—'}</p>
+              <div className="text-sm font-semibold">Panel groups</div>
+              <GroupList design={design} />
+              <button type="button" onClick={() => { setView('2d'); s.set({ tool: 'add-array', selectedId: null }); }} className="w-full rounded-md border border-slate-300 py-2.5 text-sm font-medium hover:bg-slate-50">Add panels manually (plan view)</button>
+            </div>
           )}
         </div>
-
-        {/* footer navigation */}
-        <div className="flex gap-2 border-t border-slate-200 p-4">
-          {page > 0 && (
-            <button type="button" onClick={() => setPage(page - 1)} className="flex h-12 items-center gap-1.5 rounded-md border border-slate-300 px-4 text-sm font-medium hover:bg-slate-50"><ArrowLeft className="h-4 w-4" /> Back</button>
-          )}
-          {page < 3 && (
-            <button
-              type="button"
-              onClick={() => {
-                if (page === 0 && needPanels > 0) setCount(needPanels);
-                setPage(page + 1);
-              }}
-              className="flex h-12 flex-1 items-center justify-center gap-2 rounded-md bg-slate-900 text-base font-semibold text-white hover:bg-slate-800"
-            >
-              {page === 0 && !needUnits ? 'Skip — fill the whole roof' : page === 2 ? <>View proposal <Check className="h-5 w-5" /></> : <>Next <ArrowRight className="h-5 w-5" /></>}
-            </button>
-          )}
-        </div>
-        {!tune && <button id="rearrange" type="button" hidden onClick={() => autoGroups(design, count >= maxFit ? 0 : count)} />}
+        <button id="rearrange" type="button" hidden onClick={() => autoGroups(design, count >= maxFit ? 0 : count)} />
       </aside>
     </>
   );

@@ -60,7 +60,9 @@ export default function StepSimpleObstacles({ design }) {
       </div>
 
       <aside className="absolute inset-y-0 right-0 flex w-[400px] flex-col overflow-y-auto border-l border-slate-200 bg-white px-6 py-5">
-        <h2 className="text-[22px] font-bold leading-tight">Objects on or near the roof</h2>
+        <h2 className="text-[22px] font-bold leading-tight">Roof marked</h2>
+        <p className="mt-1 text-sm font-medium text-blue-800">Press Continue to see the solar plan.</p>
+        <h3 className="mt-5 text-base font-semibold">Optional: objects on or near the roof</h3>
         <p className="mt-1 text-sm text-slate-500">Things that take space or make shade. Tap one, then tap on the picture. Panels will be kept away from them.</p>
 
         <div className="mt-4 grid grid-cols-2 gap-2">
@@ -79,6 +81,8 @@ export default function StepSimpleObstacles({ design }) {
             <Heights value={main.height} onChange={(height) => s.updateSection(main.id, { height })} options={[[3, '1 floor'], [6, '2 floors'], [9, '3 floors'], [12, '4 floors'], [15, '5 floors']]} />
           </div>
         )}
+
+        <button type="button" onClick={() => window.confirm('Redraw the roof outline? Objects and panels will be cleared.') && s.set({ sections: [], objects: [], tool: 'draw-section' })} className="mt-4 self-start text-sm font-medium text-slate-500 underline hover:text-slate-800">Redraw roof outline</button>
 
         <div className="mt-5 text-sm font-semibold">On your roof ({things.length})</div>
         {!things.length && <p className="mt-1 text-sm text-slate-400">Nothing added yet.</p>}
