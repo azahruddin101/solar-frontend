@@ -262,36 +262,97 @@ function PanelGroup({ group }) {
   );
 }
 
+/** Seeded random so a tree keeps its shape between renders. */
+function rng(seed) {
+  const st = { v: seed };
+  return () => (st.v = (st.v * 16807) % 2147483647) / 2147483647;
+}
+
+/** One leafy clump: a lumpy sphere with darker undersides and lighter sun-lit tops. */
+function leafClump(radius, rnd) {
+  const g = new THREE.IcosahedronGeometry(radius, 3);
+  const pos = g.attributes.position;
+  const colors = [];
+  const base = new THREE.Color().setHSL(0.27 + rnd() * 0.06, 0.5 + rnd() * 0.15, 0.2 + rnd() * 0.06);
+  const c = new THREE.Color();
+  const k1 = 2 + rnd() * 2;
+  const k2 = 3 + rnd() * 3;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const n = 1 + 0.16 * Math.sin((x / radius) * k1 * 3 + z) + 0.12 * Math.sin((y / radius) * k2 * 3 + x * 2) + 0.1 * Math.cos((z / radius) * k1 * 4 + y);
+    pos.setXYZ(i, x * n, y * n * 0.85, z * n);
+    const light = 0.75 + 0.55 * Math.max(0, y / radius); // brighter on top
+    c.copy(base).multiplyScalar(light);
+    colors.push(c.r, c.g, c.b);
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+function buildTree(t) {
+  const rnd = rng(Math.abs(Math.round(t.x * 131 + t.y * 71 + t.r * 13)) + 7);
+  const trunkH = t.h * 0.45;
+  const trunkR = Math.max(0.12, t.r * 0.07);
+  const branches = [];
+  const clumps = [];
+  // main boughs fan out from the top of the trunk
+  const boughs = 4 + Math.floor(rnd() * 3);
+  for (let i = 0; i < boughs; i++) {
+    const a = (i / boughs) * Math.PI * 2 + rnd() * 0.6;
+    const reach = t.r * (0.45 + rnd() * 0.3);
+    const rise = t.h * (0.18 + rnd() * 0.18);
+    const from = new THREE.Vector3(0, trunkH * (0.75 + rnd() * 0.2), 0);
+    const to = new THREE.Vector3(Math.cos(a) * reach, from.y + rise, Math.sin(a) * reach);
+    branches.push({ from, to, r: trunkR * 0.45 });
+    clumps.push({ p: to.clone(), r: t.r * (0.38 + rnd() * 0.16) });
+    clumps.push({ p: from.clone().lerp(to, 0.55).add(new THREE.Vector3(0, t.r * 0.15, 0)), r: t.r * (0.3 + rnd() * 0.12) });
+  }
+  // crown on top and a few fillers so the canopy reads as one mass
+  clumps.push({ p: new THREE.Vector3(0, t.h * 0.82, 0), r: t.r * 0.5 });
+  for (let i = 0; i < 5; i++) {
+    const a = rnd() * Math.PI * 2;
+    const d = t.r * 0.35 * rnd();
+    clumps.push({ p: new THREE.Vector3(Math.cos(a) * d, t.h * (0.6 + rnd() * 0.25), Math.sin(a) * d), r: t.r * (0.3 + rnd() * 0.15) });
+  }
+  return {
+    trunkH,
+    trunkR,
+    branches: branches.map((b) => {
+      const dir = b.to.clone().sub(b.from);
+      const len = dir.length();
+      const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+      return { pos: b.from.clone().add(b.to).multiplyScalar(0.5), q, len, r: b.r };
+    }),
+    clumps: clumps.map((c) => ({ p: c.p, geo: leafClump(c.r, rnd) })),
+  };
+}
+
 function Tree({ t, base }) {
-  const blobs = useMemo(() => {
-    return treeBlobs(t);
-  }, [t]);
-  return (
-    <TreeMesh t={t} base={base} blobs={blobs} />
-  );
-}
-
-function treeBlobs(t) {
-  const state = { seed: Math.abs(Math.round(t.x * 31 + t.y * 17)) + 1 };
-  const rnd = () => (state.seed = (state.seed * 16807) % 2147483647) / 2147483647;
-  return Array.from({ length: 9 }, (_, i) => {
-      const a = rnd() * Math.PI * 2;
-      const r = i === 0 ? 0 : t.r * 0.55 * rnd();
-      return { p: [Math.cos(a) * r, t.h * (0.5 + 0.38 * rnd()), Math.sin(a) * r], s: t.r * (0.45 + 0.3 * rnd()) };
-    });
-}
-
-function TreeMesh({ t, base, blobs }) {
+  const tree = useMemo(() => buildTree(t), [t]);
+  useEffect(() => () => tree.clumps.forEach((c) => c.geo.dispose()), [tree]);
   return (
     <group position={[t.x, base, -t.y]}>
-      <mesh position={[0, t.h * 0.25, 0]} castShadow>
-        <cylinderGeometry args={[0.15, 0.25, t.h * 0.5, 8]} />
-        <meshStandardMaterial color="#5b4636" roughness={1} />
+      {/* trunk: tapered, with a flared root */}
+      <mesh position={[0, tree.trunkH / 2, 0]} castShadow receiveShadow>
+        <cylinderGeometry args={[tree.trunkR * 0.6, tree.trunkR * 1.25, tree.trunkH, 10]} />
+        <meshStandardMaterial color="#4a3728" roughness={1} />
       </mesh>
-      {blobs.map((b, i) => (
-        <mesh key={i} position={b.p} castShadow>
-          <icosahedronGeometry args={[b.s, 1]} />
-          <meshStandardMaterial color={i % 2 ? '#3f7d3a' : '#2f6b33'} roughness={1} flatShading />
+      <mesh position={[0, tree.trunkR * 0.4, 0]} castShadow>
+        <cylinderGeometry args={[tree.trunkR * 1.2, tree.trunkR * 2, tree.trunkR * 0.8, 10]} />
+        <meshStandardMaterial color="#3f2f22" roughness={1} />
+      </mesh>
+      {tree.branches.map((b, i) => (
+        <mesh key={i} position={b.pos} quaternion={b.q} castShadow>
+          <cylinderGeometry args={[b.r * 0.5, b.r, b.len, 7]} />
+          <meshStandardMaterial color="#4a3728" roughness={1} />
+        </mesh>
+      ))}
+      {tree.clumps.map((c, i) => (
+        <mesh key={i} position={c.p} geometry={c.geo} castShadow receiveShadow>
+          <meshStandardMaterial vertexColors roughness={0.95} />
         </mesh>
       ))}
     </group>
