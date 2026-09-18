@@ -131,3 +131,29 @@ export function getSunModel(lat) {
   if (!cache.has(key)) cache.set(key, createSunModel(key));
   return cache.get(key);
 }
+
+/** Coarse clear-sky samples (21st of each month, hourly) for shading analysis. */
+export function sunSamples(lat) {
+  const out = [];
+  for (let m = 0; m < 12; m++) {
+    const day = dayOfYear(m);
+    const i0 = 1361 * (1 + 0.033 * Math.cos((2 * Math.PI * day) / 365));
+    for (let h = 5.5; h < 19; h += 1) {
+      const s = sunPosition(lat, day, h);
+      if (s.z <= 0.05) continue;
+      const zen = Math.acos(s.z) / DEG;
+      const am = 1 / (s.z + 0.50572 * Math.pow(96.07995 - zen, -1.6364));
+      const dni = i0 * Math.pow(0.7, Math.pow(am, 0.678));
+      out.push({ x: s.x, y: s.y, z: s.z, dni, dhi: 0.1 * dni + 20 * s.z });
+    }
+  }
+  return out;
+}
+
+/** Sunrise / sunset in solar hours for a day of year. */
+export function dayLength(lat, day) {
+  const d = 23.45 * DEG * Math.sin((2 * Math.PI * (284 + day)) / 365);
+  const c = -Math.tan(lat * DEG) * Math.tan(d);
+  const w = Math.acos(Math.max(-1, Math.min(1, c))) / DEG / 15;
+  return { sunrise: 12 - w, sunset: 12 + w };
+}

@@ -1,441 +1,266 @@
 'use client';
 
-// Generates the downloadable PDF plan with jsPDF (vector plan + charts, raster images).
+// PDF drawing set: cover/summary, PV array layout (A4 landscape with title block),
+// electrical (strings, SLD, BOM) and energy/financials.
 
 import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
 import { formatMoney, formatNumber } from './energy.js';
 import { compassLabel } from './geo.js';
-import { fitPlan, niceScaleLength } from './report.js';
+import { rectPoly } from './geometry.js';
 import { MONTHS } from './sun.js';
 
-const PAGE_W = 210;
-const PAGE_H = 297;
-const M = 14;
 const INK = [15, 23, 42];
 const MUTED = [100, 116, 139];
-const AMBER = [245, 158, 11];
-const LINE = [226, 232, 240];
+const LINE = [203, 213, 225];
+const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 
-function loadImage(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
-    img.onerror = reject;
-    img.src = src;
-  });
+function poly(doc, pts, style) {
+  doc.lines(pts.slice(1).map((p, i) => [p.x - pts[i].x, p.y - pts[i].y]), pts[0].x, pts[0].y, [1, 1], style, true);
 }
 
-async function fetchAsDataUrl(url) {
-  const res = await fetch(url);
-  if (!res.ok || !(res.headers.get('content-type') || '').startsWith('image/')) throw new Error('image unavailable');
-  const blob = await res.blob();
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
+function fit(bb, x, y, w, h, pad = 0.08) {
+  const scale = Math.min(w / ((bb.maxX - bb.minX) * (1 + 2 * pad) || 1), h / ((bb.maxY - bb.minY) * (1 + 2 * pad) || 1));
+  const cx = (bb.minX + bb.maxX) / 2;
+  const cy = (bb.minY + bb.maxY) / 2;
+  return { scale, map: (p) => ({ x: x + w / 2 + (p.x - cx) * scale, y: y + h / 2 - (p.y - cy) * scale }) };
 }
 
-const imgFormat = (dataUrl) => (dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG');
-
-function polygon(doc, pts, style) {
-  if (pts.length < 2) return;
-  const rel = pts.slice(1).map((p, i) => [p.x - pts[i].x, p.y - pts[i].y]);
-  doc.lines(rel, pts[0].x, pts[0].y, [1, 1], style, true);
+function titleBlock(doc, r, sheet, title, W, H) {
+  doc.setDrawColor(...INK);
+  doc.setLineWidth(0.5);
+  doc.rect(7, 7, W - 14, H - 14);
+  const bh = 22;
+  const y = H - 7 - bh;
+  doc.line(7, y, W - 7, y);
+  const cols = [7, W * 0.38, W * 0.62, W * 0.8, W - 7];
+  cols.slice(1, -1).forEach((x) => doc.line(x, y, x, H - 7));
+  const cell = (i, label, value, big) => {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...MUTED);
+    doc.text(label.toUpperCase(), cols[i] + 3, y + 5);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(big ? 12 : 9);
+    doc.setTextColor(...INK);
+    doc.text(doc.splitTextToSize(String(value), cols[i + 1] - cols[i] - 6).slice(0, 2), cols[i] + 3, y + 11);
+  };
+  cell(0, 'Project', `${r.title}\n${r.address}`);
+  cell(1, 'Drawing title', title, true);
+  cell(2, 'System', `${r.totals.kwp.toFixed(2)} kWp · ${r.totals.count} modules`);
+  cell(3, 'Sheet / Date', `${sheet}   ${r.date}`);
 }
 
 function header(doc, r, title) {
   doc.setFillColor(...INK);
-  doc.rect(0, 0, PAGE_W, 24, 'F');
-  doc.setFillColor(...AMBER);
-  doc.rect(0, 24, PAGE_W, 1.2, 'F');
+  doc.rect(0, 0, 210, 22, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(15);
-  doc.text(title, M, 11);
+  doc.setFontSize(14);
+  doc.text(title, 14, 10);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
+  doc.setFontSize(8);
   doc.setTextColor(203, 213, 225);
-  const addr = r.place?.address || `${r.origin.lat.toFixed(5)}, ${r.origin.lng.toFixed(5)}`;
-  doc.text(doc.splitTextToSize(addr, 140)[0], M, 18);
-  doc.text(r.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }), PAGE_W - M, 11, { align: 'right' });
-  doc.text(r.title, PAGE_W - M, 18, { align: 'right' });
+  doc.text(doc.splitTextToSize(r.address, 150)[0], 14, 16.5);
+  doc.text(r.date, 196, 10, { align: 'right' });
 }
 
-function sectionTitle(doc, text, y) {
+function section(doc, text, y) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   doc.setTextColor(...INK);
-  doc.text(text.toUpperCase(), M, y);
-  doc.setDrawColor(...AMBER);
-  doc.setLineWidth(0.6);
-  doc.line(M, y + 1.8, M + 12, y + 1.8);
-  return y + 7;
+  doc.text(text.toUpperCase(), 14, y);
+  return y + 5;
 }
 
 function kpis(doc, items, y) {
-  const cols = 4;
-  const gap = 3;
-  const w = (PAGE_W - 2 * M - gap * (cols - 1)) / cols;
-  const h = 17;
+  const w = (182 - 9) / 4;
   items.forEach((it, i) => {
-    const x = M + (i % cols) * (w + gap);
-    const yy = y + Math.floor(i / cols) * (h + gap);
-    if (it.accent) doc.setFillColor(255, 247, 230);
-    else doc.setFillColor(248, 250, 252);
-    doc.setDrawColor(...(it.accent ? [253, 216, 150] : LINE));
-    doc.setLineWidth(0.3);
-    doc.roundedRect(x, yy, w, h, 2, 2, 'FD');
+    const x = 14 + (i % 4) * (w + 3);
+    const yy = y + Math.floor(i / 4) * 19;
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(...LINE);
+    doc.roundedRect(x, yy, w, 16, 2, 2, 'FD');
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.8);
+    doc.setFontSize(6.5);
     doc.setTextColor(...MUTED);
-    doc.text(it.label.toUpperCase(), x + 3, yy + 5.5);
+    doc.text(it[0].toUpperCase(), x + 3, yy + 5);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
+    doc.setFontSize(11);
     doc.setTextColor(...INK);
-    doc.text(String(it.value), x + 3, yy + 12.5);
-    if (it.unit) {
-      const vw = doc.getTextWidth(String(it.value));
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7);
-      doc.setTextColor(...MUTED);
-      doc.text(it.unit, x + 4 + vw, yy + 12.5);
-    }
+    doc.text(String(it[1]), x + 3, yy + 12);
   });
-  return y + Math.ceil(items.length / cols) * (h + gap);
+  return y + Math.ceil(items.length / 4) * 19 + 3;
 }
 
-function drawPlan(doc, plan, x, y, w, h) {
-  doc.setDrawColor(...LINE);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(x, y, w, h, 2, 2, 'S');
-  const { map, scale } = fitPlan(plan.bounds, x + 6, y + 6, w - 12, h - 12, 0.14);
-  const mp = (poly) => poly.map(map);
+const table = { theme: 'grid', styles: { fontSize: 8, cellPadding: 1.6, lineColor: LINE, lineWidth: 0.2, textColor: INK }, headStyles: { fillColor: INK, textColor: 255 }, margin: { left: 14, right: 14 } };
 
-  if (plan.outline !== plan.footprint) {
-    doc.setDrawColor(148, 163, 184);
-    doc.setLineDashPattern([1.2, 1], 0);
-    doc.setLineWidth(0.25);
-    polygon(doc, mp(plan.outline), 'S');
-    doc.setLineDashPattern([], 0);
+function drawLayout(doc, design, x, y, w, h, colorStrings) {
+  const pts = [...design.sections.flatMap((s) => s.poly), ...design.tables.flatMap((t) => t.poly)];
+  const bb = { minX: Math.min(...pts.map((p) => p.x)), maxX: Math.max(...pts.map((p) => p.x)), minY: Math.min(...pts.map((p) => p.y)), maxY: Math.max(...pts.map((p) => p.y)) };
+  const { map, scale } = fit(bb, x, y, w, h);
+  const { stringOf, strings } = design.electrical;
+  for (const s of design.sections) {
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(...INK);
+    doc.setLineWidth(0.6);
+    poly(doc, s.poly.map(map), 'FD');
+    doc.setFontSize(7);
+    doc.setTextColor(51, 65, 85);
+    s.poly.forEach((a, i) => {
+      const b = s.poly[(i + 1) % s.poly.length];
+      const l = Math.hypot(b.x - a.x, b.y - a.y);
+      if (l * scale < 14) return;
+      const m = map({ x: (a.x + b.x) / 2 + ((b.y - a.y) / l) * (4 / scale), y: (a.y + b.y) / 2 - ((b.x - a.x) / l) * (4 / scale) });
+      let deg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+      if (deg > 90) deg -= 180;
+      if (deg < -90) deg += 180;
+      doc.text(`${l.toFixed(2)} m`, m.x, m.y, { align: 'center', angle: deg, baseline: 'middle' });
+    });
   }
-  doc.setFillColor(241, 245, 249);
-  doc.setDrawColor(...INK);
-  doc.setLineWidth(0.5);
-  polygon(doc, mp(plan.footprint), 'FD');
-  doc.setDrawColor(148, 163, 184);
   doc.setLineWidth(0.2);
-  plan.faces.forEach((f) => polygon(doc, mp(f), 'S'));
-
-  doc.setLineWidth(0.15);
+  doc.setLineDashPattern([1, 1], 0);
+  doc.setDrawColor(100, 116, 139);
+  for (const b of design.blocks) {
+    doc.setFillColor(226, 232, 240);
+    poly(doc, rectPoly(b.x, b.y, b.w, b.d, b.rot || 0).map(map), 'FD');
+  }
+  for (const t of design.trees) {
+    const c = map(t);
+    doc.setFillColor(220, 252, 231);
+    doc.circle(c.x, c.y, t.r * scale, 'FD');
+  }
+  doc.setLineDashPattern([], 0);
   doc.setDrawColor(255, 255, 255);
-  const numbers = plan.panels.length <= 80 && scale > 2.2;
-  for (const p of plan.panels) {
-    if (p.valid) doc.setFillColor(30, 58, 95);
-    else doc.setFillColor(239, 68, 68);
-    const c = mp(p.corners);
-    polygon(doc, c, 'FD');
-    if (numbers) {
-      const cx = c.reduce((s, q) => s + q.x, 0) / 4;
-      const cy = c.reduce((s, q) => s + q.y, 0) / 4;
-      doc.setFontSize(4.5);
-      doc.setTextColor(203, 213, 225);
-      doc.text(String(p.n), cx, cy + 0.8, { align: 'center' });
+  doc.setLineWidth(0.12);
+  for (const t of design.tables) {
+    if (!t.valid) continue;
+    for (const m of t.modules) {
+      const s = stringOf.get(m.id);
+      doc.setFillColor(...(colorStrings && s != null ? hex(strings[s].color) : [30, 58, 138]));
+      poly(doc, m.corners.map(map), 'FD');
     }
   }
-
-  doc.setFontSize(6.5);
-  doc.setTextColor(51, 65, 85);
-  for (const e of plan.edgeLabels) {
-    const p = map({ x: e.mid.x + (e.outward.x * 4) / scale, y: e.mid.y + (e.outward.y * 4) / scale });
-    let deg = (e.angle * 180) / Math.PI;
-    if (deg > 90) deg -= 180;
-    if (deg < -90) deg += 180;
-    doc.text(e.text, p.x, p.y, { align: 'center', angle: deg, baseline: 'middle' });
-  }
-
-  // north arrow
-  const nx = x + w - 10;
-  const ny = y + 12;
+  // north arrow + scale bar
+  const nx = x + w - 8;
   doc.setFillColor(239, 68, 68);
-  doc.triangle(nx, ny - 6, nx + 2.4, ny + 1.5, nx - 2.4, ny + 1.5, 'F');
+  doc.triangle(nx, y + 4, nx + 2.5, y + 12, nx - 2.5, y + 12, 'F');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(...INK);
-  doc.text('N', nx, ny + 6, { align: 'center' });
-
-  // scale bar
-  const len = niceScaleLength(scale, 30);
-  const sx = x + 6;
-  const sy = y + h - 7;
-  doc.setDrawColor(...INK);
-  doc.setLineWidth(0.3);
+  doc.text('N', nx, y + 16.5, { align: 'center' });
+  const len = [1, 2, 5, 10, 20, 50].reduce((b, o) => (Math.abs(o * scale - 30) < Math.abs(b * scale - 30) ? o : b), 1);
   doc.setFillColor(...INK);
-  doc.rect(sx, sy, len * scale, 1.6, 'FD');
-  doc.setFillColor(255, 255, 255);
-  doc.rect(sx, sy, (len * scale) / 2, 1.6, 'FD');
+  doc.rect(x + 3, y + h - 4, len * scale, 1.2, 'F');
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.5);
-  doc.text('0', sx, sy - 1.2);
-  doc.text(`${len} m`, sx + len * scale, sy - 1.2, { align: 'right' });
+  doc.text(`${len} m  (1:${Math.round(1000 / scale)})`, x + 3, y + h - 5.5);
+  if (colorStrings) {
+    strings.slice(0, 14).forEach((s, i) => {
+      doc.setFillColor(...hex(s.color));
+      doc.rect(x + 3 + i * 17, y + 2, 3, 3, 'F');
+      doc.text(`${s.name} (${s.count})`, x + 7 + i * 17, y + 4.5);
+    });
+  }
 }
 
-function drawMonthly(doc, monthly, x, y, w, h) {
-  const max = Math.max(1, ...monthly);
-  const step = Math.pow(10, Math.floor(Math.log10(max)));
-  const top = Math.ceil(max / step) * step;
-  const padL = 14;
-  const padB = 6;
-  const cw = w - padL;
-  const ch = h - padB;
-  const yOf = (v) => y + ch * (1 - v / top);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.5);
-  doc.setTextColor(...MUTED);
-  doc.setDrawColor(...LINE);
-  doc.setLineWidth(0.2);
-  [0, top / 2, top].forEach((t) => {
-    doc.line(x + padL, yOf(t), x + w, yOf(t));
-    doc.text(formatNumber(t), x + padL - 2, yOf(t) + 1, { align: 'right' });
-  });
-  const bw = cw / 12;
-  doc.setFillColor(...AMBER);
-  monthly.forEach((v, i) => {
-    const bx = x + padL + i * bw + bw * 0.2;
-    doc.rect(bx, yOf(v), bw * 0.6, yOf(0) - yOf(v), 'F');
-    doc.text(MONTHS[i], x + padL + i * bw + bw / 2, y + h, { align: 'center' });
+function drawSld(doc, el, spec, x, y) {
+  const boxes = [['PV ARRAY', `${el.strings.length} strings`, `${el.kwp.toFixed(2)} kWp`], ['DCDB', 'Fuse + SPD', ''], ['INVERTER', `${el.inverterCount} x ${el.inverter.kw} kW`, ''], ['ACDB', 'MCB + SPD', ''], ['NET METER', '', ''], ['GRID', 'LT panel', '']];
+  boxes.forEach((b, i) => {
+    const bx = x + i * 31;
+    doc.setDrawColor(...INK);
+    doc.setLineWidth(0.4);
+    doc.rect(bx, y, 25, 16);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
     doc.setTextColor(...INK);
-    doc.text(formatNumber(v), x + padL + i * bw + bw / 2, yOf(v) - 1.2, { align: 'center' });
+    doc.text(b[0], bx + 12.5, y + 5, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
     doc.setTextColor(...MUTED);
+    doc.text(b[1], bx + 12.5, y + 9.5, { align: 'center' });
+    doc.text(b[2], bx + 12.5, y + 13, { align: 'center' });
+    if (i < 5) {
+      doc.setDrawColor(...(i < 2 ? [220, 38, 38] : [37, 99, 235]));
+      doc.line(bx + 25, y + 8, bx + 31, y + 8);
+    }
   });
 }
 
-const tableStyle = {
-  theme: 'grid',
-  styles: { fontSize: 8, cellPadding: 1.8, lineColor: LINE, lineWidth: 0.2, textColor: INK },
-  headStyles: { fillColor: INK, textColor: 255, fontStyle: 'bold' },
-  alternateRowStyles: { fillColor: [248, 250, 252] },
-  margin: { left: M, right: M },
-};
-
-export async function generatePdf(r) {
+export async function generatePdf({ design, project, place, finance, snapshot }) {
+  const r = {
+    title: project.name || 'Rooftop Solar Plan',
+    address: place?.address || `${design.origin.lat.toFixed(5)}, ${design.origin.lng.toFixed(5)}`,
+    date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+    totals: design.totals,
+  };
+  const money = (v, d = 0) => formatMoney(v, finance.currency, { pdf: true, decimals: d });
+  const { totals, fin, electrical: el, spec } = design;
   const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
-  const money = (v, decimals = 0) => formatMoney(v, r.currency, { pdf: true, decimals });
-  const f = r.finance;
 
-  // ---------- page 1: summary ----------
-  header(doc, r, 'Rooftop Solar Plan');
-  let y = 34;
-  doc.setFont('helvetica', 'normal');
+  // 1 — summary
+  header(doc, r, r.title);
+  let y = 30;
   doc.setFontSize(8.5);
   doc.setTextColor(...MUTED);
-  const meta = [
-    r.customer && `Customer: ${r.customer}`,
-    r.preparedBy && `Prepared by: ${r.preparedBy}`,
-    `Location: ${r.origin.lat.toFixed(6)}, ${r.origin.lng.toFixed(6)}`,
-  ].filter(Boolean);
-  doc.text(meta.join('   |   '), M, y);
-  y += 6;
-
-  y = kpis(
-    doc,
-    [
-      { label: 'System size', value: r.totals.kwp.toFixed(2), unit: 'kWp', accent: true },
-      { label: 'Panels', value: r.totals.count, unit: `x ${r.spec.watts} W` },
-      { label: 'Annual energy', value: formatNumber(r.totals.acKwh), unit: 'kWh', accent: true },
-      { label: 'Specific yield', value: formatNumber(r.totals.specificYield), unit: 'kWh/kWp' },
-      { label: 'System cost', value: money(f.cost) },
-      { label: 'Year-1 savings', value: money(f.firstYearSavings) },
-      { label: 'Payback', value: f.payback ? f.payback.toFixed(1) : '> 25', unit: 'years' },
-      { label: 'CO2 avoided', value: (r.co2Kg / 1000).toFixed(1), unit: 't/year' },
-    ],
-    y,
-  );
-  y += 4;
-
-  y = sectionTitle(doc, '3D model', y);
-  if (r.snapshot) {
-    try {
-      const { w, h } = await loadImage(r.snapshot);
-      const maxW = PAGE_W - 2 * M;
-      const maxH = 110;
-      const s = Math.min(maxW / w, maxH / h);
-      doc.addImage(r.snapshot, imgFormat(r.snapshot), M + (maxW - w * s) / 2, y, w * s, h * s);
-      y += h * s + 6;
-    } catch {
-      y += 4;
+  doc.text([project.customer && `Customer: ${project.customer}`, project.preparedBy && `Prepared by: ${project.preparedBy}`, `Location: ${design.origin.lat.toFixed(6)}, ${design.origin.lng.toFixed(6)}`].filter(Boolean).join('   |   '), 14, y);
+  y = kpis(doc, [['System size', `${totals.kwp.toFixed(2)} kWp`], ['Modules', `${totals.count} x ${spec.watts} W`], ['Annual energy', `${formatNumber(totals.acKwh)} kWh`], ['Specific yield', `${formatNumber(totals.specificYield)} kWh/kWp`], ['System cost', money(fin.cost)], ['Year-1 savings', money(fin.firstYearSavings)], ['Payback', fin.payback ? `${fin.payback.toFixed(1)} years` : '> 25 years'], ['Shading loss', `${totals.shadeLossPct.toFixed(1)} %`]], y + 5);
+  y = section(doc, '3D model', y + 3);
+  if (snapshot) {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = snapshot; }).catch(() => null);
+    if (img) {
+      const s = Math.min(182 / img.naturalWidth, 105 / img.naturalHeight);
+      doc.addImage(snapshot, 'JPEG', 14 + (182 - img.naturalWidth * s) / 2, y, img.naturalWidth * s, img.naturalHeight * s);
+      y += img.naturalHeight * s + 7;
     }
-  } else {
-    doc.setFontSize(8);
-    doc.setTextColor(...MUTED);
-    doc.text('No 3D snapshot captured.', M, y + 4);
-    y += 10;
+  }
+  y = section(doc, 'Roof & structure', y);
+  autoTable(doc, { ...table, startY: y, head: [['Roof section', 'Area', 'Height', 'Parapet']], body: design.sections.map((s) => [s.name, `${(Math.abs(s.poly.reduce((a, p, i) => a + p.x * s.poly[(i + 1) % s.poly.length].y - s.poly[(i + 1) % s.poly.length].x * p.y, 0)) / 2).toFixed(1)} m²`, `${s.height} m`, `${s.parapetH} m x ${s.parapetT} m`]) });
+  autoTable(doc, { ...table, startY: doc.lastAutoTable.finalY + 4, head: [['Modules', 'Tilt', 'Facing', 'Energy / yr']], body: totals.groups.map((g) => [g.count, `${g.tilt}°`, `${g.azimuth}° ${compassLabel(g.azimuth)}`, `${formatNumber(g.dc * finance.efficiency / 100)} kWh`]) });
+
+  // 2, 3 — drawings (landscape)
+  for (const [sheet, title, colored] of [['E-01', 'PV ARRAY LAYOUT', false], ['E-02', 'STRING LAYOUT', true]]) {
+    doc.addPage('a4', 'landscape');
+    titleBlock(doc, r, sheet, title, 297, 210);
+    drawLayout(doc, design, 12, 12, 273, 152, colored);
   }
 
-  y = sectionTitle(doc, 'System details', y);
-  autoTable(doc, {
-    ...tableStyle,
-    startY: y,
-    theme: 'plain',
-    styles: { ...tableStyle.styles, lineWidth: 0 },
-    columnStyles: { 0: { textColor: MUTED, cellWidth: 38 }, 2: { textColor: MUTED, cellWidth: 38 } },
-    body: [
-      ['Panel model', `${r.spec.name} (${r.spec.length.toFixed(2)} x ${r.spec.width.toFixed(2)} m)`, 'Footprint area', `${r.footprintArea.toFixed(1)} m²`],
-      ['Roof', `${r.roof.type}${r.roof.pitch ? `, ${r.roof.pitch}° pitch` : ''}`, 'Building height', `${r.roof.ridgeH.toFixed(1)} m (${r.building.floors} floors)`],
-      ['Panel area', `${r.totals.panelArea.toFixed(1)} m²`, 'Coverage', `${(r.coverage * 100).toFixed(0)}% of footprint`],
-      ['System efficiency', `${f.efficiency}%`, 'Yield basis', r.yieldSource === 'google' ? 'Google Solar API' : 'Irradiance model'],
-    ],
-  });
-
-  // ---------- page 2: site & layout ----------
+  // 4 — structure table + electrical
+  doc.addPage('a4', 'portrait');
+  header(doc, r, 'Electrical & Structure');
+  y = section(doc, 'Single line diagram', 32);
+  drawSld(doc, el, spec, 14, y);
+  y = section(doc, 'Strings', y + 26);
+  autoTable(doc, { ...table, startY: y, head: [['String', 'Modules', 'Power', 'Voc STC', 'Voc cold', 'Isc', 'Inverter']], body: el.strings.map((s) => [s.name, s.count, `${s.kwp.toFixed(2)} kWp`, `${s.voc.toFixed(0)} V`, `${s.vocCold.toFixed(0)} V`, `${s.isc} A`, `INV-${s.inverter}`]) });
+  y = section(doc, 'Mounting structure schedule', doc.lastAutoTable.finalY + 8);
+  autoTable(doc, { ...table, startY: y, head: [['Table', 'Type', 'Modules', 'Tilt', 'Front leg', 'Back leg', 'Legs']], body: design.tables.filter((t) => t.valid).map((t, i) => [`T${i + 1}`, t.kind === 'elevated' ? 'Elevated' : 'Standard', `${t.rows} x ${t.cols}`, `${t.tilt}°`, `${t.frontLeg.toFixed(2)} m`, `${t.backLeg.toFixed(2)} m`, t.legs.length]) });
   doc.addPage();
-  header(doc, r, 'Site & Roof Layout');
-  y = 34;
-  y = sectionTitle(doc, 'Site', y);
-  const siteSize = 78;
-  let siteDrawn = false;
-  if (r.siteImageUrl) {
-    try {
-      const data = await fetchAsDataUrl(r.siteImageUrl);
-      doc.addImage(data, imgFormat(data), M, y, siteSize, siteSize);
-      siteDrawn = true;
-    } catch {
-      /* static map unavailable */
-    }
-  }
-  if (!siteDrawn) {
-    doc.setFillColor(241, 245, 249);
-    doc.rect(M, y, siteSize, siteSize, 'F');
-    doc.setFontSize(8);
-    doc.setTextColor(...MUTED);
-    doc.text('Satellite image unavailable', M + siteSize / 2, y + siteSize / 2, { align: 'center' });
-  }
-  const colX = M + siteSize + 8;
-  const colW = PAGE_W - M - colX;
-  autoTable(doc, {
-    ...tableStyle,
-    startY: y,
-    margin: { left: colX, right: M },
-    tableWidth: colW,
-    head: [['Google Solar API', '']],
-    body: r.solar
-      ? [
-          ['Imagery quality', r.solar.quality || '-'],
-          ['Imagery date', r.solar.imageryDate ? `${r.solar.imageryDate.month}/${r.solar.imageryDate.year}` : '-'],
-          ['Max panels (Google)', formatNumber(r.solar.maxPanels)],
-          ['Max array area', `${formatNumber(r.solar.maxArea)} m²`],
-          ['Peak sunshine', `${formatNumber(r.solar.maxSunshine)} h/yr`],
-          ['Whole roof area', `${formatNumber(r.solar.roofArea)} m²`],
-          ['Roof segments', String(r.solar.segments.length)],
-        ]
-      : [['Status', 'No Solar API data for this building'], ['Estimates', 'Clear-sky model with regional cloudiness factor']],
-  });
-  y += siteSize + 8;
+  header(doc, r, 'Bill of Materials');
+  autoTable(doc, { ...table, startY: 30, head: [['#', 'Item', 'Specification', 'Qty', 'Unit']], body: el.bom.map((b, i) => [i + 1, ...b]) });
 
-  y = sectionTitle(doc, 'Roof layout plan', y);
-  const planH = 105;
-  drawPlan(doc, r.plan, M, y, PAGE_W - 2 * M, planH);
-  y += planH + 8;
-
-  y = sectionTitle(doc, 'Array configuration', y);
-  autoTable(doc, {
-    ...tableStyle,
-    startY: y,
-    head: [['Panels', 'Tilt', 'Facing', 'Capacity', 'Energy / year', 'Orientation eff.']],
-    body: r.groups.map((g) => [
-      g.count,
-      `${g.tilt}°`,
-      `${g.azimuth}° ${compassLabel(g.azimuth)}`,
-      `${g.kwp.toFixed(2)} kWp`,
-      `${formatNumber(g.acKwh)} kWh`,
-      g.efficiency ? `${(g.efficiency * 100).toFixed(0)}%` : '-',
-    ]),
-    foot: [['' + r.totals.count, '', '', `${r.totals.kwp.toFixed(2)} kWp`, `${formatNumber(r.totals.acKwh)} kWh`, '']],
-    footStyles: { fillColor: [241, 245, 249], textColor: INK, fontStyle: 'bold' },
-  });
-
-  // ---------- page 3: energy & finance ----------
+  // energy & finance
   doc.addPage();
   header(doc, r, 'Energy & Financials');
-  y = 34;
-  y = sectionTitle(doc, 'Monthly production (kWh)', y);
-  drawMonthly(doc, r.totals.monthly, M, y, PAGE_W - 2 * M, 55);
-  y += 63;
-
-  y = sectionTitle(doc, `Financial outlook (${r.currency})`, y);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(...MUTED);
-  doc.text(
-    `Tariff ${money(f.tariff, 2)}/kWh (+${f.escalation}%/yr)  |  Cost ${money(f.costPerKw)}/kWp  |  Degradation ${f.degradation}%/yr`,
-    M,
-    y,
-  );
-  autoTable(doc, {
-    ...tableStyle,
-    startY: y + 3,
-    head: [['Year', 'Energy', 'Tariff', 'Savings', 'Cumulative savings', 'Net position']],
-    body: f.rows
-      .filter((row) => [1, 2, 3, 5, 7, 10, 15, 20, 25].includes(row.year))
-      .map((row) => [row.year, `${formatNumber(row.energy)} kWh`, money(row.rate, 2), money(row.savings), money(row.cumulative), money(row.net)]),
-    didParseCell: (data) => {
-      if (data.section === 'body' && data.column.index === 5) {
-        const row = f.rows.filter((rr) => [1, 2, 3, 5, 7, 10, 15, 20, 25].includes(rr.year))[data.row.index];
-        data.cell.styles.textColor = row.net >= 0 ? [4, 120, 87] : [220, 38, 38];
-      }
-    },
+  y = section(doc, 'Monthly production (kWh)', 32);
+  const max = Math.max(1, ...totals.monthly);
+  totals.monthly.forEach((v, i) => {
+    const bw = 182 / 12;
+    const bh = (v / max) * 42;
+    doc.setFillColor(245, 165, 36);
+    doc.rect(14 + i * bw + 2, y + 46 - bh, bw - 4, bh, 'F');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...INK);
+    doc.text(formatNumber(v), 14 + i * bw + bw / 2, y + 44 - bh, { align: 'center' });
+    doc.setTextColor(...MUTED);
+    doc.text(MONTHS[i], 14 + i * bw + bw / 2, y + 50, { align: 'center' });
   });
+  y = section(doc, `Financial outlook (${finance.currency})`, y + 60);
+  const rows = fin.rows.filter((x) => [1, 2, 3, 5, 7, 10, 15, 20, 25].includes(x.year));
+  autoTable(doc, { ...table, startY: y, head: [['Year', 'Energy', 'Tariff', 'Savings', 'Cumulative', 'Net position']], body: rows.map((x) => [x.year, `${formatNumber(x.energy)} kWh`, money(x.rate, 2), money(x.savings), money(x.cumulative), money(x.net)]) });
   y = doc.lastAutoTable.finalY + 8;
-
-  y = kpis(
-    doc,
-    [
-      { label: 'Investment', value: money(f.cost) },
-      { label: '25-yr savings', value: money(f.lifetimeSavings), accent: true },
-      { label: 'Payback', value: f.payback ? f.payback.toFixed(1) : '> 25', unit: 'years' },
-      { label: 'ROI (25 yr)', value: `${f.roi.toFixed(0)}%` },
-      { label: 'Lifetime energy', value: formatNumber(f.lifetimeEnergy / 1000, 1), unit: 'MWh' },
-      { label: 'CO2 avoided / yr', value: formatNumber(r.co2Kg), unit: 'kg' },
-      { label: 'Trees equivalent', value: formatNumber(r.trees), unit: '/ yr' },
-      { label: 'Grid factor', value: formatNumber(r.carbonFactor), unit: 'kg/MWh' },
-    ],
-    y,
-  );
-  y += 4;
-
-  y = sectionTitle(doc, 'Assumptions & notes', y);
-  doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(...MUTED);
-  const notes = [
-    r.yieldSource === 'google'
-      ? 'Annual yield is calibrated per roof with Google Solar API sunshine quantiles; orientation effects use an hourly sun-path model.'
-      : 'No Google Solar API data was available; yield uses a clear-sky sun-path model scaled by a regional cloudiness factor.',
-    `Optimal orientation for this latitude: ${r.optimal ? `${r.optimal.tilt.toFixed(0)}° tilt facing ${compassLabel(r.optimal.azimuth)}` : '-'}.`,
-    'Shading from nearby obstructions and between rows is only captured through the Solar API calibration; confirm with a site survey.',
-    'Financial figures are indicative, exclude subsidies, net-metering rules, financing costs and maintenance.',
-  ];
-  notes.forEach((n) => {
-    const lines = doc.splitTextToSize(`- ${n}`, PAGE_W - 2 * M);
-    doc.text(lines, M, y);
-    y += lines.length * 3.6 + 1;
-  });
+  doc.text(doc.splitTextToSize(`Assumptions: performance ratio ${finance.efficiency}%, degradation ${finance.degradation}%/yr, tariff escalation ${finance.escalation}%/yr. Yield ${design.yieldModel.source === 'google' ? 'calibrated with Google Solar API sunshine data' : 'from a clear-sky model with regional cloudiness factor'}; shading from parapets, raised roofs, obstructions, trees and adjacent tables computed hourly for 12 representative days. Indicative only - verify on site.`, 182), 14, y);
 
-  // footers
-  const pages = doc.getNumberOfPages();
-  for (let i = 1; i <= pages; i++) {
-    doc.setPage(i);
-    doc.setFontSize(7);
-    doc.setTextColor(...MUTED);
-    doc.setDrawColor(...LINE);
-    doc.setLineWidth(0.2);
-    doc.line(M, PAGE_H - 12, PAGE_W - M, PAGE_H - 12);
-    doc.text('Generated with Rooftop Solar Planner - estimates only, not an engineering design.', M, PAGE_H - 7.5);
-    doc.text(`Page ${i} of ${pages}`, PAGE_W - M, PAGE_H - 7.5, { align: 'right' });
-  }
-
-  const slug = (r.title || 'solar-plan').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'solar-plan';
-  doc.save(`${slug}.pdf`);
+  doc.save(`${r.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`);
 }

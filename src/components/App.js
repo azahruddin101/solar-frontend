@@ -1,145 +1,104 @@
 'use client';
 
-import { Box, FileText, MapPin, PenTool, RotateCcw, Sun } from 'lucide-react';
+import { ArrowLeft, CircleHelp, Home, Save } from 'lucide-react';
 import dynamic from 'next/dynamic';
-import { useEffect } from 'react';
-import { distanceMeters } from '@/lib/geo';
-import { useStore } from '@/lib/store';
+import { useEffect, useState } from 'react';
+import { STEPS, useStore } from '@/lib/store';
 import { useDesign } from '@/lib/useDesign';
-import DesignSidebar from './design/DesignSidebar';
-import LocateSidebar from './map/LocateSidebar';
-import OutlineSidebar from './map/OutlineSidebar';
-import ReportSidebar from './report/ReportSidebar';
-import ReportView from './report/ReportView';
-import { cx } from './ui';
-import MapView from './map/MapView';
+import { sceneApi } from './scene/Scene3D';
+import StepDraw from './steps/StepDraw';
+import StepElectrical from './steps/StepElectrical';
+import StepFinancials from './steps/StepFinancials';
+import StepLocation from './steps/StepLocation';
+import StepManualEdit from './steps/StepManualEdit';
+import StepObstructions from './steps/StepObstructions';
+import StepPanelConfig from './steps/StepPanelConfig';
+import StepReport from './steps/StepReport';
+import StepRoofDetails from './steps/StepRoofDetails';
 
-const Scene3D = dynamic(() => import('./three/Scene3D'), {
-  ssr: false,
-  loading: () => <div className="grid h-full place-items-center text-sm text-slate-500">Loading 3D engine…</div>,
-});
+const Step3D = dynamic(() => import('./steps/Step3D'), { ssr: false });
 
-const STEPS = [
-  { label: 'Locate', icon: MapPin },
-  { label: 'Outline roof', icon: PenTool },
-  { label: '3D design', icon: Box },
-  { label: 'Report', icon: FileText },
-];
-
-function useSolarInsights() {
+function useSolar() {
   const origin = useStore((s) => s.origin);
-  const place = useStore((s) => s.place);
-  const setSolar = useStore((s) => s.setSolar);
-
+  const patch = useStore((s) => s.patch);
   useEffect(() => {
-    const target = origin || place?.location;
-    if (!target) return;
-    const key = `${target.lat.toFixed(6)},${target.lng.toFixed(6)}`;
-    const current = useStore.getState().solar;
-    if (current.key === key && (current.status === 'ok' || current.status === 'error')) return;
-    // A request for a spot a few metres away returns the same building.
-    if (current.status === 'ok' && current.key) {
-      const [lat, lng] = current.key.split(',').map(Number);
-      if (distanceMeters({ lat, lng }, target) < 12) return;
-    }
+    if (!origin) return undefined;
     const ctrl = new AbortController();
-    setSolar({ status: 'loading', key, error: null });
-    fetch(`/api/solar?lat=${target.lat}&lng=${target.lng}`, { signal: ctrl.signal })
+    patch('solar', { status: 'loading', error: null });
+    fetch(`/api/solar?lat=${origin.lat}&lng=${origin.lng}`, { signal: ctrl.signal })
       .then(async (r) => {
         const body = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(body.error || `Solar API error ${r.status}`);
-        setSolar({ status: 'ok', data: body, error: null });
+        patch('solar', { status: 'ok', data: body });
       })
-      .catch((e) => {
-        if (ctrl.signal.aborted) return;
-        setSolar({ status: 'error', data: null, error: e.message });
-      });
+      .catch((e) => !ctrl.signal.aborted && patch('solar', { status: 'error', data: null, error: e.message }));
     return () => ctrl.abort();
-  }, [origin, place, setSolar]);
-}
-
-function canEnter(step, s, design) {
-  if (step === 0) return true;
-  if (step === 1) return Boolean(s.place || s.polygon.length);
-  if (step === 2) return s.closed && design.footprint.length >= 3 && design.shape.simple;
-  return canEnter(2, s, design) && design.totals.count > 0;
+  }, [origin, patch]);
 }
 
 export default function App() {
-  useSolarInsights();
+  useSolar();
   const step = useStore((s) => s.step);
   const setStep = useStore((s) => s.setStep);
-  const resetAll = useStore((s) => s.resetAll);
   const state = useStore();
   const design = useDesign();
+  const [saved, setSaved] = useState(false);
+
+  const blockers = [
+    !state.origin && 'Confirm the installation location',
+    !design.sections.length && 'Draw the roof outline',
+    null,
+    null,
+    null,
+    !design.totals.count && 'Place at least one panel',
+    null,
+    null,
+    null,
+    null,
+  ];
+  const blocker = blockers[step];
+  const screens = [StepLocation, StepDraw, StepRoofDetails, StepObstructions, StepPanelConfig, StepManualEdit, Step3D, StepElectrical, StepFinancials, StepReport];
+  const Screen = screens[step];
+
+  const next = () => {
+    if (blocker) return;
+    if (step === 6) state.set({ snapshot: sceneApi.capture?.() || state.snapshot });
+    setStep(step + 1);
+  };
 
   return (
-    <div className="flex h-dvh flex-col bg-slate-100 text-slate-900">
-      <header className="flex h-14 shrink-0 items-center gap-4 border-b border-slate-800 bg-slate-900 px-4 text-white">
-        <div className="flex items-center gap-2">
-          <div className="grid h-8 w-8 place-items-center rounded-lg bg-amber-500 text-slate-950">
-            <Sun className="h-5 w-5" />
-          </div>
-          <div className="leading-tight">
-            <div className="text-sm font-semibold">Rooftop Solar Planner</div>
-            <div className="hidden text-[11px] text-slate-400 sm:block">Google Solar API · 3D design · PDF plan</div>
-          </div>
-        </div>
-        <nav className="mx-auto flex items-center gap-1 overflow-x-auto">
-          {STEPS.map((st, i) => {
-            const enabled = canEnter(i, state, design);
-            const Icon = st.icon;
-            return (
-              <div key={st.label} className="flex items-center">
-                {i > 0 && <div className={cx('mx-1 h-px w-4 sm:w-8', i <= step ? 'bg-amber-500' : 'bg-slate-700')} />}
-                <button
-                  type="button"
-                  disabled={!enabled}
-                  onClick={() => setStep(i)}
-                  className={cx(
-                    'flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
-                    i === step ? 'bg-amber-500 text-slate-950' : enabled ? 'text-slate-200 hover:bg-slate-800' : 'cursor-not-allowed text-slate-600',
-                  )}
-                >
-                  <span
-                    className={cx(
-                      'grid h-5 w-5 place-items-center rounded-full text-[11px]',
-                      i === step ? 'bg-slate-950/15' : i < step ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800',
-                    )}
-                  >
-                    {i + 1}
-                  </span>
-                  <Icon className="h-3.5 w-3.5 sm:hidden" />
-                  <span className="hidden sm:inline">{st.label}</span>
-                </button>
-              </div>
-            );
-          })}
-        </nav>
-        <button
-          type="button"
-          onClick={() => {
-            if (window.confirm('Start a new project? The current design will be cleared.')) resetAll();
-          }}
-          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-          <span className="hidden md:inline">New project</span>
+    <div className="flex h-dvh flex-col bg-white text-slate-900">
+      <header className="relative flex h-16 shrink-0 items-center gap-3 px-5">
+        <button type="button" disabled={step === 0} onClick={() => setStep(step - 1)} className="grid h-9 w-9 place-items-center rounded-full text-slate-700 hover:bg-slate-100 disabled:opacity-30">
+          <ArrowLeft className="h-5 w-5" />
         </button>
+        <div className="text-[15px] font-semibold">
+          Step {step + 1} of {STEPS.length} · {STEPS[step]}
+        </div>
+        <div className="ml-auto flex items-center gap-1">
+          {blocker && <span className="mr-2 hidden text-xs text-slate-400 sm:inline">{blocker}</span>}
+          <button type="button" title="Saved automatically" onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 1500); }} className="grid h-9 w-9 place-items-center rounded-full text-slate-600 hover:bg-slate-100">
+            <Save className="h-[18px] w-[18px]" />
+          </button>
+          <button type="button" title="New project" onClick={() => window.confirm('Start a new project? This clears the current design.') && state.reset()} className="grid h-9 w-9 place-items-center rounded-full text-slate-600 hover:bg-slate-100">
+            <Home className="h-[18px] w-[18px]" />
+          </button>
+          <button type="button" title="Scroll to zoom · drag to pan · Delete removes the selection" className="grid h-9 w-9 place-items-center rounded-full text-slate-300">
+            <CircleHelp className="h-[18px] w-[18px]" />
+          </button>
+          {step < STEPS.length - 1 && (
+            <button type="button" onClick={next} disabled={Boolean(blocker)} className="ml-2 h-10 rounded-lg bg-[#0f172a] px-5 text-sm font-semibold text-white hover:bg-slate-800 disabled:bg-slate-300">
+              Next
+            </button>
+          )}
+        </div>
+        {saved && <div className="absolute right-40 top-5 rounded bg-slate-900 px-2 py-1 text-xs text-white">Saved</div>}
+        <div className="absolute inset-x-0 bottom-0 h-1 bg-slate-100">
+          <div className="h-full bg-slate-700 transition-all" style={{ width: `${((step + 1) / STEPS.length) * 100}%` }} />
+        </div>
       </header>
-
-      <main className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <aside className="order-2 min-h-0 flex-1 overflow-y-auto border-slate-200 bg-white lg:order-1 lg:w-[390px] lg:flex-none lg:border-r">
-          {step === 0 && <LocateSidebar />}
-          {step === 1 && <OutlineSidebar design={design} />}
-          {step === 2 && <DesignSidebar design={design} />}
-          {step === 3 && <ReportSidebar design={design} />}
-        </aside>
-        <section className="relative order-1 h-[55vh] shrink-0 lg:order-2 lg:h-auto lg:flex-1">
-          {step <= 1 && <MapView design={design} />}
-          {step === 2 && <Scene3D design={design} />}
-          {step === 3 && <ReportView design={design} />}
-        </section>
+      <main className="relative min-h-0 flex-1">
+        <Screen design={design} />
       </main>
     </div>
   );

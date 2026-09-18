@@ -254,3 +254,32 @@ export function convexOverlap(A, B, tol = 0.01) {
   }
   return true;
 }
+
+/** True when two simple polygons overlap (edge crossing or containment). */
+export function polysOverlap(A, B) {
+  for (let i = 0; i < A.length; i++)
+    for (let j = 0; j < B.length; j++)
+      if (segmentsIntersect(A[i], A[(i + 1) % A.length], B[j], B[(j + 1) % B.length])) return true;
+  return pointInPolygon(A[0], B) || pointInPolygon(B[0], A);
+}
+
+export function pointSegDist(p, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const l2 = dx * dx + dy * dy || 1;
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2));
+  return Math.hypot(p.x - (a.x + dx * t), p.y - (a.y + dy * t));
+}
+
+export function circleHitsPoly(c, r, poly) {
+  if (pointInPolygon(c, poly)) return true;
+  for (let i = 0; i < poly.length; i++) if (pointSegDist(c, poly[i], poly[(i + 1) % poly.length]) < r) return true;
+  return false;
+}
+
+export function rectPoly(cx, cy, w, d, rotDeg) {
+  const a = (rotDeg * Math.PI) / 180;
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  return [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]].map(([u, v]) => ({ x: cx + u * c + v * s, y: cy - u * s + v * c }));
+}

@@ -152,7 +152,7 @@ export default function PlaceSearch({ onSelect }) {
   return (
     <div>
       <div className="relative">
-        <div className="flex h-11 items-center gap-2 rounded-xl bg-white px-3 ring-1 ring-slate-300 focus-within:ring-2 focus-within:ring-amber-400">
+        <div className="flex h-[52px] items-center gap-3 rounded-xl border border-slate-300 bg-white px-4 shadow-sm focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-100">
           {busy ? <Loader2 className="h-4 w-4 animate-spin text-slate-400" /> : <Search className="h-4 w-4 text-slate-400" />}
           <input
             value={query}
@@ -177,8 +177,11 @@ export default function PlaceSearch({ onSelect }) {
               } else if (e.key === 'Escape') setOpen(false);
             }}
             placeholder={MAPS_API_KEY ? 'Search address or paste “lat, lng”' : 'Add an API key to enable search'}
-            className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400"
+            className="h-full min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-slate-400"
           />
+          <button type="button" title="Use my current location" onClick={locateMe} disabled={busy} className="text-slate-400 hover:text-slate-700">
+            <LocateFixed className="h-5 w-5" />
+          </button>
         </div>
         {open && visible.length > 0 && (
           <ul className="absolute z-20 mt-1.5 max-h-72 w-full overflow-y-auto rounded-xl bg-white py-1 shadow-xl ring-1 ring-slate-200">
@@ -189,11 +192,11 @@ export default function PlaceSearch({ onSelect }) {
                   onMouseDown={(e) => e.preventDefault()}
                   onMouseEnter={() => setActive(i)}
                   onClick={() => choose(it)}
-                  className={cx('flex w-full items-start gap-2.5 px-3 py-2 text-left', i === active && 'bg-amber-50')}
+                  className={cx('flex w-full items-start gap-2.5 px-4 py-3 text-left', i === active && 'bg-slate-50')}
                 >
-                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-slate-800">{it.main}</span>
+                    <span className="block truncate text-[15px] font-semibold text-slate-900">{it.main}</span>
                     {it.secondary && <span className="block truncate text-xs text-slate-500">{it.secondary}</span>}
                   </span>
                 </button>
@@ -202,14 +205,7 @@ export default function PlaceSearch({ onSelect }) {
           </ul>
         )}
       </div>
-      <button
-        type="button"
-        onClick={locateMe}
-        disabled={!MAPS_API_KEY || busy}
-        className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-700 hover:text-amber-800 disabled:text-slate-400"
-      >
-        <LocateFixed className="h-3.5 w-3.5" /> Use my current location
-      </button>
+
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
     </div>
   );
