@@ -6,6 +6,8 @@ import { useStore } from '@/lib/store';
 import Editor2D from '../editor/Editor2D';
 import { Card, Hint, RoundBtn } from './common';
 
+const key = (k) => window.dispatchEvent(new KeyboardEvent('keydown', { key: k }));
+
 export default function StepDraw({ design }) {
   const tool = useStore((s) => s.tool);
   const set = useStore((s) => s.set);
@@ -30,9 +32,22 @@ export default function StepDraw({ design }) {
           <ol className="mt-1.5 list-decimal space-y-0.5 pl-5 text-sm text-slate-600">
             <li>Scroll to zoom in on your house, drag to move the picture.</li>
             <li>Click on each corner of your roof, one after another.</li>
-            <li>Click the first corner again to finish. Made a mistake? Press Backspace.</li>
+            <li>Press the green “Done” button. Made a mistake? Press “Undo last point”.</li>
           </ol>
         </Card>
+      )}
+      {tool !== 'draw-section' && sections.length > 0 && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2" onPointerDown={(e) => e.stopPropagation()}>
+          <button type="button" onClick={() => useStore.getState().setStep(2)} className="h-14 rounded-2xl bg-emerald-600 px-8 text-base font-semibold text-white shadow-xl hover:bg-emerald-700">
+            ✓ My roof is marked — continue
+          </button>
+        </div>
+      )}
+      {tool === 'draw-section' && (
+        <div className="absolute bottom-6 right-6 flex gap-2" onPointerDown={(e) => e.stopPropagation()}>
+          <button type="button" onClick={() => key('Backspace')} className="h-12 rounded-xl bg-white px-5 text-sm font-semibold shadow-lg hover:bg-slate-50">↶ Undo last point</button>
+          <button type="button" onClick={() => key('Enter')} className="h-12 rounded-xl bg-emerald-600 px-6 text-sm font-semibold text-white shadow-lg hover:bg-emerald-700">✓ Done</button>
+        </div>
       )}
       <div className="absolute left-4 top-4 flex flex-col gap-3">
         <RoundBtn icon={PenLine} label={sections.length ? 'Add elevated roof section' : 'Draw roof outline'} active={tool === 'draw-section'} onClick={() => set({ tool: tool === 'draw-section' ? 'select' : 'draw-section', selectedId: null })} />

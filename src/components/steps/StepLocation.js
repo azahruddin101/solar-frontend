@@ -80,6 +80,7 @@ export default function StepLocation({ design }) {
   const solar = useStore((s) => s.solar);
   const sections = useStore((s) => s.sections);
   const set = useStore((s) => s.set);
+  const simple = useStore((s) => s.mode === 'simple');
   const [method, setMethod] = useState('search');
   const [coords, setCoords] = useState('');
   const [pending, setPending] = useState(place?.location || null);
@@ -92,7 +93,7 @@ export default function StepLocation({ design }) {
   const confirm = () => {
     if (!pending) return;
     if (sections.length && !window.confirm('Changing the location clears the current roof design. Continue?')) return;
-    set({ origin: pending, sections: [], objects: [], snapshot: null });
+    set({ origin: pending, sections: [], objects: [], snapshot: null, ...(simple ? { step: 1, tool: 'select' } : {}) });
   };
   const applyCoords = () => {
     const m = coords.match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
@@ -101,8 +102,9 @@ export default function StepLocation({ design }) {
   const irradiance = design.yieldModel ? design.yieldModel.specificYield(0, 180) / 365 : 0;
 
   return (
-    <FormPage icon={MapPin} title="Installation Location">
-      <div>
+    <FormPage icon={MapPin} title={simple ? 'Where is your home?' : 'Installation Location'}>
+      {simple && <p className="-mt-2 text-slate-500">Type your address, move the map so the red pin sits on your roof, then press the green button.</p>}
+      <div className={simple ? 'hidden' : ''}>
         <Label>Location Input Method</Label>
         <div className="relative">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
@@ -134,7 +136,7 @@ export default function StepLocation({ design }) {
         <>
           <LocationMap center={pending} onCenter={setPending} />
           <button type="button" onClick={confirm} disabled={confirmed} className={cx('flex h-[52px] w-full items-center justify-center gap-2 rounded-xl text-[16px] font-semibold text-white', confirmed ? 'bg-emerald-400' : 'bg-emerald-600 hover:bg-emerald-700')}>
-            <CheckCircle2 className="h-5 w-5" /> {confirmed ? 'Location Confirmed' : 'Confirm Location'}
+            <CheckCircle2 className="h-5 w-5" /> {confirmed ? 'Location Confirmed' : simple ? 'Yes, this is my roof — continue' : 'Confirm Location'}
           </button>
         </>
       )}

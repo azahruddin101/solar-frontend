@@ -62,7 +62,7 @@ export default function App() {
   const simple = state.mode === 'simple';
   const names = simple ? SIMPLE_STEPS : STEPS;
   const screens = simple
-    ? [StepLocation, StepDraw, StepSimpleDesign, StepFinancials, StepReport]
+    ? [StepLocation, StepDraw, StepSimpleDesign]
     : [StepLocation, StepDraw, StepRoofDetails, StepObstructions, StepPanelConfig, StepManualEdit, Step3D, StepElectrical, StepFinancials, StepReport];
   const Screen = screens[step] || screens[0];
   const blocker =
@@ -72,7 +72,7 @@ export default function App() {
     : null;
   const switchMode = () => {
     const to = simple ? 'pro' : 'simple';
-    const map = simple ? [0, 1, 5, 8, 9] : [0, 1, 1, 2, 2, 2, 2, 2, 3, 4];
+    const map = simple ? [0, 1, 5] : [0, 1, 1, 2, 2, 2, 2, 2, 2, 2];
     state.set({ mode: to, step: map[step] ?? 0, tool: 'select', selectedId: null });
   };
 
@@ -93,7 +93,7 @@ export default function App() {
         </div>
         <div className="ml-auto flex items-center gap-1">
           <button type="button" onClick={switchMode} className="mr-2 hidden rounded-full border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 sm:block">
-            {simple ? 'Advanced mode' : 'Simple mode'}
+            {simple ? 'For installers' : 'Simple mode'}
           </button>
           {blocker && <span className="mr-2 hidden text-xs text-slate-400 sm:inline">{blocker}</span>}
           <button type="button" title="Saved automatically" onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 1500); }} className="grid h-9 w-9 place-items-center rounded-full text-slate-600 hover:bg-slate-100">

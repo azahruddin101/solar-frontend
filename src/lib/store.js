@@ -5,7 +5,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 export const STEPS = ['Project Setup', 'Draw Roof', 'Roof Details', 'Obstructions', 'Panel & Mounting', 'Manual Edit', '3D View & Shadows', 'Electrical Design', 'Financials', 'Report & Drawings'];
 
-export const SIMPLE_STEPS = ['Find your home', 'Trace your roof', 'Your solar panels', 'Savings', 'Download plan'];
+export const SIMPLE_STEPS = ['Find your home', 'Mark your roof', 'Your solar plan'];
 
 const initial = {
   step: 0,
