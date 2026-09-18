@@ -3,6 +3,7 @@
 import { useDeferredValue, useMemo } from 'react';
 import { designElectrical } from './electrical.js';
 import { buildYieldModel, computeFinancials } from './energy.js';
+import { normalizeCatalog } from './catalog.js';
 import { buildDesign, resolveAzimuth } from './model.js';
 import { shadingLoss } from './shading.js';
 import { useStore } from './store.js';
@@ -17,15 +18,19 @@ export function useDesign() {
   const finance = useStore((s) => s.finance);
   const inverterId = useStore((s) => s.electrical.inverterId);
   const lat = origin?.lat ?? 28.6;
+  const rawCatalog = useStore((s) => s.catalog);
+  const catalog = useMemo(() => normalizeCatalog(rawCatalog), [rawCatalog]);
+  const spec = catalog.panels.find((p) => p.id === config.specId) || catalog.panels[0];
+  const pillar = catalog.pillars.find((p) => p.id === config.pillarId) || catalog.pillars[0];
 
-  const design = useMemo(() => buildDesign({ sections, objects, config, lat }), [sections, objects, config, lat]);
+  const design = useMemo(() => buildDesign({ sections, objects, config, lat, spec }), [sections, objects, config, lat, spec]);
   const defaultAzimuth = useMemo(() => resolveAzimuth(config, design.sections, lat), [config, design.sections, lat]);
   const yieldModel = useMemo(() => buildYieldModel(lat, solarData), [lat, solarData]);
   // shading is the heavy part — let it lag behind while dragging so movement stays smooth
   const settled = useDeferredValue(design);
   const shade = useMemo(() => shadingLoss(settled, lat), [settled, lat]);
   const structure = useMemo(() => computeStructure(design), [design]);
-  const electrical = useMemo(() => designElectrical(design, structure, { inverterId }), [design, structure, inverterId]);
+  const electrical = useMemo(() => designElectrical(design, { ...structure, pillar }, { inverterId }), [design, structure, pillar, inverterId]);
 
   const totals = useMemo(() => {
     const eff = finance.efficiency / 100;
@@ -60,7 +65,17 @@ export function useDesign() {
     };
   }, [design, yieldModel, shade, finance.efficiency]);
 
-  const fin = useMemo(() => computeFinancials({ kwp: totals.kwp, annualKwh: totals.acKwh, ...finance }), [totals, finance]);
+  const cost = useMemo(() => {
+    const pillarFt = structure.columnM * 3.281;
+    const panels = totals.count * spec.price;
+    const pillars = pillarFt * pillar.pricePerFt;
+    const other = totals.kwp * catalog.otherCostPerKw;
+    return { panels, pillars, pillarFt, other, total: panels + pillars + other };
+  }, [structure, totals, spec, pillar, catalog]);
+  const fin = useMemo(
+    () => computeFinancials({ ...finance, kwp: totals.kwp, annualKwh: totals.acKwh, tariff: catalog.tariff, costPerKw: totals.kwp ? cost.total / totals.kwp : 0 }),
+    [totals, finance, cost, catalog.tariff],
+  );
 
-  return { ...design, lat, origin, defaultAzimuth, yieldModel, shade, electrical, structure, totals, fin, solarData };
+  return { ...design, catalog, pillar, cost, currency: catalog.currency, lat, origin, defaultAzimuth, yieldModel, shade, electrical, structure, totals, fin, solarData };
 }

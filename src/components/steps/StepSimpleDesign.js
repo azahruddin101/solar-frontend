@@ -42,9 +42,15 @@ function Chips({ value, options, onChange }) {
   );
 }
 
+function PillarIcon({ shape }) {
+  if (shape === 'cylindrical') return <svg viewBox="0 0 24 24" className="h-6 w-6"><circle cx="12" cy="12" r="8" fill="none" stroke="#334155" strokeWidth="3" /></svg>;
+  if (shape === 'l-shape') return <svg viewBox="0 0 24 24" className="h-6 w-6"><path d="M5 4v16h15" fill="none" stroke="#334155" strokeWidth="3.5" /></svg>;
+  return <svg viewBox="0 0 24 24" className="h-6 w-6"><rect x="4.5" y="4.5" width="15" height="15" fill="none" stroke="#334155" strokeWidth="3" /></svg>;
+}
+
 const Q = ({ n, children }) => (
   <div className="mb-2 flex items-center gap-2 text-[15px] font-semibold">
-    <span className="grid h-6 w-6 place-items-center rounded-full bg-slate-900 text-xs text-white">{n}</span>
+    {n > 0 && <span className="grid h-6 w-6 place-items-center rounded-full bg-slate-900 text-xs text-white">{n}</span>}
     {children}
   </div>
 );
@@ -54,6 +60,7 @@ export default function StepSimpleDesign({ design }) {
   const { config, objects, sections, finance } = s;
   const [view, setView] = useState('3d');
   const [bill, setBill] = useState('');
+  const [useMode, setUseMode] = useState('units');
   const { totals, structure, spec, fin } = design;
   const main = sections[0];
 
@@ -67,8 +74,8 @@ export default function StepSimpleDesign({ design }) {
   const maxFit = useMemo(() => {
     const keep = JSON.parse(obstacleKey);
     const zones = design.sections.map((sec) => ({ id: `fit-${sec.id}`, type: 'zone', points: sec.poly, tilt: config.tilt, azimuth: design.defaultAzimuth, frontLeg: config.frontLeg, rowsPerTable: config.rowsPerTable, orientation: config.orientation, rowGap: config.rowGap }));
-    return buildDesign({ sections, objects: [...keep, ...zones], config: { ...config, maxPanels: 0 }, lat: design.lat }).modules.length;
-  }, [sections, config, design.sections, design.lat, design.defaultAzimuth, obstacleKey]);
+    return buildDesign({ sections, objects: [...keep, ...zones], config: { ...config, maxPanels: 0 }, lat: design.lat, spec: design.spec }).modules.length;
+  }, [sections, config, design.sections, design.lat, design.defaultAzimuth, design.spec, obstacleKey]);
   const count = totals.count;
   const setCount = (n) => {
     const v = Math.max(1, Math.min(Math.max(maxFit, 1), Math.round(n)));
@@ -78,9 +85,13 @@ export default function StepSimpleDesign({ design }) {
 
   const opt = Math.round(design.yieldModel.optimal.tilt);
   const perPanelMonth = count ? totals.acKwh / count / 12 : (spec.watts / 1000) * 120;
-  const recommend = () => {
-    const units = Number(bill) / (finance.tariff || 1);
-    if (units > 0) setCount(Math.ceil(units / perPanelMonth));
+  const needUnits = useMode === 'units' ? Number(bill) || 0 : (Number(bill) || 0) / (design.catalog.tariff || 1);
+  const needPanels = needUnits > 0 ? Math.ceil(needUnits / perPanelMonth) : 0;
+  const recommend = () => needPanels > 0 && setCount(needPanels);
+  const pickPanel = (specId) => {
+    s.patch('config', { specId });
+    // panel size changed → re-arrange with the same count on the next tick
+    setTimeout(() => document.getElementById('rearrange')?.click(), 50);
   };
   const money = (v) => formatMoney(v, finance.currency);
   const slopeLen = (config.orientation === 'landscape' ? spec.width : spec.length) * config.rowsPerTable;
@@ -125,10 +136,52 @@ export default function StepSimpleDesign({ design }) {
             <button type="button" onClick={() => setCount(count + 1)} className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Plus className="h-5 w-5" /></button>
           </div>
           <input type="range" min={1} max={Math.max(1, maxFit)} value={count} onChange={(e) => setCount(Number(e.target.value))} className="mt-3 h-2 w-full cursor-pointer accent-[#f5a524]" />
-          <div className="mt-3 flex gap-2">
-            <input inputMode="numeric" value={bill} onChange={(e) => setBill(e.target.value.replace(/[^\d.]/g, ''))} onKeyDown={(e) => e.key === 'Enter' && recommend()} placeholder={`Monthly electricity bill (${finance.currency})`} className="h-11 min-w-0 flex-1 rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-blue-600" />
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 p-3">
+          <div className="mb-2 text-sm font-semibold">Or tell us your electricity use</div>
+          <div className="mb-2 flex gap-1 rounded-lg bg-slate-100 p-1 text-xs font-medium">
+            {[['units', 'Units (kWh) per month'], ['bill', `Monthly bill (${finance.currency})`]].map(([k, l]) => (
+              <button key={k} type="button" onClick={() => setUseMode(k)} className={cx('h-7 flex-1 rounded-md', useMode === k ? 'bg-white shadow-sm' : 'text-slate-500')}>{l}</button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input inputMode="numeric" value={bill} onChange={(e) => setBill(e.target.value.replace(/[^\d.]/g, ''))} onKeyDown={(e) => e.key === 'Enter' && recommend()} placeholder={useMode === 'units' ? 'e.g. 450' : 'e.g. 3500'} className="h-11 min-w-0 flex-1 rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-blue-600" />
             <button type="button" onClick={recommend} disabled={!bill} className="flex h-11 items-center gap-1.5 rounded-xl bg-[#f5a524] px-3 text-sm font-semibold text-white disabled:bg-slate-200"><Sparkles className="h-4 w-4" /> Suggest</button>
           </div>
+          {needUnits > 0 && (
+            <p className="mt-2 text-xs text-slate-600">
+              You use about <b>{Math.round(needUnits)} units/month</b> → you need <b>{needPanels} panels</b> of {spec.watts} W ({((needPanels * spec.watts) / 1000).toFixed(1)} kW).
+              {needPanels > maxFit ? ` Your roof fits only ${maxFit}, covering ${Math.round((maxFit / needPanels) * 100)}% of your use.` : ' Panels placed ✓'}
+            </p>
+          )}
+          <p className="mt-2 text-xs text-slate-500">Your {count} panels make <b>{Math.round(totals.acKwh / 12).toLocaleString()} units/month</b> ({Math.round(totals.acKwh).toLocaleString()} kWh/year){needUnits > 0 ? ` = ${Math.min(999, Math.round((totals.acKwh / 12 / needUnits) * 100))}% of your use` : ''}.</p>
+        </div>
+
+        <div>
+          <Q n={0}>Choose your panel</Q>
+          <div className="space-y-1.5">
+            {design.catalog.panels.map((p) => (
+              <button key={p.id} type="button" onClick={() => pickPanel(p.id)} className={cx('flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left', p.id === spec.id ? 'border-[#f5a524] bg-amber-50 ring-2 ring-[#f5a524]/30' : 'border-slate-200 hover:bg-slate-50')}>
+                <span><span className="block text-sm font-semibold">{p.watts} W · {p.brand}</span><span className="block text-xs text-slate-500">{p.model} · {p.length} × {p.width} m</span></span>
+                <span className="text-sm font-semibold">{money(p.price)}<span className="text-xs font-normal text-slate-400"> /panel</span></span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <Q n={0}>Choose the pillar (stand)</Q>
+          <div className="grid grid-cols-3 gap-2">
+            {design.catalog.pillars.map((p) => (
+              <button key={p.id} type="button" onClick={() => s.patch('config', { pillarId: p.id })} className={cx('rounded-xl border px-2 py-2 text-center', p.id === design.pillar.id ? 'border-[#f5a524] bg-amber-50 ring-2 ring-[#f5a524]/30' : 'border-slate-200 hover:bg-slate-50')}>
+                <div className="mx-auto mb-1 grid h-7 w-7 place-items-center"><PillarIcon shape={p.shape} /></div>
+                <div className="text-xs font-semibold capitalize">{p.shape.replace('-', ' ')}</div>
+                <div className="text-[11px] text-slate-500">{money(p.pricePerFt)}/ft</div>
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-slate-400">{design.pillar.name}</p>
         </div>
 
         <div>
@@ -164,7 +217,7 @@ export default function StepSimpleDesign({ design }) {
           <div className="mb-1.5 font-semibold">What you will need</div>
           <ul className="space-y-1 text-slate-700">
             <li>• <b>{count}</b> solar panels of {spec.watts} W = <b>{(count * spec.watts).toLocaleString()} W</b></li>
-            <li>• <b>{structure.columns}</b> iron columns ({structure.columnM.toFixed(0)} m / {Math.round(structure.columnM * FT)} ft of pipe in total)</li>
+            <li>• <b>{structure.columns}</b> pillars — {design.pillar.shape.replace('-', ' ')} ({structure.columnM.toFixed(0)} m / {Math.round(structure.columnM * FT)} ft of pipe in total)</li>
             {structure.cutList.map((c) => (
               <li key={c.len} className="pl-4 text-slate-500">{c.qty} pieces of {c.len.toFixed(2)} m ({(c.len * FT).toFixed(1)} ft)</li>
             ))}
@@ -172,9 +225,15 @@ export default function StepSimpleDesign({ design }) {
             <li>• 1 inverter of about {design.electrical.acKw || 0} kW</li>
             <li>• Shade loss from walls and trees: {totals.shadeLossPct.toFixed(1)}%</li>
           </ul>
+          <div className="mt-3 space-y-1 border-t border-amber-200 pt-2">
+            <div className="flex justify-between"><span>{count} panels × {money(spec.price)}</span><b>{money(design.cost.panels)}</b></div>
+            <div className="flex justify-between"><span>Pillars {Math.round(design.cost.pillarFt)} ft × {money(design.pillar.pricePerFt)}</span><b>{money(design.cost.pillars)}</b></div>
+            <div className="flex justify-between"><span>Inverter, wiring, installation</span><b>{money(design.cost.other)}</b></div>
+            <div className="flex justify-between border-t border-amber-200 pt-1 text-base"><span className="font-semibold">Total</span><b>{money(design.cost.total)}</b></div>
+          </div>
         </div>
 
-        <button type="button" onClick={() => autoGroups(design, 0)} className="w-full rounded-xl border border-slate-300 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50">Re-arrange panels automatically</button>
+        <button id="rearrange" type="button" onClick={() => autoGroups(design, count >= maxFit ? 0 : count)} className="w-full rounded-xl border border-slate-300 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50">Re-arrange panels automatically</button>
       </aside>
     </>
   );

@@ -68,8 +68,8 @@ export function designElectrical(design, structure, { inverterId = 'auto', dcAcR
   const bom = [
     ['PV module', `${spec.name} (${spec.length} x ${spec.width} m)`, n, 'nos'],
     ['String inverter', inv.name, count, 'nos'],
-    ['Iron columns 60x60x3 SHS', structure.cutList.map((c) => `${c.len.toFixed(2)} m x ${c.qty}`).join(', '), structure.columns, 'nos'],
-    ['Column steel total', 'HDG, cut as per list', Math.ceil(structure.columnM), 'm'],
+    [`Pillars — ${structure.pillar?.name || 'iron column'} (${structure.pillar?.shape || ''})`, structure.cutList.map((c) => `${c.len.toFixed(2)} m x ${c.qty}`).join(', '), structure.columns, 'nos'],
+    ['Pillar length total', `${Math.ceil(structure.columnM * 3.281)} ft, cut as per list`, Math.ceil(structure.columnM), 'm'],
     ['Rafters 80x40x3 RHS', '', Math.ceil(structure.rafterM), 'm'],
     ['Purlins / module rails', '41x41 C-channel', Math.ceil(structure.purlinM), 'm'],
     ['Base plates 200x200x8', 'with 4 anchor bolts M12 each', structure.basePlates, 'nos'],

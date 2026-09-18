@@ -221,9 +221,9 @@ function expandTable(t, ctx) {
 }
 
 /** Build everything derived from the stored design. */
-export function buildDesign({ sections: rawSections, objects, config, lat }) {
+export function buildDesign({ sections: rawSections, objects, config, lat, spec: givenSpec }) {
   const sections = rawSections.map(normSection).filter((s) => s.poly.length >= 3);
-  const spec = getSpec(config.specId);
+  const spec = givenSpec || getSpec(config.specId);
   const trees = objects.filter((o) => o.type === 'tree');
   const blocks = objects.filter((o) => o.type === 'block');
   const ctx = { sections, spec, lat, trees, blocks, setback: config.setback, insets: new Map(), fixed: [] };

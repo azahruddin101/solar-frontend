@@ -37,8 +37,22 @@ function useSolar() {
   }, [origin, patch]);
 }
 
+function useCatalog() {
+  const set = useStore((s) => s.set);
+  useEffect(() => {
+    fetch('/api/catalog')
+      .then((r) => r.json())
+      .then((catalog) => {
+        const st = useStore.getState();
+        set({ catalog, finance: { ...st.finance, currency: catalog.currency, tariff: catalog.tariff, init: true } });
+      })
+      .catch(() => {});
+  }, [set]);
+}
+
 export default function App() {
   useSolar();
+  useCatalog();
   const step = useStore((s) => s.step);
   const setStep = useStore((s) => s.setStep);
   const state = useStore();

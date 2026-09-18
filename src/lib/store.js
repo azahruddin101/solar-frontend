@@ -13,10 +13,11 @@ const initial = {
   project: { name: '', customer: '', preparedBy: '' },
   place: null, // {address, location}
   origin: null, // confirmed {lat, lng}
+  catalog: null,
   solar: { status: 'idle', data: null, error: null },
   sections: [], // {id, name, points, height, parapetH, parapetT}
   objects: [], // array | zone | tree | block
-  config: { specId: 'm550', orientation: 'portrait', tilt: 15, azimuthMode: 'building', azimuth: 180, setback: 0.6, frontLeg: 0.4, rowsPerTable: 2, rowGap: 0, maxPanels: 0, targetKw: 0 },
+  config: { specId: '', pillarId: '', orientation: 'portrait', tilt: 15, azimuthMode: 'building', azimuth: 180, setback: 0.6, frontLeg: 0.4, rowsPerTable: 2, rowGap: 0, maxPanels: 0, targetKw: 0 },
   electrical: { inverterId: 'auto' },
   finance: { currency: 'INR', tariff: 8, costPerKw: 55000, efficiency: 85, degradation: 0.5, escalation: 3, init: false },
   sun: { season: 'today', hour: 12 },
@@ -42,7 +43,7 @@ export const useStore = create(
           objects: s.objects.filter((x) => x.id !== id),
           selectedId: null,
         })),
-      reset: () => set({ ...initial }),
+      reset: () => set((st) => ({ ...initial, catalog: st.catalog })),
     }),
     {
       name: 'solar-planner-v2',

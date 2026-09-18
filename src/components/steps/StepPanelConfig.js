@@ -2,7 +2,7 @@
 
 import { Grid3x3 } from 'lucide-react';
 import { compassLabel } from '@/lib/geo';
-import { autoRowGap, getSpec, moduleDims, PANEL_SPECS } from '@/lib/model';
+import { autoRowGap, moduleDims } from '@/lib/model';
 import { useStore } from '@/lib/store';
 import { Choice, FormPage, inputCls, Label, Num } from './common';
 
@@ -10,7 +10,7 @@ export default function StepPanelConfig({ design }) {
   const c = useStore((s) => s.config);
   const patch = useStore((s) => s.patch);
   const u = (p) => patch('config', p);
-  const spec = getSpec(c.specId);
+  const spec = design.spec;
   const slopeLen = moduleDims(spec, c.orientation).slope * c.rowsPerTable;
   const gap = autoRowGap(c.tilt, slopeLen, design.lat);
   const opt = design.yieldModel.optimal;
@@ -21,10 +21,20 @@ export default function StepPanelConfig({ design }) {
     <FormPage icon={Grid3x3} title="Panel & Mounting Structure">
       <div>
         <Label>Solar Panel</Label>
-        <select className={inputCls} value={c.specId} onChange={(e) => u({ specId: e.target.value })}>
-          {PANEL_SPECS.map((p) => (
+        <select className={inputCls} value={spec.id} onChange={(e) => u({ specId: e.target.value })}>
+          {design.catalog.panels.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.name} — {p.length} × {p.width} m
+              {p.name} — {p.length} × {p.width} m — {p.price}/panel
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <Label>Pillar type</Label>
+        <select className={inputCls} value={design.pillar.id} onChange={(e) => u({ pillarId: e.target.value })}>
+          {design.catalog.pillars.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} ({p.shape}) — {p.pricePerFt}/ft
             </option>
           ))}
         </select>

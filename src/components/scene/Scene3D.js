@@ -140,7 +140,18 @@ function PanelTables({ design }) {
     return { groups: [...byDim.values()], legs, blocks, rails };
   }, [design.tables]);
 
-  const legGeo = useMemo(() => new THREE.BoxGeometry(0.06, 1, 0.06), []);
+  const shape = design.pillar?.shape || 'square';
+  const legGeo = useMemo(() => {
+    if (shape === 'cylindrical') return new THREE.CylinderGeometry(0.04, 0.04, 1, 14);
+    if (shape === 'l-shape') {
+      // angle section: two thin plates meeting at a corner
+      const g = new THREE.ExtrudeGeometry(new THREE.Shape([[0, 0], [0.08, 0], [0.08, 0.012], [0.012, 0.012], [0.012, 0.08], [0, 0.08]].map(([x, y]) => new THREE.Vector2(x - 0.03, y - 0.03))), { depth: 1, bevelEnabled: false });
+      g.rotateX(-Math.PI / 2);
+      g.translate(0, -0.5, 0);
+      return g;
+    }
+    return new THREE.BoxGeometry(0.07, 1, 0.07);
+  }, [shape]);
   const blockGeo = useMemo(() => new THREE.BoxGeometry(0.35, 0.18, 0.35), []);
   const frameGeo = useMemo(() => {
     // open frame: thin border only (4 bars) merged would be nicer; a thin slab reads fine from above
@@ -158,7 +169,7 @@ function PanelTables({ design }) {
       <Instances items={data.rails} geometry={frameGeo}>
         <meshStandardMaterial color="#4b5563" metalness={0.6} roughness={0.5} />
       </Instances>
-      <Instances items={data.legs} geometry={legGeo}>
+      <Instances key={shape} items={data.legs} geometry={legGeo}>
         <meshStandardMaterial color="#9ca3af" metalness={0.7} roughness={0.4} />
       </Instances>
       <Instances items={data.blocks} geometry={blockGeo}>
