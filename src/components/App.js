@@ -64,13 +64,11 @@ export default function App({ slug }) {
   const state = useStore();
   const design = useDesign();
 
-  // the URL decides the mode and the step
-  const inSimple = SIMPLE_SLUGS.includes(slug);
-  const inPro = PRO_SLUGS.includes(slug);
-  const simple = inSimple && inPro ? state.mode === 'simple' : inSimple;
-  const slugs = simple ? SIMPLE_SLUGS : PRO_SLUGS;
-  const names = simple ? SIMPLE_STEPS : STEPS;
-  const screens = simple ? SIMPLE_SCREENS : PRO_SCREENS;
+  // one flow only: Location → Roof → Solar plan
+  const simple = true;
+  const slugs = SIMPLE_SLUGS;
+  const names = SIMPLE_STEPS;
+  const screens = SIMPLE_SCREENS;
   const step = Math.max(0, slugs.indexOf(slug));
   const Screen = screens[step];
 
@@ -86,8 +84,8 @@ export default function App({ slug }) {
 
   useEffect(() => {
     const st = useStore.getState();
-    st.set({ step, mode: simple ? 'simple' : 'pro', tool: 'select', selectedId: null, navigate: (i) => router.push(`/design/${slugs[Math.max(0, Math.min(slugs.length - 1, i))]}`) });
-    if (!slugs.includes(slug)) router.replace('/design/location');
+    st.set({ step, mode: 'simple', tool: 'select', selectedId: null, navigate: (i) => router.push(`/design/${slugs[Math.max(0, Math.min(slugs.length - 1, i))]}`) });
+    if (!slugs.includes(slug)) router.replace(`/design/${['roof-details', 'obstructions', 'obstacles'].includes(slug) ? 'roof' : PRO_SLUGS.includes(slug) ? 'plan' : 'location'}`);
     else if (step > 0 && !st.origin) router.replace('/design/location');
     else if (step > 1 && !st.sections.length) router.replace('/design/roof');
   }, [slug, step, simple, slugs, router]);
