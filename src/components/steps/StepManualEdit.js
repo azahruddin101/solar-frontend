@@ -1,7 +1,7 @@
 'use client';
 
 import { Compass, Copy, Hand, LayoutGrid, Plus, SquareDashedMousePointer, Trash2, Warehouse, Wand2 } from 'lucide-react';
-import { offsetPolygon } from '@/lib/geometry';
+import { autoFillRoof } from '@/lib/autofill';
 import { newId } from '@/lib/model';
 import { useStore } from '@/lib/store';
 import Editor2D from '../editor/Editor2D';
@@ -17,22 +17,7 @@ export default function StepManualEdit({ design }) {
   const pick = (t) => set({ tool: tool === t ? 'select' : t, selectedId: null });
   const st = useStore.getState;
 
-  const autoFill = () => {
-    const s = st();
-    const zones = design.sections.map((sec) => ({
-      id: newId('z'),
-      type: 'zone',
-      auto: true,
-      points: offsetPolygon(sec.poly, 0.05).length >= 3 ? offsetPolygon(sec.poly, 0.05) : sec.poly,
-      tilt: config.tilt,
-      azimuth: design.defaultAzimuth,
-      frontLeg: config.frontLeg,
-      rowsPerTable: config.rowsPerTable,
-      orientation: config.orientation,
-      rowGap: config.rowGap,
-    }));
-    s.set({ objects: [...s.objects.filter((o) => !(o.type === 'zone' && o.auto)), ...zones], selectedId: null });
-  };
+  const autoFill = () => autoFillRoof(design);
   const duplicate = () => {
     const o = st().objects.find((x) => x.id === selectedId);
     if (o && o.type !== 'zone') st().addObject({ ...o, id: newId('c'), x: o.x + 2, y: o.y - 2 });

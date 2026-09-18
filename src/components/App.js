@@ -3,7 +3,7 @@
 import { ArrowLeft, CircleHelp, Home, Save } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useEffect, useState } from 'react';
-import { STEPS, useStore } from '@/lib/store';
+import { SIMPLE_STEPS, STEPS, useStore } from '@/lib/store';
 import { useDesign } from '@/lib/useDesign';
 import { sceneApi } from './scene/Scene3D';
 import StepDraw from './steps/StepDraw';
@@ -16,6 +16,7 @@ import StepPanelConfig from './steps/StepPanelConfig';
 import StepReport from './steps/StepReport';
 import StepRoofDetails from './steps/StepRoofDetails';
 
+const StepSimpleDesign = dynamic(() => import('./steps/StepSimpleDesign'), { ssr: false });
 const Step3D = dynamic(() => import('./steps/Step3D'), { ssr: false });
 
 function useSolar() {
@@ -44,25 +45,26 @@ export default function App() {
   const design = useDesign();
   const [saved, setSaved] = useState(false);
 
-  const blockers = [
-    !state.origin && 'Confirm the installation location',
-    !design.sections.length && 'Draw the roof outline',
-    null,
-    null,
-    null,
-    !design.totals.count && 'Place at least one panel',
-    null,
-    null,
-    null,
-    null,
-  ];
-  const blocker = blockers[step];
-  const screens = [StepLocation, StepDraw, StepRoofDetails, StepObstructions, StepPanelConfig, StepManualEdit, Step3D, StepElectrical, StepFinancials, StepReport];
-  const Screen = screens[step];
+  const simple = state.mode === 'simple';
+  const names = simple ? SIMPLE_STEPS : STEPS;
+  const screens = simple
+    ? [StepLocation, StepDraw, StepSimpleDesign, StepFinancials, StepReport]
+    : [StepLocation, StepDraw, StepRoofDetails, StepObstructions, StepPanelConfig, StepManualEdit, Step3D, StepElectrical, StepFinancials, StepReport];
+  const Screen = screens[step] || screens[0];
+  const blocker =
+    Screen === StepLocation ? !state.origin && 'First confirm your location'
+    : Screen === StepDraw ? !design.sections.length && 'Trace your roof to continue'
+    : Screen === StepManualEdit || Screen === StepSimpleDesign ? !design.totals.count && 'Place at least one panel'
+    : null;
+  const switchMode = () => {
+    const to = simple ? 'pro' : 'simple';
+    const map = simple ? [0, 1, 5, 8, 9] : [0, 1, 1, 2, 2, 2, 2, 2, 3, 4];
+    state.set({ mode: to, step: map[step] ?? 0, tool: 'select', selectedId: null });
+  };
 
   const next = () => {
     if (blocker) return;
-    if (step === 6) state.set({ snapshot: sceneApi.capture?.() || state.snapshot });
+    if (Screen === Step3D || (Screen === StepSimpleDesign && sceneApi.capture)) state.set({ snapshot: sceneApi.capture?.() || state.snapshot });
     setStep(step + 1);
   };
 
@@ -73,9 +75,12 @@ export default function App() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="text-[15px] font-semibold">
-          Step {step + 1} of {STEPS.length} · {STEPS[step]}
+          Step {step + 1} of {names.length} · {names[step]}
         </div>
         <div className="ml-auto flex items-center gap-1">
+          <button type="button" onClick={switchMode} className="mr-2 hidden rounded-full border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 sm:block">
+            {simple ? 'Advanced mode' : 'Simple mode'}
+          </button>
           {blocker && <span className="mr-2 hidden text-xs text-slate-400 sm:inline">{blocker}</span>}
           <button type="button" title="Saved automatically" onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 1500); }} className="grid h-9 w-9 place-items-center rounded-full text-slate-600 hover:bg-slate-100">
             <Save className="h-[18px] w-[18px]" />
@@ -86,7 +91,7 @@ export default function App() {
           <button type="button" title="Scroll to zoom · drag to pan · Delete removes the selection" className="grid h-9 w-9 place-items-center rounded-full text-slate-300">
             <CircleHelp className="h-[18px] w-[18px]" />
           </button>
-          {step < STEPS.length - 1 && (
+          {step < names.length - 1 && (
             <button type="button" onClick={next} disabled={Boolean(blocker)} className="ml-2 h-10 rounded-lg bg-[#0f172a] px-5 text-sm font-semibold text-white hover:bg-slate-800 disabled:bg-slate-300">
               Next
             </button>
@@ -94,7 +99,7 @@ export default function App() {
         </div>
         {saved && <div className="absolute right-40 top-5 rounded bg-slate-900 px-2 py-1 text-xs text-white">Saved</div>}
         <div className="absolute inset-x-0 bottom-0 h-1 bg-slate-100">
-          <div className="h-full bg-slate-700 transition-all" style={{ width: `${((step + 1) / STEPS.length) * 100}%` }} />
+          <div className="h-full bg-slate-700 transition-all" style={{ width: `${((step + 1) / names.length) * 100}%` }} />
         </div>
       </header>
       <main className="relative min-h-0 flex-1">

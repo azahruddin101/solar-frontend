@@ -24,6 +24,16 @@ export default function StepDraw({ design }) {
           ? 'Click the roof corners · lines snap to 90° · click the first point or press Enter to finish · Backspace undoes'
           : 'Drag corners to adjust · right-click a corner to delete it · add elevated roof sections on top'}
       </Hint>
+      {!sections.length && (
+        <Card className="absolute bottom-6 left-1/2 w-[420px] -translate-x-1/2">
+          <div className="text-[15px] font-semibold">Trace your roof in 3 easy clicks</div>
+          <ol className="mt-1.5 list-decimal space-y-0.5 pl-5 text-sm text-slate-600">
+            <li>Scroll to zoom in on your house, drag to move the picture.</li>
+            <li>Click on each corner of your roof, one after another.</li>
+            <li>Click the first corner again to finish. Made a mistake? Press Backspace.</li>
+          </ol>
+        </Card>
+      )}
       <div className="absolute left-4 top-4 flex flex-col gap-3">
         <RoundBtn icon={PenLine} label={sections.length ? 'Add elevated roof section' : 'Draw roof outline'} active={tool === 'draw-section'} onClick={() => set({ tool: tool === 'draw-section' ? 'select' : 'draw-section', selectedId: null })} />
         <RoundBtn icon={Undo2} label="Cancel drawing (Esc)" disabled={tool !== 'draw-section'} onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))} />

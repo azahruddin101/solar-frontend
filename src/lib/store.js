@@ -5,8 +5,11 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 export const STEPS = ['Project Setup', 'Draw Roof', 'Roof Details', 'Obstructions', 'Panel & Mounting', 'Manual Edit', '3D View & Shadows', 'Electrical Design', 'Financials', 'Report & Drawings'];
 
+export const SIMPLE_STEPS = ['Find your home', 'Trace your roof', 'Your solar panels', 'Savings', 'Download plan'];
+
 const initial = {
   step: 0,
+  mode: 'simple',
   project: { name: '', customer: '', preparedBy: '' },
   place: null, // {address, location}
   origin: null, // confirmed {lat, lng}
@@ -27,7 +30,7 @@ export const useStore = create(
     (set) => ({
       ...initial,
       set: (patch) => set(patch),
-      setStep: (step) => set({ step: Math.max(0, Math.min(STEPS.length - 1, step)), tool: 'select', selectedId: null }),
+      setStep: (step) => set((st) => ({ step: Math.max(0, Math.min((st.mode === 'simple' ? SIMPLE_STEPS : STEPS).length - 1, step)), tool: 'select', selectedId: null })),
       patch: (key, patch) => set((s) => ({ [key]: { ...s[key], ...patch } })),
       addSection: (sec) => set((s) => ({ sections: [...s.sections, sec], selectedId: sec.id, tool: 'select' })),
       updateSection: (id, patch) => set((s) => ({ sections: s.sections.map((x) => (x.id === id ? { ...x, ...patch } : x)) })),
@@ -46,7 +49,7 @@ export const useStore = create(
       merge: (saved, cur) => ({ ...cur, ...saved, config: { ...cur.config, ...(saved?.config || {}) } }),
       version: 2,
       storage: createJSONStorage(() => localStorage),
-      partialize: ({ step, project, place, origin, sections, objects, config, electrical, finance, sun }) => ({ step, project, place, origin, sections, objects, config, electrical, finance, sun }),
+      partialize: ({ mode, step, project, place, origin, sections, objects, config, electrical, finance, sun }) => ({ mode, step, project, place, origin, sections, objects, config, electrical, finance, sun }),
     },
   ),
 );

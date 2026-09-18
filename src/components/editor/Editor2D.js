@@ -168,9 +168,9 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
     const w = evW(e);
     const s = st();
     if (drawing) {
-      const sn = snapPoint(w, draft, view.scale);
-      if (sn.close) finishDraft(draft);
-      else setDraft([...draft, sn.p]);
+      // a click adds a corner, a drag pans the picture
+      drag.current = { kind: 'pan', sx: e.clientX, sy: e.clientY, view, click: w };
+      ref.current.setPointerCapture(e.pointerId);
       return;
     }
     if (tool === 'add-tree') return s.addObject({ id: newId('t'), type: 'tree', x: w.x, y: w.y, r: 2.5, h: 8 });
@@ -201,6 +201,8 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
     if (!d) return;
     const s = st();
     if (d.kind === 'pan') {
+      if (d.click && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 5) return;
+      d.click = null;
       setView({ ...d.view, cx: d.view.cx - (e.clientX - d.sx) / view.scale, cy: d.view.cy + (e.clientY - d.sy) / view.scale });
     } else if (d.kind === 'move') {
       const dx = w.x - d.start.x;
@@ -217,7 +219,15 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
       s.updateObject(d.id, d.isBlock ? { rot: az } : { azimuth: Math.round(az) });
     }
   };
-  const onUp = () => (drag.current = null);
+  const onUp = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (d?.click && drawing) {
+      const sn = snapPoint(d.click, draft, view.scale);
+      if (sn.close) finishDraft(draft);
+      else setDraft([...draft, sn.p]);
+    }
+  };
 
   const vertexHandles = (id, points, isSection) =>
     points.map((p, i) => {
