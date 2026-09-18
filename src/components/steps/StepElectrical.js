@@ -47,6 +47,20 @@ export default function StepElectrical({ design }) {
         <div className="overflow-hidden rounded-2xl border border-slate-200 p-2"><SldSvg el={el} spec={design.spec} /></div>
       </div>
       <div>
+        <Label>Mounting Structure — iron columns</Label>
+        <p className="mb-2 text-sm text-slate-500">
+          {design.structure.columns} columns · {design.structure.columnM.toFixed(1)} m column steel · rafters {design.structure.rafterM.toFixed(1)} m · purlins {design.structure.purlinM.toFixed(1)} m · ≈ {Math.round(design.structure.weight)} kg
+        </p>
+        <table className="w-full">
+          <thead><tr><Th>Table</Th><Th>Type</Th><Th r>Panels</Th><Th r>Tilt</Th><Th r>Columns</Th><Th r>Front column</Th><Th r>Back column</Th></tr></thead>
+          <tbody>
+            {design.structure.rows.map((t) => (
+              <tr key={t.name}><Td>{t.name}</Td><Td>{t.kind === 'elevated' ? 'Elevated' : 'Standard'}</Td><Td r>{t.grid}</Td><Td r>{t.tilt}°</Td><Td r>{t.columns}</Td><Td r>{t.frontLen.toFixed(2)} m</Td><Td r>{t.backLen.toFixed(2)} m</Td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div>
         <Label>Bill of Materials</Label>
         <table className="w-full">
           <thead><tr><Th>#</Th><Th>Item</Th><Th>Specification</Th><Th r>Qty</Th><Th>Unit</Th></tr></thead>

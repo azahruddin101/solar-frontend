@@ -6,6 +6,7 @@ import { buildYieldModel, computeFinancials } from './energy.js';
 import { buildDesign, resolveAzimuth } from './model.js';
 import { shadingLoss } from './shading.js';
 import { useStore } from './store.js';
+import { computeStructure } from './structure.js';
 
 export function useDesign() {
   const sections = useStore((s) => s.sections);
@@ -21,7 +22,8 @@ export function useDesign() {
   const defaultAzimuth = useMemo(() => resolveAzimuth(config, design.sections, lat), [config, design.sections, lat]);
   const yieldModel = useMemo(() => buildYieldModel(lat, solarData), [lat, solarData]);
   const shade = useMemo(() => shadingLoss(design, lat), [design, lat]);
-  const electrical = useMemo(() => designElectrical(design, { inverterId }), [design, inverterId]);
+  const structure = useMemo(() => computeStructure(design), [design]);
+  const electrical = useMemo(() => designElectrical(design, structure, { inverterId }), [design, structure, inverterId]);
 
   const totals = useMemo(() => {
     const eff = finance.efficiency / 100;
@@ -58,5 +60,5 @@ export function useDesign() {
 
   const fin = useMemo(() => computeFinancials({ kwp: totals.kwp, annualKwh: totals.acKwh, ...finance }), [totals, finance]);
 
-  return { ...design, lat, origin, defaultAzimuth, yieldModel, shade, electrical, totals, fin, solarData };
+  return { ...design, lat, origin, defaultAzimuth, yieldModel, shade, electrical, structure, totals, fin, solarData };
 }

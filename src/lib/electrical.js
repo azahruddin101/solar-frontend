@@ -10,7 +10,7 @@ export const INVERTERS = [3, 5, 6, 8, 10, 12, 15, 20, 25, 30, 40, 50, 60, 80, 10
 
 export const STRING_COLORS = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#84cc16', '#6366f1', '#06b6d4', '#e11d48'];
 
-export function designElectrical(design, { inverterId = 'auto', dcAcRatio = 1.15 } = {}) {
+export function designElectrical(design, structure, { inverterId = 'auto', dcAcRatio = 1.15 } = {}) {
   const { modules, spec, tables } = design;
   const n = modules.length;
   const kwp = (n * spec.watts) / 1000;
@@ -64,15 +64,17 @@ export function designElectrical(design, { inverterId = 'auto', dcAcRatio = 1.15
     });
   }
 
-  const legs = tables.filter((t) => t.valid).reduce((a, t) => a + t.legs.length, 0);
-  const rail = tables.filter((t) => t.valid).reduce((a, t) => a + t.size.width * 2 * t.rows, 0);
   const dcCable = strings.reduce((a, s) => a + 2 * (15 + s.count * 0.3), 0) * 1.1;
   const bom = [
     ['PV module', `${spec.name} (${spec.length} x ${spec.width} m)`, n, 'nos'],
     ['String inverter', inv.name, count, 'nos'],
-    ['Mounting legs / columns', 'HDG steel, as per leg heights', legs, 'nos'],
-    ['Foundation blocks', 'RCC pedestal / ballast 300 x 300', legs, 'nos'],
-    ['Module rails / purlins', 'Aluminium / HDG C-channel', Math.ceil(rail), 'm'],
+    ['Iron columns 60x60x3 SHS', structure.cutList.map((c) => `${c.len.toFixed(2)} m x ${c.qty}`).join(', '), structure.columns, 'nos'],
+    ['Column steel total', 'HDG, cut as per list', Math.ceil(structure.columnM), 'm'],
+    ['Rafters 80x40x3 RHS', '', Math.ceil(structure.rafterM), 'm'],
+    ['Purlins / module rails', '41x41 C-channel', Math.ceil(structure.purlinM), 'm'],
+    ['Base plates 200x200x8', 'with 4 anchor bolts M12 each', structure.basePlates, 'nos'],
+    ['Anchor bolts M12', '', structure.anchorBolts, 'nos'],
+    ['RCC pedestals / ballast', '300 x 300 x 300', structure.foundations, 'nos'],
     ['Mid clamps', '', Math.max(0, n * 2 - tables.length * 2), 'nos'],
     ['End clamps', '', tables.filter((t) => t.valid).length * 4 * 1, 'nos'],
     ['DC cable 4 sq.mm', 'Solar grade, red + black', Math.ceil(dcCable / 5) * 5, 'm'],

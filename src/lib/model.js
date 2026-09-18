@@ -237,8 +237,16 @@ export function buildDesign({ sections: rawSections, objects, config, lat }) {
     const placement = rectPlacement(tableFootprint(t, spec), ctx, { ignoreId: t.id, inset: 0.05 });
     tables.push({ ...expandTable(t, ctx), valid: placement.ok, reason: placement.reason });
   }
+  // zones: fill, then cap to the panel limit (target capacity) before expanding
+  let budget = config.maxPanels > 0 ? Math.max(0, config.maxPanels - tables.filter((t) => t.valid).reduce((a, t) => a + t.modules.length, 0)) : Infinity;
   for (const z of objects.filter((o) => o.type === 'zone')) {
-    for (const t of fillZone(z, ctx)) tables.push({ ...expandTable(t, ctx), valid: true });
+    for (const t of fillZone(z, ctx)) {
+      if (budget <= 0) break;
+      const cols = Math.min(t.cols, Math.floor(budget / t.rows));
+      if (cols < 1) continue;
+      budget -= cols * t.rows;
+      tables.push({ ...expandTable({ ...t, cols }, ctx), valid: true });
+    }
   }
 
   const modules = tables.filter((t) => t.valid).flatMap((t) => t.modules);

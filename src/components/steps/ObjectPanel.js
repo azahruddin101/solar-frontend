@@ -20,7 +20,7 @@ export default function ObjectPanel({ design }) {
   const isPanels = o.type === 'array' || o.type === 'zone';
 
   return (
-    <Card className="absolute right-4 top-20 w-72 space-y-2.5">
+    <Card className="absolute left-20 top-16 w-72 space-y-2.5">
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold">{o.elevated ? 'Elevated structure' : TITLES[o.type]}</div>
         <div className="flex gap-1">

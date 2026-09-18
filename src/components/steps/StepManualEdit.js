@@ -6,6 +6,7 @@ import { newId } from '@/lib/model';
 import { useStore } from '@/lib/store';
 import Editor2D from '../editor/Editor2D';
 import { Hint, RoundBtn } from './common';
+import DesignPanel from './DesignPanel';
 import ObjectPanel from './ObjectPanel';
 
 export default function StepManualEdit({ design }) {
@@ -52,15 +53,16 @@ export default function StepManualEdit({ design }) {
         <RoundBtn icon={LayoutGrid} label="Add panel array" active={tool === 'add-array'} onClick={() => pick('add-array')} />
         <RoundBtn icon={Warehouse} label="Add elevated structure" active={tool === 'add-elevated'} onClick={() => pick('add-elevated')} />
       </div>
-      <div className="absolute right-4 top-4 flex gap-2.5">
+      <div className="absolute right-[346px] top-4 flex gap-2.5">
         <RoundBtn icon={Hand} label="Select / pan" active={tool === 'select'} onClick={() => set({ tool: 'select' })} />
         <RoundBtn icon={Plus} label="Add panel array" onClick={() => pick('add-array')} />
         <RoundBtn icon={Copy} label="Duplicate" disabled={!selectedId} onClick={duplicate} />
         <RoundBtn icon={Trash2} label="Delete" danger disabled={!selectedId} onClick={() => st().remove(selectedId)} />
         <RoundBtn icon={Compass} label={`Arrays face ${design.defaultAzimuth}°`} onClick={() => {}} />
       </div>
-      <ObjectPanel design={design} />
-      <div onPointerDown={(e) => e.stopPropagation()} className="absolute inset-x-4 bottom-4 flex items-center gap-6 rounded-2xl bg-white px-5 py-3 shadow-xl">
+      {design.trees.concat(design.blocks).some((o) => o.id === selectedId) && <ObjectPanel design={design} />}
+      <DesignPanel design={design} />
+      <div onPointerDown={(e) => e.stopPropagation()} className="absolute bottom-4 left-4 right-[346px] flex items-center gap-6 rounded-2xl bg-white px-5 py-3 shadow-xl">
         <Stat label="Panels" value={totals.count} />
         <Stat label="Capacity" value={`${totals.kwp.toFixed(2)} kWp`} />
         <Stat label="Energy" value={`${Math.round(totals.acKwh).toLocaleString()} kWh/yr`} />
