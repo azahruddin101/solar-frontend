@@ -1,5 +1,5 @@
-import ClientApp from '@/components/ClientApp';
+import Home from '@/components/Home';
 
-export default function Home() {
-  return <ClientApp />;
+export default function Page() {
+  return <Home />;
 }

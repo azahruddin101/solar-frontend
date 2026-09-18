@@ -29,7 +29,7 @@ export default function StepElectrical({ design }) {
       </div>
       <div>
         <Label>Auto-stringing</Label>
-        <div className="overflow-hidden rounded-2xl border border-slate-200"><LayoutSvg design={design} /></div>
+        <div className="overflow-hidden rounded-lg border border-slate-200"><LayoutSvg design={design} /></div>
         <table className="mt-3 w-full">
           <thead><tr><Th>String</Th><Th r>Modules</Th><Th r>Power</Th><Th r>Voc (STC)</Th><Th r>Voc (cold)</Th><Th r>Isc</Th><Th r>Inverter</Th></tr></thead>
           <tbody>
@@ -44,7 +44,7 @@ export default function StepElectrical({ design }) {
       </div>
       <div>
         <Label>Single Line Diagram</Label>
-        <div className="overflow-hidden rounded-2xl border border-slate-200 p-2"><SldSvg el={el} spec={design.spec} /></div>
+        <div className="overflow-hidden rounded-lg border border-slate-200 p-2"><SldSvg el={el} spec={design.spec} /></div>
       </div>
       <div>
         <Label>Mounting Structure — iron columns</Label>

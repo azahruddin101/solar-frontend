@@ -47,7 +47,7 @@ export default function StepManualEdit({ design }) {
       </div>
       {design.trees.concat(design.blocks).some((o) => o.id === selectedId) && <ObjectPanel design={design} />}
       <DesignPanel design={design} />
-      <div onPointerDown={(e) => e.stopPropagation()} className="absolute bottom-4 left-4 right-[346px] flex items-center gap-6 rounded-2xl bg-white px-5 py-3 shadow-xl">
+      <div onPointerDown={(e) => e.stopPropagation()} className="absolute bottom-4 left-4 right-[346px] flex items-center gap-6 rounded-lg bg-white px-5 py-3 shadow-xl">
         <Stat label="Panels" value={totals.count} />
         <Stat label="Capacity" value={`${totals.kwp.toFixed(2)} kWp`} />
         <Stat label="Energy" value={`${Math.round(totals.acKwh).toLocaleString()} kWh/yr`} />

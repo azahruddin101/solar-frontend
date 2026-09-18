@@ -36,7 +36,7 @@ export function Adjust({ label, value, onChange, min, max, step = 1, suffix = ''
           <span className="w-5 text-xs text-slate-400">{suffix}</span>
         </span>
       </div>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} className="h-1.5 w-full cursor-pointer accent-[#f5a524]" />
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} className="h-1.5 w-full cursor-pointer accent-blue-700" />
     </div>
   );
 }
@@ -50,7 +50,7 @@ const Row = ({ k, v, strong }) => (
 
 const Head = ({ icon: Icon, children }) => (
   <div className="mb-2 flex items-center gap-2 text-[12px] font-bold uppercase tracking-wide text-slate-500">
-    <Icon className="h-4 w-4 text-[#f5a524]" /> {children}
+    <Icon className="h-4 w-4 text-blue-700" /> {children}
   </div>
 );
 
@@ -80,7 +80,7 @@ export default function DesignPanel({ design }) {
             {config.targetKw} kW ÷ {spec.watts} W = <b>{needed} panels</b> needed{totals.count < needed ? ` — only ${totals.count} fit with the current layout. Add a zone or press Auto-fill.` : ''}
           </p>
         )}
-        <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2">
+        <div className="mt-3 rounded-md bg-slate-50 px-3 py-2">
           <Row k="Panels" v={`${totals.count} × ${spec.watts} W`} strong />
           <Row k="Total power" v={`${(totals.count * spec.watts).toLocaleString()} W = ${totals.kwp.toFixed(2)} kWp`} strong />
           <Row k="Energy" v={`${Math.round(totals.acKwh).toLocaleString()} kWh / year`} />
@@ -88,7 +88,7 @@ export default function DesignPanel({ design }) {
           <Row k="Shading loss" v={`${totals.shadeLossPct.toFixed(1)} %`} />
           <Row k="Roof used" v={`${(totals.count * spec.length * spec.width).toFixed(0)} of ${design.roofArea.toFixed(0)} m²`} />
         </div>
-        <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2">
+        <div className="mt-3 rounded-md bg-blue-50 px-3 py-2">
           <Row k="Iron columns (legs)" v={`${structure.columns} nos`} strong />
           <Row k="  front / back" v={`${structure.front} / ${structure.back}`} />
           <Row k="Column steel (60×60 SHS)" v={`${structure.columnM.toFixed(1)} m`} strong />
@@ -99,7 +99,7 @@ export default function DesignPanel({ design }) {
           <Row k="Anchor bolts" v={`${structure.anchorBolts} nos`} />
           <Row k="Approx. steel weight" v={`${Math.round(structure.weight)} kg`} />
           {structure.cutList.length > 0 && (
-            <div className="mt-1 border-t border-amber-200 pt-1.5 text-xs text-slate-600">
+            <div className="mt-1 border-t border-blue-200 pt-1.5 text-xs text-slate-600">
               <div className="mb-0.5 font-semibold">Column cut list</div>
               {structure.cutList.map((c) => (
                 <div key={c.len} className="flex justify-between">

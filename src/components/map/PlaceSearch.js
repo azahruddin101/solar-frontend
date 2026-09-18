@@ -152,7 +152,7 @@ export default function PlaceSearch({ onSelect }) {
   return (
     <div>
       <div className="relative">
-        <div className="flex h-[52px] items-center gap-3 rounded-xl border border-slate-300 bg-white px-4 shadow-sm focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-100">
+        <div className="flex h-[52px] items-center gap-3 rounded-md border border-slate-300 bg-white px-4 shadow-sm focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-100">
           {busy ? <Loader2 className="h-4 w-4 animate-spin text-slate-400" /> : <Search className="h-4 w-4 text-slate-400" />}
           <input
             value={query}
@@ -184,7 +184,7 @@ export default function PlaceSearch({ onSelect }) {
           </button>
         </div>
         {open && visible.length > 0 && (
-          <ul className="absolute z-20 mt-1.5 max-h-72 w-full overflow-y-auto rounded-xl bg-white py-1 shadow-xl ring-1 ring-slate-200">
+          <ul className="absolute z-20 mt-1.5 max-h-72 w-full overflow-y-auto rounded-md bg-white py-1 shadow-xl ring-1 ring-slate-200">
             {visible.map((it, i) => (
               <li key={`${it.main}-${i}`}>
                 <button

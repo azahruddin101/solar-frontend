@@ -12,7 +12,7 @@ export default function StepRoofDetails() {
     <FormPage icon={Building2} title="Roof Height & Parapet Walls">
       <p className="text-sm text-slate-500">RCC roof. Heights are measured from the ground; parapet walls cast shadows and define the usable area.</p>
       {sections.map((s) => (
-        <div key={s.id} className="rounded-2xl border border-slate-200 p-5">
+        <div key={s.id} className="rounded-lg border border-slate-200 p-5">
           <div className="mb-4 flex items-baseline justify-between">
             <input value={s.name} onChange={(e) => update(s.id, { name: e.target.value })} className="text-lg font-semibold outline-none" />
             <span className="text-sm text-slate-400">{polygonArea(s.points).toFixed(1)} m²</span>

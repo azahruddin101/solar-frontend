@@ -1,9 +1,11 @@
 'use client';
 
-import { ArrowLeft, CircleHelp, Home, Save } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Sun } from 'lucide-react';
 import dynamic from 'next/dynamic';
-import { useEffect, useState } from 'react';
-import { SIMPLE_STEPS, STEPS, useStore } from '@/lib/store';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
+import { PRO_SLUGS, SIMPLE_SLUGS, SIMPLE_STEPS, STEPS, useStore } from '@/lib/store';
 import { useDesign } from '@/lib/useDesign';
 import { sceneApi } from './scene/Scene3D';
 import StepDraw from './steps/StepDraw';
@@ -16,6 +18,7 @@ import StepPanelConfig from './steps/StepPanelConfig';
 import StepReport from './steps/StepReport';
 import StepRoofDetails from './steps/StepRoofDetails';
 import StepSimpleObstacles from './steps/StepSimpleObstacles';
+import { cx } from './ui';
 
 const StepSimpleDesign = dynamic(() => import('./steps/StepSimpleDesign'), { ssr: false });
 const Step3D = dynamic(() => import('./steps/Step3D'), { ssr: false });
@@ -51,75 +54,120 @@ function useCatalog() {
   }, [set]);
 }
 
-export default function App() {
+const SIMPLE_SCREENS = [StepLocation, StepDraw, StepSimpleObstacles, StepSimpleDesign];
+const PRO_SCREENS = [StepLocation, StepDraw, StepRoofDetails, StepObstructions, StepPanelConfig, StepManualEdit, Step3D, StepElectrical, StepFinancials, StepReport];
+
+export default function App({ slug }) {
   useSolar();
   useCatalog();
-  const step = useStore((s) => s.step);
-  const setStep = useStore((s) => s.setStep);
+  const router = useRouter();
   const state = useStore();
   const design = useDesign();
-  const [saved, setSaved] = useState(false);
 
-  const simple = state.mode === 'simple';
+  // the URL decides the mode and the step
+  const inSimple = SIMPLE_SLUGS.includes(slug);
+  const inPro = PRO_SLUGS.includes(slug);
+  const simple = inSimple && inPro ? state.mode === 'simple' : inSimple;
+  const slugs = simple ? SIMPLE_SLUGS : PRO_SLUGS;
   const names = simple ? SIMPLE_STEPS : STEPS;
-  const screens = simple
-    ? [StepLocation, StepDraw, StepSimpleObstacles, StepSimpleDesign]
-    : [StepLocation, StepDraw, StepRoofDetails, StepObstructions, StepPanelConfig, StepManualEdit, Step3D, StepElectrical, StepFinancials, StepReport];
-  const Screen = screens[step] || screens[0];
-  const blocker =
-    Screen === StepLocation ? !state.origin && 'First confirm your location'
-    : Screen === StepDraw ? !design.sections.length && 'Trace your roof to continue'
-    : Screen === StepManualEdit || Screen === StepSimpleDesign ? !design.totals.count && 'Place at least one panel'
-    : null;
-  const switchMode = () => {
-    const to = simple ? 'pro' : 'simple';
-    const map = simple ? [0, 1, 3, 5] : [0, 1, 2, 2, 3, 3, 3, 3, 3, 3];
-    state.set({ mode: to, step: map[step] ?? 0, tool: 'select', selectedId: null });
-  };
+  const screens = simple ? SIMPLE_SCREENS : PRO_SCREENS;
+  const step = Math.max(0, slugs.indexOf(slug));
+  const Screen = screens[step];
 
-  const next = () => {
-    if (blocker) return;
-    if (Screen === Step3D || (Screen === StepSimpleDesign && sceneApi.capture)) state.set({ snapshot: sceneApi.capture?.() || state.snapshot });
-    setStep(step + 1);
+  const ready = [Boolean(state.origin), design.sections.length > 0];
+  const reachable = (i) => i === 0 || (ready[0] && (i === 1 || ready[1]));
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('new')) {
+      useStore.getState().reset();
+      router.replace('/design/location');
+    }
+  }, [router]);
+
+  useEffect(() => {
+    const st = useStore.getState();
+    st.set({ step, mode: simple ? 'simple' : 'pro', tool: 'select', selectedId: null, navigate: (i) => router.push(`/design/${slugs[Math.max(0, Math.min(slugs.length - 1, i))]}`) });
+    if (!slugs.includes(slug)) router.replace('/design/location');
+    else if (step > 0 && !st.origin) router.replace('/design/location');
+    else if (step > 1 && !st.sections.length) router.replace('/design/roof');
+  }, [slug, step, simple, slugs, router]);
+
+  const blocker =
+    Screen === StepLocation ? !ready[0] && 'Confirm the location to continue'
+    : Screen === StepDraw ? !ready[1] && 'Mark the roof outline to continue'
+    : Screen === StepManualEdit ? !design.totals.count && 'Place at least one panel'
+    : null;
+
+  const go = (i) => {
+    if (Screen === Step3D) state.set({ snapshot: sceneApi.capture?.() || state.snapshot });
+    state.setStep(i);
   };
+  const switchMode = () => {
+    const map = simple ? [0, 1, 3, 5] : [0, 1, 2, 2, 3, 3, 3, 3, 3, 3];
+    const target = (simple ? PRO_SLUGS : SIMPLE_SLUGS)[map[step] ?? 0];
+    state.set({ mode: simple ? 'pro' : 'simple' });
+    router.push(`/design/${target}`);
+  };
+  const last = step === slugs.length - 1;
 
   return (
-    <div className="flex h-dvh flex-col bg-white text-slate-900">
-      <header className="relative flex h-16 shrink-0 items-center gap-3 px-5">
-        <button type="button" disabled={step === 0} onClick={() => setStep(step - 1)} className="grid h-9 w-9 place-items-center rounded-full text-slate-700 hover:bg-slate-100 disabled:opacity-30">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <div className="text-[15px] font-semibold">
-          Step {step + 1} of {names.length} · {names[step]}
+    <div className="flex h-dvh flex-col bg-slate-50 text-slate-900">
+      <header className="flex h-14 shrink-0 items-center gap-4 border-b border-slate-200 bg-white px-5">
+        <Link href="/" className="flex items-center gap-2 text-sm font-semibold" aria-label="Solar Planner home">
+          <span className="grid h-7 w-7 place-items-center rounded-md bg-blue-700 text-white"><Sun className="h-4 w-4" /></span>
+          <span className="hidden sm:inline">Solar Planner</span>
+        </Link>
+        <div className="hidden min-w-0 border-l border-slate-200 pl-4 text-sm text-slate-500 md:block">
+          <span className="block max-w-[280px] truncate">{state.place?.address || 'New project'}</span>
         </div>
-        <div className="ml-auto flex items-center gap-1">
-          <button type="button" onClick={switchMode} className="mr-2 hidden rounded-full border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 sm:block">
-            {simple ? 'For installers' : 'Simple mode'}
+        <div className="ml-auto flex items-center gap-2">
+          <span className="hidden text-xs text-slate-400 lg:inline">Saved automatically</span>
+          <div role="group" aria-label="Workspace" className="flex rounded-md border border-slate-300 p-0.5 text-xs font-medium">
+            {[['Quick quote', true], ['Engineering', false]].map(([label, isSimple]) => (
+              <button key={label} type="button" aria-pressed={simple === isSimple} onClick={() => simple !== isSimple && switchMode()} className={cx('rounded px-3 py-1.5', simple === isSimple ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100')}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={() => window.confirm('Start a new project? The current design will be cleared.') && router.push('/design/location?new=1')} className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100">
+            New project
           </button>
-          {blocker && <span className="mr-2 hidden text-xs text-slate-400 sm:inline">{blocker}</span>}
-          <button type="button" title="Saved automatically" onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 1500); }} className="grid h-9 w-9 place-items-center rounded-full text-slate-600 hover:bg-slate-100">
-            <Save className="h-[18px] w-[18px]" />
-          </button>
-          <button type="button" title="New project" onClick={() => window.confirm('Start a new project? This clears the current design.') && state.reset()} className="grid h-9 w-9 place-items-center rounded-full text-slate-600 hover:bg-slate-100">
-            <Home className="h-[18px] w-[18px]" />
-          </button>
-          <button type="button" title="Scroll to zoom · drag to pan · Delete removes the selection" className="grid h-9 w-9 place-items-center rounded-full text-slate-300">
-            <CircleHelp className="h-[18px] w-[18px]" />
-          </button>
-          {step < names.length - 1 && (
-            <button type="button" onClick={next} disabled={Boolean(blocker)} className="ml-2 h-10 rounded-lg bg-[#0f172a] px-5 text-sm font-semibold text-white hover:bg-slate-800 disabled:bg-slate-300">
-              Next
-            </button>
-          )}
-        </div>
-        {saved && <div className="absolute right-40 top-5 rounded bg-slate-900 px-2 py-1 text-xs text-white">Saved</div>}
-        <div className="absolute inset-x-0 bottom-0 h-1 bg-slate-100">
-          <div className="h-full bg-slate-700 transition-all" style={{ width: `${((step + 1) / names.length) * 100}%` }} />
         </div>
       </header>
+
+      <nav aria-label="Progress" className="shrink-0 overflow-x-auto border-b border-slate-200 bg-white px-5">
+        <ol className="flex min-w-max items-center gap-1 py-2.5">
+          {names.map((name, i) => {
+            const ok = reachable(i);
+            const done = i < step;
+            return (
+              <li key={name} className="flex items-center">
+                {i > 0 && <span aria-hidden className={cx('mx-1 h-px w-5', done || i === step ? 'bg-blue-700' : 'bg-slate-300')} />}
+                <button type="button" disabled={!ok} aria-current={i === step ? 'step' : undefined} onClick={() => go(i)} className={cx('flex items-center gap-2 rounded-md px-2 py-1 text-[13px] font-medium', i === step ? 'text-blue-800' : ok ? 'text-slate-600 hover:bg-slate-100' : 'cursor-not-allowed text-slate-300')}>
+                  <span className={cx('grid h-5 w-5 place-items-center rounded-full text-[11px] font-semibold', i === step ? 'bg-blue-700 text-white' : done ? 'bg-blue-100 text-blue-800' : 'bg-slate-200 text-slate-500')}>
+                    {done ? <Check className="h-3 w-3" /> : i + 1}
+                  </span>
+                  {name}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      </nav>
+
       <main className="relative min-h-0 flex-1">
         <Screen design={design} />
       </main>
+
+      <footer className="flex h-16 shrink-0 items-center justify-between border-t border-slate-200 bg-white px-5">
+        <button type="button" disabled={step === 0} onClick={() => go(step - 1)} className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:invisible">
+          <ArrowLeft className="h-4 w-4" /> Back
+        </button>
+        <div className="text-sm text-slate-500" role="status">{blocker || `Step ${step + 1} of ${slugs.length}`}</div>
+        <button type="button" disabled={Boolean(blocker) || last} onClick={() => go(step + 1)} className={cx('inline-flex h-10 items-center gap-2 rounded-md bg-blue-700 px-5 text-sm font-semibold text-white hover:bg-blue-800 disabled:bg-slate-300', last && 'invisible')}>
+          Continue <ArrowRight className="h-4 w-4" />
+        </button>
+      </footer>
     </div>
   );
 }

@@ -30,7 +30,7 @@ export default function GroupList({ design }) {
         const u = (patch) => s.updateObject(g.id, patch);
         const n = g.rows * g.cols;
         return (
-          <div key={g.id} className={cx('overflow-hidden rounded-xl border transition', open ? 'border-[#f5a524] ring-2 ring-[#f5a524]/30' : 'border-slate-200')}>
+          <div key={g.id} className={cx('overflow-hidden rounded-md border transition', open ? 'border-blue-700 ring-2 ring-blue-700/20' : 'border-slate-200')}>
             <button type="button" onClick={() => s.set({ selectedId: open ? null : g.id })} className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-slate-50">
               <span className={cx('grid h-7 w-7 shrink-0 place-items-center rounded-lg text-xs font-bold text-white', t?.valid === false ? 'bg-red-500' : 'bg-blue-600')}>{i + 1}</span>
               <span className="min-w-0 flex-1">
@@ -73,7 +73,7 @@ export default function GroupList({ design }) {
           </div>
         );
       })}
-      <button type="button" onClick={add} className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 text-sm font-medium text-slate-600 hover:bg-slate-50">
+      <button type="button" onClick={add} className="flex h-10 w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-slate-300 text-sm font-medium text-slate-600 hover:bg-slate-50">
         <Plus className="h-4 w-4" /> Add a panel group
       </button>
     </div>

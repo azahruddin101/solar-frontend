@@ -62,7 +62,7 @@ export default function StepPanelConfig({ design }) {
           </div>
         )}
       </div>
-      <div className="grid grid-cols-3 gap-3 rounded-2xl bg-slate-50 p-4 text-sm">
+      <div className="grid grid-cols-3 gap-3 rounded-lg bg-slate-50 p-4 text-sm">
         <div>
           <div className="text-slate-500">Facing</div>
           <div className="font-semibold">{az}° {compassLabel(az)}</div>

@@ -28,7 +28,7 @@ export default function StepFinancials({ design }) {
         <Num label="Tariff escalation" value={f.escalation} step={0.5} max={20} suffix="%/yr" onChange={(escalation) => u({ escalation })} />
         <Num label="Module degradation" value={f.degradation} step={0.1} max={3} suffix="%/yr" onChange={(degradation) => u({ degradation })} />
       </div>
-      <div className="rounded-2xl border border-slate-200 p-4 text-sm">
+      <div className="rounded-lg border border-slate-200 p-4 text-sm">
         <div className="mb-2 font-semibold">Price breakdown</div>
         {[[`${design.totals.count} × ${design.spec.name} @ ${money(design.spec.price)}`, design.cost.panels], [`Pillars (${design.pillar.name}) ${Math.round(design.cost.pillarFt)} ft @ ${money(design.pillar.pricePerFt)}/ft`, design.cost.pillars], ['Inverter, wiring, installation', design.cost.other]].map(([l, v]) => (
           <div key={l} className="flex justify-between py-1"><span className="text-slate-600">{l}</span><b>{money(v)}</b></div>
@@ -38,7 +38,7 @@ export default function StepFinancials({ design }) {
       </div>
       <div className="grid grid-cols-3 gap-3">
         {kpis.map(([l, v]) => (
-          <div key={l} className="rounded-2xl bg-slate-50 p-4">
+          <div key={l} className="rounded-lg bg-slate-50 p-4">
             <div className="text-xs uppercase tracking-wide text-slate-400">{l}</div>
             <div className="mt-1 text-lg font-bold">{v}</div>
           </div>

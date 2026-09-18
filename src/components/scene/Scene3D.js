@@ -472,7 +472,7 @@ export default function Scene3D({ design }) {
               key={k}
               type="button"
               onClick={() => patch('sun', { season: k })}
-              className={cx('rounded-full px-4 py-1.5 text-sm font-medium capitalize transition', sun.season === k ? 'bg-[#f5a524] text-white' : 'bg-white/20 text-white hover:bg-white/30')}
+              className={cx('rounded-full px-4 py-1.5 text-sm font-medium capitalize transition', sun.season === k ? 'bg-blue-700 text-white' : 'bg-white/20 text-white hover:bg-white/30')}
             >
               {k}
             </button>
@@ -486,7 +486,7 @@ export default function Scene3D({ design }) {
             {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
           </button>
           <span className="w-20 text-sm text-white/90">{fmtTime(sun.hour)}</span>
-          <input type="range" min={Math.floor(sunrise)} max={Math.ceil(sunset)} step={0.05} value={sun.hour} onChange={(e) => patch('sun', { hour: Number(e.target.value) })} className="h-1 flex-1 accent-[#f5a524]" />
+          <input type="range" min={Math.floor(sunrise)} max={Math.ceil(sunset)} step={0.05} value={sun.hour} onChange={(e) => patch('sun', { hour: Number(e.target.value) })} className="h-1 flex-1 accent-blue-700" />
         </div>
         <div className="flex gap-5 text-xs text-white/70">
           <span className="flex items-center gap-1">

@@ -19,7 +19,7 @@ export function Label({ children }) {
   return <div className="mb-2 text-[15px] font-medium text-slate-700">{children}</div>;
 }
 
-export const inputCls = 'h-[52px] w-full rounded-xl border border-slate-300 bg-white px-4 text-[16px] shadow-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100';
+export const inputCls = 'h-[52px] w-full rounded-md border border-slate-300 bg-white px-4 text-[16px] shadow-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100';
 
 export function Num({ label, value, onChange, step = 0.1, min = 0, max = 999, suffix }) {
   return (
@@ -37,7 +37,7 @@ export function Choice({ options, value, onChange }) {
   return (
     <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0,1fr))` }}>
       {options.map((o) => (
-        <button key={o.id} type="button" onClick={() => onChange(o.id)} className={cx('h-12 rounded-xl border text-sm font-medium', value === o.id ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}>
+        <button key={o.id} type="button" onClick={() => onChange(o.id)} className={cx('h-12 rounded-md border text-sm font-medium', value === o.id ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}>
           {o.label}
         </button>
       ))}
@@ -51,10 +51,12 @@ export function RoundBtn({ icon: Icon, label, active, danger, onClick, disabled 
     <button
       type="button"
       title={label}
+      aria-label={label}
+      aria-pressed={active || undefined}
       disabled={disabled}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={onClick}
-      className={cx('group relative grid h-11 w-11 place-items-center rounded-full shadow-md transition disabled:opacity-40', active ? 'bg-[#f5a524] text-white' : danger ? 'bg-white text-red-500 hover:bg-red-50' : 'bg-white text-slate-700 hover:bg-slate-100')}
+      className={cx('group relative grid h-11 w-11 place-items-center rounded-full shadow-md transition disabled:opacity-40', active ? 'bg-blue-700 text-white' : danger ? 'bg-white text-red-500 hover:bg-red-50' : 'bg-white text-slate-700 hover:bg-slate-100')}
     >
       <Icon className="h-[18px] w-[18px]" />
       <span className="pointer-events-none absolute left-full z-10 ml-2 hidden whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-xs text-white group-hover:block">{label}</span>
@@ -64,7 +66,7 @@ export function RoundBtn({ icon: Icon, label, active, danger, onClick, disabled 
 
 export function Card({ children, className }) {
   return (
-    <div onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()} className={cx('rounded-2xl bg-white p-4 shadow-xl ring-1 ring-black/5', className)}>
+    <div onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()} className={cx('rounded-lg bg-white p-4 shadow-xl ring-1 ring-black/5', className)}>
       {children}
     </div>
   );

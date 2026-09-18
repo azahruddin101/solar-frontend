@@ -5,7 +5,9 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 export const STEPS = ['Project Setup', 'Draw Roof', 'Roof Details', 'Obstructions', 'Panel & Mounting', 'Manual Edit', '3D View & Shadows', 'Electrical Design', 'Financials', 'Report & Drawings'];
 
-export const SIMPLE_STEPS = ['Find your home', 'Mark your roof', 'Things on your roof', 'Your solar plan'];
+export const SIMPLE_SLUGS = ['location', 'roof', 'obstacles', 'plan'];
+export const PRO_SLUGS = ['location', 'roof', 'roof-details', 'obstructions', 'panels', 'layout', 'view-3d', 'electrical', 'financials', 'report'];
+export const SIMPLE_STEPS = ['Location', 'Roof outline', 'Roof objects', 'Solar plan'];
 
 const initial = {
   step: 0,
@@ -31,10 +33,11 @@ const initial = {
 
 export const useStore = create(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...initial,
+      navigate: null,
       set: (patch) => set(patch),
-      setStep: (step) => set((st) => ({ step: Math.max(0, Math.min((st.mode === 'simple' ? SIMPLE_STEPS : STEPS).length - 1, step)), tool: 'select', selectedId: null })),
+      setStep: (step) => get().navigate?.(step),
       patch: (key, patch) => set((s) => ({ [key]: { ...s[key], ...patch } })),
       addSection: (sec) => set((s) => ({ sections: [...s.sections, sec], selectedId: sec.id, tool: 'select' })),
       updateSection: (id, patch) => set((s) => ({ sections: s.sections.map((x) => (x.id === id ? { ...x, ...patch } : x)) })),
@@ -46,7 +49,7 @@ export const useStore = create(
           objects: s.objects.filter((x) => x.id !== id),
           selectedId: null,
         })),
-      reset: () => set((st) => ({ ...initial, catalog: st.catalog })),
+      reset: () => set((st) => ({ ...initial, catalog: st.catalog, navigate: st.navigate, mode: st.mode })),
     }),
     {
       name: 'solar-planner-v2',

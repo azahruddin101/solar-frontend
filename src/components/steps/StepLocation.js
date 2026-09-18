@@ -41,7 +41,7 @@ function LocationMap({ center, onCenter }) {
 
   const btn = 'grid h-10 w-10 place-items-center rounded-lg bg-white text-slate-700 shadow-md hover:bg-slate-50';
   return (
-    <div className="relative h-[420px] overflow-hidden rounded-2xl bg-slate-200">
+    <div className="relative h-[420px] overflow-hidden rounded-lg bg-slate-200">
       <div ref={el} className="absolute inset-0" />
       {!MAPS_API_KEY || err ? (
         <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-slate-500">
@@ -93,7 +93,8 @@ export default function StepLocation({ design }) {
   const confirm = () => {
     if (!pending) return;
     if (sections.length && !window.confirm('Changing the location clears the current roof design. Continue?')) return;
-    set({ origin: pending, sections: [], objects: [], snapshot: null, ...(simple ? { step: 1, tool: 'select' } : {}) });
+    set({ origin: pending, sections: [], objects: [], snapshot: null });
+    if (simple) useStore.getState().setStep(1);
   };
   const applyCoords = () => {
     const m = coords.match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
@@ -102,8 +103,8 @@ export default function StepLocation({ design }) {
   const irradiance = design.yieldModel ? design.yieldModel.specificYield(0, 180) / 365 : 0;
 
   return (
-    <FormPage icon={MapPin} title={simple ? 'Where is your home?' : 'Installation Location'}>
-      {simple && <p className="-mt-2 text-slate-500">Type your address, move the map so the red pin sits on your roof, then press the green button.</p>}
+    <FormPage icon={MapPin} title={simple ? 'Project location' : 'Installation Location'}>
+      {simple && <p className="-mt-2 text-slate-500">Search the address, position the pin on the roof, then confirm.</p>}
       <div className={simple ? 'hidden' : ''}>
         <Label>Location Input Method</Label>
         <div className="relative">
@@ -125,7 +126,7 @@ export default function StepLocation({ design }) {
           <Label>Latitude, Longitude</Label>
           <div className="flex gap-2">
             <input className={inputCls} placeholder="28.5450, 77.1926" value={coords} onChange={(e) => setCoords(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && applyCoords()} />
-            <button type="button" onClick={applyCoords} className="h-[52px] rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white">
+            <button type="button" onClick={applyCoords} className="h-[52px] rounded-md bg-slate-900 px-5 text-sm font-semibold text-white">
               Go
             </button>
           </div>
@@ -135,14 +136,14 @@ export default function StepLocation({ design }) {
       {pending && (
         <>
           <LocationMap center={pending} onCenter={setPending} />
-          <button type="button" onClick={confirm} disabled={confirmed} className={cx('flex h-[52px] w-full items-center justify-center gap-2 rounded-xl text-[16px] font-semibold text-white', confirmed ? 'bg-emerald-400' : 'bg-emerald-600 hover:bg-emerald-700')}>
-            <CheckCircle2 className="h-5 w-5" /> {confirmed ? 'Location Confirmed' : simple ? 'Yes, this is my roof — continue' : 'Confirm Location'}
+          <button type="button" onClick={confirm} disabled={confirmed} className={cx('flex h-[52px] w-full items-center justify-center gap-2 rounded-md text-[16px] font-semibold text-white', confirmed ? 'bg-emerald-600' : 'bg-blue-700 hover:bg-blue-800')}>
+            <CheckCircle2 className="h-5 w-5" /> {confirmed ? 'Location Confirmed' : simple ? 'Confirm location' : 'Confirm Location'}
           </button>
         </>
       )}
 
       {origin && (
-        <div className="flex items-start gap-3 rounded-2xl border border-slate-200 p-4">
+        <div className="flex items-start gap-3 rounded-lg border border-slate-200 p-4">
           <Sun className="mt-0.5 h-5 w-5 text-slate-600" />
           <div className="text-sm">
             <div className="font-semibold">Solar Data</div>
