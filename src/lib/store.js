@@ -5,7 +5,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 export const STEPS = ['Project Setup', 'Draw Roof', 'Roof Details', 'Obstructions', 'Panel & Mounting', 'Manual Edit', '3D View & Shadows', 'Electrical Design', 'Financials', 'Report & Drawings'];
 
-export const SIMPLE_STEPS = ['Find your home', 'Mark your roof', 'Your solar plan'];
+export const SIMPLE_STEPS = ['Find your home', 'Mark your roof', 'Things on your roof', 'Your solar plan'];
 
 const initial = {
   step: 0,
@@ -22,6 +22,9 @@ const initial = {
   finance: { currency: 'INR', tariff: 8, costPerKw: 55000, efficiency: 85, degradation: 0.5, escalation: 3, init: false },
   sun: { season: 'today', hour: 12 },
   tool: 'select',
+  pendingBlock: null,
+  pendingKey: null,
+  layoutKey: '',
   selectedId: null,
   snapshot: null,
 };
@@ -50,7 +53,7 @@ export const useStore = create(
       merge: (saved, cur) => ({ ...cur, ...saved, config: { ...cur.config, ...(saved?.config || {}) } }),
       version: 2,
       storage: createJSONStorage(() => localStorage),
-      partialize: ({ mode, step, project, place, origin, sections, objects, config, electrical, finance, sun }) => ({ mode, step, project, place, origin, sections, objects, config, electrical, finance, sun }),
+      partialize: ({ mode, layoutKey, step, project, place, origin, sections, objects, config, electrical, finance, sun }) => ({ mode, layoutKey, step, project, place, origin, sections, objects, config, electrical, finance, sun }),
     },
   ),
 );

@@ -15,6 +15,7 @@ import StepObstructions from './steps/StepObstructions';
 import StepPanelConfig from './steps/StepPanelConfig';
 import StepReport from './steps/StepReport';
 import StepRoofDetails from './steps/StepRoofDetails';
+import StepSimpleObstacles from './steps/StepSimpleObstacles';
 
 const StepSimpleDesign = dynamic(() => import('./steps/StepSimpleDesign'), { ssr: false });
 const Step3D = dynamic(() => import('./steps/Step3D'), { ssr: false });
@@ -62,7 +63,7 @@ export default function App() {
   const simple = state.mode === 'simple';
   const names = simple ? SIMPLE_STEPS : STEPS;
   const screens = simple
-    ? [StepLocation, StepDraw, StepSimpleDesign]
+    ? [StepLocation, StepDraw, StepSimpleObstacles, StepSimpleDesign]
     : [StepLocation, StepDraw, StepRoofDetails, StepObstructions, StepPanelConfig, StepManualEdit, Step3D, StepElectrical, StepFinancials, StepReport];
   const Screen = screens[step] || screens[0];
   const blocker =
@@ -72,7 +73,7 @@ export default function App() {
     : null;
   const switchMode = () => {
     const to = simple ? 'pro' : 'simple';
-    const map = simple ? [0, 1, 5] : [0, 1, 1, 2, 2, 2, 2, 2, 2, 2];
+    const map = simple ? [0, 1, 3, 5] : [0, 1, 2, 2, 3, 3, 3, 3, 3, 3];
     state.set({ mode: to, step: map[step] ?? 0, tool: 'select', selectedId: null });
   };
 

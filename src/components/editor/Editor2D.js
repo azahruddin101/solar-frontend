@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DEG } from '@/lib/geo';
 import { dist, polygonCentroid, rectPoly } from '@/lib/geometry';
-import { magnetize, newId } from '@/lib/model';
+import { magnetize, newId, PANEL_GAP, tableSize } from '@/lib/model';
 import { staticMapSize, staticMapUrl } from '@/lib/staticMap';
 import { useStore } from '@/lib/store';
 
@@ -174,7 +174,7 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
       return;
     }
     if (tool === 'add-tree') return s.addObject({ id: newId('t'), type: 'tree', x: w.x, y: w.y, r: 2.5, h: 8 });
-    if (tool === 'add-block') return s.addObject({ id: newId('b'), type: 'block', name: 'Water tank', x: w.x, y: w.y, w: 2, d: 2, h: 1.8, rot: 90 - design.defaultAzimuth });
+    if (tool === 'add-block') return s.addObject({ id: newId('b'), type: 'block', name: 'Water tank', w: 2, d: 2, h: 1.8, ...(s.pendingBlock || {}), x: w.x, y: w.y, rot: design.defaultAzimuth });
     if (tool === 'add-array' || tool === 'add-elevated') {
       const elevated = tool === 'add-elevated';
       return s.addObject({ id: newId('a'), type: 'array', elevated, x: w.x, y: w.y, rows: elevated ? 3 : 2, cols: 4, tilt: elevated ? 10 : config.tilt, azimuth: design.defaultAzimuth, frontLeg: elevated ? 2.4 : config.frontLeg, orientation: config.orientation });
@@ -216,6 +216,25 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
     } else if (d.kind === 'vertex') {
       const points = d.points.map((p, i) => (i === d.index ? w : p));
       (d.isSection ? s.updateSection : s.updateObject)(d.id, { points });
+    } else if (d.kind === 'resize-table') {
+      const o = s.objects.find((k) => k.id === d.id);
+      if (!o) return;
+      const f = { x: Math.sin(o.azimuth * DEG), y: Math.cos(o.azimuth * DEG) };
+      const c = { x: f.y, y: -f.x };
+      const one = tableSize({ ...o, rows: 1, cols: 1 }, design.spec);
+      const uExt = (w.x - d.anchor.x) * c.x + (w.y - d.anchor.y) * c.y;
+      const vExt = -((w.x - d.anchor.x) * f.x + (w.y - d.anchor.y) * f.y);
+      const cols = Math.max(1, Math.min(40, Math.round((uExt + PANEL_GAP) / (one.width + PANEL_GAP))));
+      const rows = Math.max(1, Math.min(8, Math.round((vExt + PANEL_GAP) / (one.depth + PANEL_GAP))));
+      const size = tableSize({ ...o, rows, cols }, design.spec);
+      s.updateObject(o.id, { rows, cols, x: d.anchor.x + c.x * (size.width / 2) - f.x * (size.depth / 2), y: d.anchor.y + c.y * (size.width / 2) - f.y * (size.depth / 2) });
+    } else if (d.kind === 'resize-block') {
+      const o = s.objects.find((k) => k.id === d.id);
+      if (!o) return;
+      const a = ((o.rot || 0) * Math.PI) / 180;
+      const lu = (w.x - o.x) * Math.cos(a) - (w.y - o.y) * Math.sin(a);
+      const lv = (w.x - o.x) * Math.sin(a) + (w.y - o.y) * Math.cos(a);
+      s.updateObject(o.id, { w: Math.max(0.4, Math.round(Math.abs(lu) * 20) / 10), d: Math.max(0.4, Math.round(Math.abs(lv) * 20) / 10) });
     } else if (d.kind === 'radius') s.updateObject(d.id, { r: Math.max(0.5, dist(w, d.center)) });
     else if (d.kind === 'rotate') {
       let az = (Math.atan2(w.x - d.center.x, w.y - d.center.y) / DEG + 360) % 360;
@@ -310,9 +329,10 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
               return (
                 <g key={b.id}>
                   <polygon points={pts(poly)} fill="rgba(239,68,68,0.35)" stroke="#ef4444" strokeWidth={sel ? 3 : 1.5} onPointerDown={(e) => startDrag(e, { kind: 'move', id: b.id, x: b.x, y: b.y })} />
-                  <text x={c.x} y={c.y + 4} textAnchor="middle" fontSize="11" fill="#fff" pointerEvents="none">
-                    {b.h} m
+                  <text x={c.x} y={c.y + 4} textAnchor="middle" fontSize="11" fontWeight="600" fill="#fff" pointerEvents="none" style={{ paintOrder: 'stroke', stroke: '#7f1d1d', strokeWidth: 3 }}>
+                    {b.name}
                   </text>
+                  {sel && <circle cx={toS(poly[2]).x} cy={toS(poly[2]).y} r={8} fill="#fff" stroke="#ef4444" strokeWidth={3} style={{ cursor: 'nwse-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'resize-block', id: b.id })} />}
                 </g>
               );
             })}
@@ -350,6 +370,10 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
                   <>
                     <polygon points={pts(t.poly)} fill="none" stroke={ORANGE} strokeWidth={2.5} />
                     <line x1={mid.x} y1={mid.y} x2={handle.x} y2={handle.y} stroke={ORANGE} strokeWidth={2} />
+                    <g style={{ cursor: 'nwse-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'resize-table', id: t.source, anchor: t.poly[3] })}>
+                      <circle cx={toS(t.poly[1]).x} cy={toS(t.poly[1]).y} r={11} fill="#fff" stroke={ORANGE} strokeWidth={3} />
+                      <text x={toS(t.poly[1]).x} y={toS(t.poly[1]).y + 4} textAnchor="middle" fontSize="12" fontWeight="700" fill={ORANGE} pointerEvents="none">⤡</text>
+                    </g>
                     <circle cx={handle.x} cy={handle.y} r={7} fill={ORANGE} stroke="#fff" strokeWidth={2} style={{ cursor: 'grab' }} onPointerDown={(e) => startDrag(e, { kind: 'rotate', id: t.source, center: { x: t.x, y: t.y } })} />
                   </>
                 )}

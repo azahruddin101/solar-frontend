@@ -73,10 +73,16 @@ export default function StepSimpleDesign({ design }) {
   const main = sections[0];
 
   // place panels automatically the first time
+  const layoutKey = JSON.stringify([sections, objects.filter((o) => o.type === 'tree' || o.type === 'block')]);
   useEffect(() => {
-    if (design.sections.length && !useStore.getState().objects.some((o) => o.type === 'zone' || o.type === 'array')) autoGroups(design);
+    const st = useStore.getState();
+    if (!design.sections.length) return;
+    if (st.layoutKey !== layoutKey || !st.objects.some((o) => o.type === 'array')) {
+      autoGroups(design);
+      st.set({ layoutKey });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [design.sections.length]);
+  }, [layoutKey, design.sections.length]);
 
   const obstacleKey = JSON.stringify(objects.filter((o) => o.type === 'tree' || o.type === 'block'));
   const maxFit = useMemo(() => {
@@ -129,6 +135,11 @@ export default function StepSimpleDesign({ design }) {
             </button>
           ))}
         </div>
+        {view === '2d' && (
+          <div className="pointer-events-none absolute left-1/2 top-5 -translate-x-1/2 rounded-full bg-slate-900/85 px-5 py-2 text-sm text-white shadow-lg">
+            {s.tool === 'add-array' ? 'Tap on the roof where you want panels' : 'Drag panels to move · pull the ⤡ corner to add or remove panels · orange dot turns them'}
+          </div>
+        )}
         {view === '3d' && <div className="pointer-events-none absolute left-1/2 top-5 -translate-x-1/2 rounded-full bg-white/15 px-4 py-1.5 text-xs text-white">This is your roof · drag to look around · you can drag the panels too</div>}
       </div>
 
@@ -222,6 +233,12 @@ export default function StepSimpleDesign({ design }) {
                 <div className="flex-1 text-center text-sm"><b className="text-lg">{count}</b> panels<div className="text-xs text-slate-400">roof fits up to {maxFit}</div></div>
                 <button type="button" onClick={() => setCount(count + 1)} className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Plus className="h-5 w-5" /></button>
               </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => { setView('2d'); s.set({ tool: 'add-array', selectedId: null }); }} className="rounded-xl border-2 border-slate-200 py-2.5 text-sm font-semibold hover:border-slate-300">＋ Add panels myself</button>
+                <button type="button" onClick={() => autoGroups(design, 0)} className="rounded-xl border-2 border-slate-200 py-2.5 text-sm font-semibold hover:border-slate-300">✨ Fill roof for me</button>
+              </div>
+              {totals.invalid > 0 && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{totals.invalid} red group{totals.invalid > 1 ? 's are' : ' is'} touching a wall, tank or another group and is not counted. Drag it to a free place.</p>}
 
               <div className="rounded-2xl bg-amber-50 p-4 text-sm">
                 <div className="mb-1.5 font-semibold">Price details</div>

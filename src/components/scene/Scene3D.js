@@ -471,8 +471,8 @@ function SceneContent({ design, origin, day, hour, span, maxH }) {
         const ang = Math.atan2(c[1].y - c[0].y, c[1].x - c[0].x);
         return (
           <mesh key={b.id} position={[b.x, base + b.h / 2, -b.y]} rotation-y={ang} castShadow receiveShadow>
-            <boxGeometry args={[b.w, b.h, b.d]} />
-            <meshStandardMaterial color="#8b9099" roughness={0.9} />
+            {/tank/i.test(b.name || '') ? <cylinderGeometry args={[b.w / 2, b.w / 2, b.h, 24]} /> : <boxGeometry args={[b.w, b.h, b.d]} />}
+            <meshStandardMaterial color={/tank/i.test(b.name || '') ? '#1f2937' : '#8b9099'} roughness={0.9} />
           </mesh>
         );
       })}
