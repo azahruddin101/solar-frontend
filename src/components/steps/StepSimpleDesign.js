@@ -91,13 +91,13 @@ export default function StepSimpleDesign({ design }) {
       <div className="absolute inset-y-0 left-0 right-[380px]">
         {view === '3d' ? <Scene3D design={design} /> : <Editor2D design={design} />}
         <div className="absolute left-4 top-4 flex rounded-full bg-white p-1 shadow-lg" onPointerDown={(e) => e.stopPropagation()}>
-          {[['3d', Box, '3D view'], ['2d', Move, 'Move panels']].map(([k, Icon, label]) => (
+          {[['3d', Box, '3D view'], ['2d', Move, 'Top view']].map(([k, Icon, label]) => (
             <button key={k} type="button" onClick={() => setView(k)} className={cx('flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium', view === k ? 'bg-slate-900 text-white' : 'text-slate-600')}>
               <Icon className="h-4 w-4" /> {label}
             </button>
           ))}
         </div>
-        {view === '3d' && <div className="pointer-events-none absolute left-1/2 top-5 -translate-x-1/2 rounded-full bg-white/15 px-4 py-1.5 text-xs text-white">Drag to look around · scroll to zoom · press ▶ to watch the sun and shadows</div>}
+        {view === '3d' && <div className="pointer-events-none absolute left-1/2 top-5 -translate-x-1/2 rounded-full bg-white/15 px-4 py-1.5 text-xs text-white">Drag a panel group to move it · drag empty space to look around · scroll to zoom</div>}
       </div>
 
       <aside className="absolute inset-y-0 right-0 w-[380px] space-y-5 overflow-y-auto border-l border-slate-200 bg-white p-5">
@@ -147,7 +147,7 @@ export default function StepSimpleDesign({ design }) {
 
         <div>
           <Q n={4}>Panel groups ({objects.filter((o) => o.type === 'array').length})</Q>
-          <p className="mb-2 text-xs text-slate-500">Tap a group here or on the roof to give it its own tilt, height and size. Use “Move panels” to drag it.</p>
+          <p className="mb-2 text-xs text-slate-500">Tap a group here or on the roof to give it its own tilt, height and size. Drag a group directly on the roof to move it.</p>
           <GroupList design={design} />
         </div>
 

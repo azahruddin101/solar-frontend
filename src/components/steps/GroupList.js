@@ -43,7 +43,7 @@ export default function GroupList({ design }) {
             </button>
             {open && (
               <div className="space-y-3 border-t border-slate-100 bg-slate-50/60 p-3">
-                {t?.valid === false && <p className="rounded-lg bg-red-50 px-2 py-1.5 text-xs text-red-700">{t.reason} — open “Move panels” and drag this group to a free spot, or make it smaller.</p>}
+                {t?.valid === false && <p className="rounded-lg bg-red-50 px-2 py-1.5 text-xs text-red-700">{t.reason} — drag this group to a free spot on the roof, or make it smaller.</p>}
                 <input value={g.name || ''} placeholder={`Group ${i + 1}`} onChange={(e) => u({ name: e.target.value })} className="h-8 w-full rounded-lg border border-slate-300 px-2 text-sm outline-none focus:border-blue-600" />
                 <Adjust label="Tilt" value={g.tilt} min={0} max={45} suffix="°" onChange={(tilt) => u({ tilt })} />
                 <Adjust label={`Height (front leg) · ${(g.frontLeg * FT).toFixed(1)} ft`} value={g.frontLeg} min={0.2} max={4} step={0.05} suffix="m" onChange={(frontLeg) => u({ frontLeg })} />

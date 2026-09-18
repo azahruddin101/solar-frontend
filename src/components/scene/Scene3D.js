@@ -6,7 +6,7 @@ import { Calendar, Pause, Play, Sunrise, Sunset } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { offsetPolygon, rectPoly } from '@/lib/geometry';
-import { PANEL_THICKNESS, roofHeightAt } from '@/lib/model';
+import { magnetize, PANEL_THICKNESS, roofHeightAt } from '@/lib/model';
 import { staticMapSize, staticMapUrl } from '@/lib/staticMap';
 import { useStore } from '@/lib/store';
 import { dayLength, MONTHS, sunPosition } from '@/lib/sun';
@@ -153,7 +153,7 @@ function PanelTables({ design }) {
         <PanelGroup key={g.key} group={g} />
       ))}
       {design.tables.map((t) => (
-        <TablePick key={t.id} t={t} />
+        <TablePick key={t.id} t={t} design={design} />
       ))}
       <Instances items={data.rails} geometry={frameGeo}>
         <meshStandardMaterial color="#4b5563" metalness={0.6} roughness={0.5} />
@@ -168,22 +168,58 @@ function PanelTables({ design }) {
   );
 }
 
-/** Invisible click target over a table; glows orange when its group is selected. */
-function TablePick({ t }) {
+/** Click / drag target over a table: click selects the group, dragging slides it on the roof. */
+function TablePick({ t, design }) {
   const selected = useStore((s) => s.selectedId === t.source);
+  const get = useThree((s) => s.get);
   const mid = t.base + (t.frontLeg + t.backLeg) / 2 + 0.06;
+  const movable = t.kind !== 'zone';
+
+  const onDown = (e) => {
+    e.stopPropagation();
+    const store = useStore.getState();
+    store.set({ selectedId: t.source });
+    if (!movable || e.button !== 0) return;
+    const { camera, gl, controls, raycaster } = get();
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -e.point.y);
+    const off = { x: t.x - e.point.x, y: t.y + e.point.z };
+    const ndc = new THREE.Vector2();
+    const hit = new THREE.Vector3();
+    let frame = 0;
+    if (controls) controls.enabled = false;
+    gl.domElement.style.cursor = 'grabbing';
+    const move = (ev) => {
+      const r = gl.domElement.getBoundingClientRect();
+      ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+      raycaster.setFromCamera(ndc, camera);
+      if (!raycaster.ray.intersectPlane(plane, hit)) return;
+      const pos = { x: hit.x + off.x, y: -hit.z + off.y };
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const st = useStore.getState();
+        const o = st.objects.find((k) => k.id === t.source);
+        if (o) st.updateObject(o.id, ev.altKey ? pos : magnetize(o, pos, design));
+      });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      if (controls) controls.enabled = true;
+      gl.domElement.style.cursor = '';
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
   return (
     <mesh
       position={[t.x, mid, -t.y]}
       rotation={[t.tilt * (Math.PI / 180), Math.PI - t.azimuth * (Math.PI / 180), 0, 'YXZ']}
-      onClick={(e) => {
-        e.stopPropagation();
-        useStore.getState().set({ selectedId: t.source });
-      }}
-      onPointerOver={() => (document.body.style.cursor = 'pointer')}
+      onPointerDown={onDown}
+      onPointerOver={() => (document.body.style.cursor = movable ? 'grab' : 'pointer')}
       onPointerOut={() => (document.body.style.cursor = '')}
     >
-      <boxGeometry args={[t.size.width + 0.1, 0.05, t.size.slopeLen + 0.1]} />
+      <boxGeometry args={[t.size.width + 0.1, 0.08, t.size.slopeLen + 0.1]} />
       <meshBasicMaterial color="#f5a524" transparent opacity={selected ? 0.45 : 0} depthWrite={false} />
     </mesh>
   );

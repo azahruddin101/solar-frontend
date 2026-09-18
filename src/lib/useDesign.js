@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useDeferredValue, useMemo } from 'react';
 import { designElectrical } from './electrical.js';
 import { buildYieldModel, computeFinancials } from './energy.js';
 import { buildDesign, resolveAzimuth } from './model.js';
@@ -21,7 +21,9 @@ export function useDesign() {
   const design = useMemo(() => buildDesign({ sections, objects, config, lat }), [sections, objects, config, lat]);
   const defaultAzimuth = useMemo(() => resolveAzimuth(config, design.sections, lat), [config, design.sections, lat]);
   const yieldModel = useMemo(() => buildYieldModel(lat, solarData), [lat, solarData]);
-  const shade = useMemo(() => shadingLoss(design, lat), [design, lat]);
+  // shading is the heavy part — let it lag behind while dragging so movement stays smooth
+  const settled = useDeferredValue(design);
+  const shade = useMemo(() => shadingLoss(settled, lat), [settled, lat]);
   const structure = useMemo(() => computeStructure(design), [design]);
   const electrical = useMemo(() => designElectrical(design, structure, { inverterId }), [design, structure, inverterId]);
 
