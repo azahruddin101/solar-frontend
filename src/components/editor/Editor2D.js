@@ -139,7 +139,8 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
     const s = st();
     if (tool === 'draw-section') {
       const first = s.sections.length === 0;
-      s.addSection({ id: newId('r'), name: first ? 'Main roof' : `Elevated roof ${s.sections.length}`, points, height: first ? 6 : (s.sections[0]?.height || 6) + 3, parapetH: first ? 1 : 0.6, parapetT: 0.23 });
+      s.addSection({ id: newId('r'), name: first ? 'Main roof' : `Roof on roof ${s.sections.length}`, points, height: first ? 6 : (s.sections[0]?.height || 6) + 2.7, parapetH: first ? 1 : 0.3, parapetT: 0.23 });
+      s.set({ pendingKey: null });
     } else {
       s.addObject({ id: newId('z'), type: 'zone', points, tilt: config.tilt, azimuth: design.defaultAzimuth, frontLeg: config.frontLeg, rowsPerTable: config.rowsPerTable, orientation: config.orientation, rowGap: config.rowGap });
     }

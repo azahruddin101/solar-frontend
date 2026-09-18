@@ -36,11 +36,15 @@ export default function StepSimpleObstacles({ design }) {
   const things = [...sections.slice(1).map((x) => ({ ...x, kind: 'floor' })), ...objects.filter((o) => o.type === 'block' || o.type === 'tree')];
 
   // tap a button, then drag across the area on the picture — the object takes exactly that size
-  const armed = tool === 'mark-area' ? s.pendingKey : null;
-  const pick = (it) => (armed === it.key ? s.set({ tool: 'select', pendingKey: null, pendingBlock: null }) : s.set({ tool: 'mark-area', pendingKey: it.key, pendingBlock: it.preset || null, selectedId: null }));
+  const armed = tool === 'mark-area' || tool === 'draw-section' ? s.pendingKey : null;
+  // roof on roof is traced corner by corner (any shape); the other objects are dragged as a rectangle
+  const pick = (it) =>
+    armed === it.key
+      ? s.set({ tool: 'select', pendingKey: null, pendingBlock: null })
+      : s.set({ tool: it.key === 'floor' ? 'draw-section' : 'mark-area', pendingKey: it.key, pendingBlock: it.preset || null, selectedId: null });
   const armedItem = ITEMS.find((i) => i.key === armed);
   const hint = armedItem
-    ? `Press and drag across the ${armedItem.label.toLowerCase()} on the picture to select its area`
+    ? armed === 'floor' ? 'Click each corner of the upper roof on the picture, then press Finish · corners can be dragged afterwards' : `Press and drag across the ${armedItem.label.toLowerCase()} on the picture to select its area`
     : things.length ? 'Drag an object to move it · pull a white dot to resize' : 'Nothing on the roof? Just press Continue';
 
   return (
@@ -51,7 +55,7 @@ export default function StepSimpleObstacles({ design }) {
           {tool === 'draw-section' && (
             <div className="absolute bottom-6 right-6 flex gap-2" onPointerDown={(e) => e.stopPropagation()}>
               <button type="button" onClick={() => key('Backspace')} className="h-12 rounded-md bg-white px-5 text-sm font-semibold shadow-lg">Undo last point</button>
-              <button type="button" onClick={() => key('Enter')} className="h-12 rounded-md bg-blue-700 px-6 text-sm font-semibold text-white shadow-lg">Done</button>
+              <button type="button" onClick={() => key('Enter')} className="h-12 rounded-md bg-blue-700 px-6 text-sm font-semibold text-white shadow-lg">Finish</button>
             </div>
           )}
         </Editor2D>
