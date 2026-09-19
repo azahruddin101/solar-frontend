@@ -6,7 +6,7 @@ import { Calendar, Pause, Play, Sunrise, Sunset } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { offsetPolygon, rectPoly } from '@/lib/geometry';
-import { magnetize, PANEL_THICKNESS, roofHeightAt } from '@/lib/model';
+import { magnetize, PANEL_THICKNESS, ridgeHeight, roofHeightAt, roofPlanes, roofZ } from '@/lib/model';
 import { staticMapSize, staticMapUrl } from '@/lib/staticMap';
 import { useStore } from '@/lib/store';
 import { dayLength, MONTHS, sunPosition } from '@/lib/sun';
@@ -66,25 +66,76 @@ function topGeo(poly, y, mapSize) {
   return g;
 }
 
+/**
+ * Pitched roof: each slope is triangulated in plan and lifted onto the roof surface, and the walls
+ * are closed up to it (the triangular gable ends, the tall side of a single slope).
+ */
+function slopedRoofGeo(section, mapSize) {
+  const top = [];
+  const topUv = [];
+  const walls = [];
+  const lift = 0.02;
+  const fr = section.frame;
+  const onRidge = (p) => section.roofType === 'gable' && Math.abs(p.x * fr.f.x + p.y * fr.f.y - fr.dMid) < 1e-6;
+  for (const { poly } of roofPlanes(section)) {
+    const contour = poly.map((p) => new THREE.Vector2(p.x, p.y));
+    for (const tri of THREE.ShapeUtils.triangulateShape(contour, [])) {
+      for (const i of tri) {
+        const p = poly[i];
+        top.push(p.x, roofZ(section, p.x, p.y) + lift, -p.y);
+        topUv.push(p.x / mapSize + 0.5, p.y / mapSize + 0.5);
+      }
+    }
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i];
+      const b = poly[(i + 1) % poly.length];
+      if (onRidge(a) && onRidge(b)) continue; // the ridge is inside the building, not a wall
+      const za = roofZ(section, a.x, a.y);
+      const zb = roofZ(section, b.x, b.y);
+      const h = fr.wallBase; // the box below reaches the lower roof edge; this closes the rest
+      if (za - h < 1e-4 && zb - h < 1e-4) continue; // nothing above the wall here
+      walls.push(a.x, h, -a.y, b.x, h, -b.y, b.x, zb, -b.y, a.x, h, -a.y, b.x, zb, -b.y, a.x, za, -a.y);
+    }
+  }
+  const make = (positions, uv) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    if (uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.computeVertexNormals();
+    return g;
+  };
+  return { top: make(top, topUv), walls: walls.length ? make(walls) : null };
+}
+
 function Building({ section, tex, mapSize }) {
   const geos = useMemo(() => {
     const t = Math.min(section.parapetT || 0.23, 0.5);
     const inner = offsetPolygon(section.poly, t);
+    if (section.frame) {
+      const roof = slopedRoofGeo(section, mapSize);
+      return { body: ringGeo(section.poly, null, section.frame.wallBase, 0), top: roof.top, gables: roof.walls, parapet: null, sloped: true };
+    }
     return {
       body: ringGeo(section.poly, null, section.height, 0),
       top: topGeo(section.poly, section.height + 0.02, mapSize),
       parapet: section.parapetH > 0.05 && inner.length >= 3 ? ringGeo(section.poly, inner, section.parapetH, section.height) : null,
     };
   }, [section, mapSize]);
-  useEffect(() => () => Object.values(geos).forEach((g) => g?.dispose()), [geos]);
+  useEffect(() => () => Object.values(geos).forEach((g) => g?.dispose?.()), [geos]);
   return (
     <group>
       <mesh geometry={geos.body} castShadow receiveShadow>
         <meshStandardMaterial color="#6b7280" roughness={0.9} />
       </mesh>
-      <mesh geometry={geos.top} receiveShadow>
-        <meshStandardMaterial key={tex ? 'sat' : 'plain'} map={tex} color={tex ? '#ffffff' : '#d6d3d1'} roughness={1} />
+      <mesh geometry={geos.top} receiveShadow castShadow={Boolean(geos.sloped)}>
+        {/* a pitched roof is seen from both sides near the eaves; without imagery it gets a tile colour */}
+        <meshStandardMaterial key={tex ? 'sat' : 'plain'} map={tex} color={tex ? '#ffffff' : geos.sloped ? '#a1604a' : '#d6d3d1'} roughness={1} side={geos.sloped ? THREE.DoubleSide : THREE.FrontSide} />
       </mesh>
+      {geos.gables && (
+        <mesh geometry={geos.gables} castShadow receiveShadow>
+          <meshStandardMaterial color="#6b7280" roughness={0.9} side={THREE.DoubleSide} />
+        </mesh>
+      )}
       {geos.parapet && (
         <mesh geometry={geos.parapet} castShadow receiveShadow>
           <meshStandardMaterial color="#9ca3af" roughness={0.85} />
@@ -129,7 +180,7 @@ function PanelTables({ design }) {
       }
       for (const l of t.legs) {
         legs.push(new THREE.Matrix4().makeScale(1, l.h, 1).setPosition(l.x, l.base + l.h / 2, -l.y));
-        blocks.push(new THREE.Matrix4().makeTranslation(l.x, l.base + 0.09, -l.y));
+        if (!t.flush) blocks.push(new THREE.Matrix4().makeTranslation(l.x, l.base + 0.09, -l.y)); // hooks need no pedestal
       }
       // two rails under the table following the tilt
       e.set(t.tilt * (Math.PI / 180), Math.PI - t.azimuth * (Math.PI / 180), 0, 'YXZ');
@@ -443,7 +494,7 @@ export default function Scene3D({ design }) {
     if (!p.length) return 20;
     return Math.max(Math.max(...p.map((q) => q.x)) - Math.min(...p.map((q) => q.x)), Math.max(...p.map((q) => q.y)) - Math.min(...p.map((q) => q.y)), 12);
   }, [design.sections]);
-  const maxH = Math.max(3, ...design.sections.map((s) => s.height));
+  const maxH = Math.max(3, ...design.sections.map((s) => ridgeHeight(s)));
 
   useEffect(() => {
     if (!playing) return undefined;
@@ -472,7 +523,7 @@ export default function Scene3D({ design }) {
               key={k}
               type="button"
               onClick={() => patch('sun', { season: k })}
-              className={cx('rounded-full px-4 py-1.5 text-sm font-medium capitalize transition', sun.season === k ? 'bg-blue-700 text-white' : 'bg-white/20 text-white hover:bg-white/30')}
+              className={cx('rounded-full px-4 py-1.5 text-sm font-medium capitalize transition', sun.season === k ? 'bg-brand text-brand-fg' : 'bg-white/20 text-brand-fg hover:bg-white/30')}
             >
               {k}
             </button>
@@ -486,7 +537,7 @@ export default function Scene3D({ design }) {
             {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
           </button>
           <span className="w-20 text-sm text-white/90">{fmtTime(sun.hour)}</span>
-          <input type="range" min={Math.floor(sunrise)} max={Math.ceil(sunset)} step={0.05} value={sun.hour} onChange={(e) => patch('sun', { hour: Number(e.target.value) })} className="h-1 flex-1 accent-blue-700" />
+          <input type="range" min={Math.floor(sunrise)} max={Math.ceil(sunset)} step={0.05} value={sun.hour} onChange={(e) => patch('sun', { hour: Number(e.target.value) })} className="h-1 flex-1 accent-brand" />
         </div>
         <div className="flex gap-5 text-xs text-white/70">
           <span className="flex items-center gap-1">

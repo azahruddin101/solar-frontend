@@ -31,12 +31,12 @@ export function Adjust({ label, value, onChange, min, max, step = 1, suffix = ''
               if (text !== '' && text !== null && Number.isFinite(v)) onChange(clamp(v));
               setText(null);
             }}
-            className="h-7 w-16 rounded-md border border-slate-300 px-1.5 text-right text-[13px] outline-none focus:border-blue-600"
+            className="h-7 w-16 rounded-md border border-slate-300 px-1.5 text-right text-[13px] outline-none focus:border-brand"
           />
           <span className="w-5 text-xs text-slate-400">{suffix}</span>
         </span>
       </div>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} className="h-1.5 w-full cursor-pointer accent-blue-700" />
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} className="h-1.5 w-full cursor-pointer accent-brand" />
     </div>
   );
 }
@@ -50,7 +50,7 @@ const Row = ({ k, v, strong }) => (
 
 const Head = ({ icon: Icon, children }) => (
   <div className="mb-2 flex items-center gap-2 text-[12px] font-bold uppercase tracking-wide text-slate-500">
-    <Icon className="h-4 w-4 text-blue-700" /> {children}
+    <Icon className="h-4 w-4 text-brand" /> {children}
   </div>
 );
 
@@ -88,7 +88,7 @@ export default function DesignPanel({ design }) {
           <Row k="Shading loss" v={`${totals.shadeLossPct.toFixed(1)} %`} />
           <Row k="Roof used" v={`${(totals.count * spec.length * spec.width).toFixed(0)} of ${design.roofArea.toFixed(0)} m²`} />
         </div>
-        <div className="mt-3 rounded-md bg-blue-50 px-3 py-2">
+        <div className="mt-3 rounded-md bg-brand-soft px-3 py-2">
           <Row k="Iron columns (legs)" v={`${structure.columns} nos`} strong />
           <Row k="  front / back" v={`${structure.front} / ${structure.back}`} />
           <Row k="Column steel (60×60 SHS)" v={`${structure.columnM.toFixed(1)} m`} strong />
@@ -99,7 +99,7 @@ export default function DesignPanel({ design }) {
           <Row k="Anchor bolts" v={`${structure.anchorBolts} nos`} />
           <Row k="Approx. steel weight" v={`${Math.round(structure.weight)} kg`} />
           {structure.cutList.length > 0 && (
-            <div className="mt-1 border-t border-blue-200 pt-1.5 text-xs text-slate-600">
+            <div className="mt-1 border-t border-brand-muted pt-1.5 text-xs text-slate-600">
               <div className="mb-0.5 font-semibold">Column cut list</div>
               {structure.cutList.map((c) => (
                 <div key={c.len} className="flex justify-between">

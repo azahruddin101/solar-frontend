@@ -4,8 +4,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DEG } from '@/lib/geo';
-import { dist, polygonCentroid, rectPoly } from '@/lib/geometry';
-import { magnetize, newId, PANEL_GAP, tableSize } from '@/lib/model';
+import { dist, edges, polygonCentroid, rectPoly } from '@/lib/geometry';
+import { magnetize, newId, normSection, PANEL_GAP, ridgeSegment, roofPlanes, tableSize } from '@/lib/model';
 import { staticMapSize, staticMapUrl } from '@/lib/staticMap';
 import { useStore } from '@/lib/store';
 
@@ -69,7 +69,68 @@ function EdgeLabel({ a, b, toS, color = '#111827' }) {
   );
 }
 
-export default function Editor2D({ design, showPanels = true, showObjects = true, editSections = false, stringColors = null, children }) {
+const AMBER = '#f59e0b';
+const azOf = (e) => Math.round((((Math.atan2(e.outward.x, e.outward.y) * 180) / Math.PI) % 360 + 360) % 360);
+const sameWay = (a, b) => Math.abs(((a - b + 540) % 360) - 180) < 2;
+
+/**
+ * Sloped roof overlay: ridge (dashed), a downhill arrow with the pitch on every slope, and the low
+ * edges in amber. With `edit`, the roof is adjusted right on the picture: click an edge to make it the
+ * low side, drag the dot to move a gable's ridge.
+ */
+function SlopeMarks({ section, toS, edit, onLowEdge, onRidgeDown }) {
+  const sec = normSection(section);
+  if (!sec.frame) return null;
+  const ridge = ridgeSegment(sec);
+  const gable = sec.roofType === 'gable';
+  const isLow = (az) => sameWay(az, sec.frame.az) || (gable && sameWay(az, sec.frame.az + 180));
+  const roofEdges = edges(sec.poly).filter((e) => e.length >= 0.8);
+  const mid = ridge && toS({ x: (ridge[0].x + ridge[1].x) / 2, y: (ridge[0].y + ridge[1].y) / 2 });
+  return (
+    <g>
+      {roofEdges.map((e, i) => {
+        const a = toS(e.a);
+        const b = toS(e.b);
+        const low = isLow(azOf(e));
+        return (
+          <g key={i}>
+            {low && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={AMBER} strokeWidth={6} strokeLinecap="round" pointerEvents="none" />}
+            {/* wide invisible target so an edge is easy to hit */}
+            {edit && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeWidth={22} strokeLinecap="round" className={low ? 'stroke-transparent' : 'cursor-pointer stroke-transparent hover:stroke-amber-400/60'} onPointerDown={(ev) => { ev.stopPropagation(); if (!low || gable) onLowEdge(azOf(e)); }}><title>{low ? 'Low edge of the roof' : 'Click to make this the low edge'}</title></line>}
+            {low && <text x={(a.x + b.x) / 2 + e.outward.x * 16} y={(a.y + b.y) / 2 - e.outward.y * 16 + 4} textAnchor="middle" fontSize={11} fontWeight={700} fill={AMBER} stroke="#0f172a" strokeWidth={3} paintOrder="stroke" pointerEvents="none">LOW EDGE</text>}
+          </g>
+        );
+      })}
+      <g pointerEvents="none">
+        {ridge && <line x1={toS(ridge[0]).x} y1={toS(ridge[0]).y} x2={toS(ridge[1]).x} y2={toS(ridge[1]).y} stroke="#fff" strokeWidth={3} strokeDasharray="8 6" />}
+        {roofPlanes(sec).map((pl) => {
+          const c = polygonCentroid(pl.poly);
+          const r = (pl.azimuth * Math.PI) / 180;
+          const from = toS({ x: c.x - Math.sin(r) * 0.9, y: c.y - Math.cos(r) * 0.9 });
+          const to = toS({ x: c.x + Math.sin(r) * 0.9, y: c.y + Math.cos(r) * 0.9 });
+          const ang = Math.atan2(to.y - from.y, to.x - from.x);
+          const head = (d) => `${to.x - 11 * Math.cos(ang + d)},${to.y - 11 * Math.sin(ang + d)}`;
+          return (
+            <g key={pl.azimuth}>
+              <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="#fff" strokeWidth={3.5} strokeLinecap="round" />
+              <polygon points={`${to.x},${to.y} ${head(0.45)} ${head(-0.45)}`} fill="#fff" />
+              <text x={from.x} y={from.y - 8} textAnchor="middle" fontSize={12} fontWeight={700} fill="#fff" stroke="#0f172a" strokeWidth={3} paintOrder="stroke">{Math.round(pl.tilt)}° down</text>
+            </g>
+          );
+        })}
+      </g>
+      {edit && mid && (
+        <g style={{ cursor: 'grab' }} onPointerDown={onRidgeDown}>
+          <circle cx={mid.x} cy={mid.y} r={16} fill="transparent" />
+          <circle cx={mid.x} cy={mid.y} r={9} fill="#fff" stroke="#0f172a" strokeWidth={2.5} />
+          <text x={mid.x + 16} y={mid.y + 4} textAnchor="start" fontSize={11} fontWeight={700} fill="#fff" stroke="#0f172a" strokeWidth={3} paintOrder="stroke" pointerEvents="none">RIDGE · drag</text>
+        </g>
+      )}
+    </g>
+  );
+}
+
+export default function Editor2D({ design, showPanels = true, showObjects = true, editSections = false, slopeEdit = false, stringColors = null, children }) {
   const ref = useRef(null);
   const [size, setSize] = useState({ w: 1000, h: 700 });
   const [view, setView] = useState({ cx: 0, cy: 0, scale: 14 });
@@ -231,6 +292,18 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
         const pos = { x: d.x + dx, y: d.y + dy };
         s.updateObject(d.id, o?.type === 'array' && !e.altKey ? magnetize(o, pos, design) : pos);
       }
+    } else if (d.kind === 'ridge') {
+      const raw = st().sections.find((x) => x.id === d.sectionId);
+      const fr = raw && normSection(raw).frame;
+      if (!fr) return;
+      const along = w.x * fr.f.x + w.y * fr.f.y;
+      // snaps to the centre when close, so a symmetric roof is easy to get back to
+      let ridge = Math.min(0.85, Math.max(0.15, (fr.dMax - along) / (fr.dMax - fr.dMin)));
+      if (Math.abs(ridge - 0.5) < 0.03) ridge = 0.5;
+      ridge = Math.round(ridge * 100) / 100;
+      // moving the ridge changes how wide each slope is, not how high the roof is: keep the rise
+      const pitch = Math.min(60, Math.max(1, Math.round((Math.atan(fr.rise / (ridge * (fr.dMax - fr.dMin))) * 180000) / Math.PI) / 1000));
+      st().updateSection(d.sectionId, { ridge, pitch });
     } else if (d.kind === 'vertex') {
       const points = d.points.map((p, i) => (i === d.index ? w : p));
       (d.isSection ? s.updateSection : s.updateObject)(d.id, { points });
@@ -335,6 +408,13 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
                 strokeWidth={editSections ? 3 : 2}
                 strokeLinejoin="round"
                 onPointerDown={editSections ? (e) => startDrag(e, { kind: 'move', id: s.id, points: s.points, isSection: true }) : undefined}
+              />
+              <SlopeMarks
+                section={s}
+                toS={toS}
+                edit={slopeEdit && s.id === sections[0]?.id && tool === 'select' && !drawing}
+                onLowEdge={(slopeAz) => st().updateSection(s.id, { slopeAz })}
+                onRidgeDown={(e) => startDrag(e, { kind: 'ridge', sectionId: s.id })}
               />
               {editSections && s.points.map((p, i) => <EdgeLabel key={i} a={p} b={s.points[(i + 1) % s.points.length]} toS={toS} />)}
               {sel && vertexHandles(s.id, s.points, true)}

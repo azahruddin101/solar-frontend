@@ -1,4 +1,4 @@
-// Product catalog managed by the admin (/admin): panels priced per piece, pillars per foot.
+// A company's product catalog (Dashboard → Product catalog): panels priced per piece, pillars per foot.
 
 export const PILLAR_SHAPES = [
   { id: 'l-shape', label: 'L-shape (angle)' },
@@ -38,6 +38,8 @@ export function normalizeCatalog(raw) {
       length: num(p.length, 1.9),
       width: num(p.width, 1.05),
       price: Number(p.price) || 0,
+      manufactureYear: Number(p.manufactureYear) || null,
+      warrantyYears: Number.isFinite(Number(p.warrantyYears)) && p.warrantyYears !== null && p.warrantyYears !== undefined ? Number(p.warrantyYears) : null,
       voc: num(p.voc, Math.round((30 + watts * 0.04) * 10) / 10),
       isc: num(p.isc, Math.round((8 + watts * 0.011) * 10) / 10),
       name: `${p.brand || ''} ${p.model || ''} ${watts} W`.trim(),

@@ -1,7 +1,5 @@
-import AdminPanel from '@/components/AdminPanel';
-
-export const metadata = { title: 'Admin · Solar Planner' };
+import AdminOverview from '@/components/admin/AdminOverview';
 
 export default function Page() {
-  return <AdminPanel />;
+  return <AdminOverview />;
 }

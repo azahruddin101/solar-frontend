@@ -68,13 +68,23 @@ export function designElectrical(design, structure, { inverterId = 'auto', dcAcR
   const bom = [
     ['PV module', `${spec.name} (${spec.length} x ${spec.width} m)`, n, 'nos'],
     ['String inverter', inv.name, count, 'nos'],
-    [`Pillars — ${structure.pillar?.name || 'iron column'} (${structure.pillar?.shape || ''})`, structure.cutList.map((c) => `${c.len.toFixed(2)} m x ${c.qty}`).join(', '), structure.columns, 'nos'],
-    ['Pillar length total', `${Math.ceil(structure.columnM * 3.281)} ft, cut as per list`, Math.ceil(structure.columnM), 'm'],
-    ['Rafters 80x40x3 RHS', '', Math.ceil(structure.rafterM), 'm'],
+    ...(structure.columns
+      ? [
+          [`Pillars — ${structure.pillar?.name || 'iron column'} (${structure.pillar?.shape || ''})`, structure.cutList.map((c) => `${c.len.toFixed(2)} m x ${c.qty}`).join(', '), structure.columns, 'nos'],
+          ['Pillar length total', `${Math.ceil(structure.columnM * 3.281)} ft, cut as per list`, Math.ceil(structure.columnM), 'm'],
+          ['Rafters 80x40x3 RHS', '', Math.ceil(structure.rafterM), 'm'],
+        ]
+      : []),
+    // panels flush on a sloped roof: rails fixed with hooks / L-feet instead of columns
+    ...(structure.hooks ? [['Roof hooks / L-feet', 'Stainless, with EPDM sealing washer — match to the roof covering', structure.hooks, 'nos']] : []),
     ['Purlins / module rails', '41x41 C-channel', Math.ceil(structure.purlinM), 'm'],
-    ['Base plates 200x200x8', 'with 4 anchor bolts M12 each', structure.basePlates, 'nos'],
-    ['Anchor bolts M12', '', structure.anchorBolts, 'nos'],
-    ['RCC pedestals / ballast', '300 x 300 x 300', structure.foundations, 'nos'],
+    ...(structure.columns
+      ? [
+          ['Base plates 200x200x8', 'with 4 anchor bolts M12 each', structure.basePlates, 'nos'],
+          ['Anchor bolts M12', '', structure.anchorBolts, 'nos'],
+          ['RCC pedestals / ballast', '300 x 300 x 300', structure.foundations, 'nos'],
+        ]
+      : []),
     ['Mid clamps', '', Math.max(0, n * 2 - tables.length * 2), 'nos'],
     ['End clamps', '', tables.filter((t) => t.valid).length * 4 * 1, 'nos'],
     ['DC cable 4 sq.mm', 'Solar grade, red + black', Math.ceil(dcCable / 5) * 5, 'm'],

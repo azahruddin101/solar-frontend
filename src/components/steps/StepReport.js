@@ -4,6 +4,7 @@ import { Download, FileText, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { formatMoney, formatNumber } from '@/lib/energy';
 import { generatePdf } from '@/lib/pdf';
+import { useSession } from '@/lib/session';
 import { useStore } from '@/lib/store';
 import { MONTHS } from '@/lib/sun';
 import { FormPage, Label } from './common';
@@ -20,7 +21,7 @@ export default function StepReport({ design }) {
     setBusy(true);
     setErr('');
     try {
-      await generatePdf({ design, project, place, finance, snapshot });
+      await generatePdf({ design, project, place, finance, snapshot, company: useSession.getState().company, client: useStore.getState().client, designId: useStore.getState().designId });
     } catch (e) {
       console.error(e);
       setErr(e.message);
@@ -59,7 +60,7 @@ export default function StepReport({ design }) {
           {totals.monthly.map((v, i) => (
             <div key={MONTHS[i]} className="flex flex-1 flex-col items-center gap-1 text-[10px] text-slate-500">
               <span>{formatNumber(v)}</span>
-              <div className="w-full rounded-t bg-blue-700" style={{ height: `${(v / max) * 110}px` }} />
+              <div className="w-full rounded-t bg-brand" style={{ height: `${(v / max) * 110}px` }} />
               <span>{MONTHS[i]}</span>
             </div>
           ))}

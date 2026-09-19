@@ -5,8 +5,8 @@ const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] });
 
 export const metadata = {
-  title: 'Rooftop Solar Planner',
-  description: 'Analyse a roof with the Google Solar API, model it in 3D, lay out solar panels and export a PDF plan.',
+  title: 'Innovbit — rooftop solar design & proposals',
+  description: 'A workspace for solar companies: manage clients, design rooftop systems in 3D and send branded proposals.',
 };
 
 export default function RootLayout({ children }) {

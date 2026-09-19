@@ -39,7 +39,7 @@ export default function StepDraw({ design }) {
       {tool === 'draw-section' && (
         <div className="absolute bottom-6 right-6 flex gap-2" onPointerDown={(e) => e.stopPropagation()}>
           <button type="button" onClick={() => key('Backspace')} className="h-12 rounded-md bg-white px-5 text-sm font-semibold shadow-lg hover:bg-slate-50">Undo last point</button>
-          <button type="button" onClick={() => key('Enter')} className="h-12 rounded-md bg-blue-700 px-6 text-sm font-semibold text-white shadow-lg hover:bg-blue-800">Finish outline</button>
+          <button type="button" onClick={() => key('Enter')} className="h-12 rounded-md bg-brand px-6 text-sm font-semibold text-brand-fg shadow-lg hover:bg-brand-600">Finish outline</button>
         </div>
       )}
       <div className="absolute left-4 top-4 flex flex-col gap-3">
@@ -53,7 +53,7 @@ export default function StepDraw({ design }) {
             <Layers className="h-4 w-4" /> Roof sections
           </div>
           {sections.map((s) => (
-            <button key={s.id} type="button" onClick={() => set({ selectedId: s.id })} className={`flex w-full justify-between rounded-lg px-2 py-1.5 text-left text-sm ${s.id === selectedId ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-50'}`}>
+            <button key={s.id} type="button" onClick={() => set({ selectedId: s.id })} className={`flex w-full justify-between rounded-lg px-2 py-1.5 text-left text-sm ${s.id === selectedId ? 'bg-brand-soft text-brand' : 'hover:bg-slate-50'}`}>
               <span>{s.name}</span>
               <span className="text-slate-400">{s.height} m</span>
             </button>

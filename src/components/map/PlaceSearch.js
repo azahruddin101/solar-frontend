@@ -152,7 +152,7 @@ export default function PlaceSearch({ onSelect }) {
   return (
     <div>
       <div className="relative">
-        <div className="flex h-[52px] items-center gap-3 rounded-md border border-slate-300 bg-white px-4 shadow-sm focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-100">
+        <div className="flex h-[52px] items-center gap-3 rounded-md border border-slate-300 bg-white px-4 shadow-sm focus-within:border-brand focus-within:ring-2 focus-within:ring-brand-muted">
           {busy ? <Loader2 className="h-4 w-4 animate-spin text-slate-400" /> : <Search className="h-4 w-4 text-slate-400" />}
           <input
             value={query}

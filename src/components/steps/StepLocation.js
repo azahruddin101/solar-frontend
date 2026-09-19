@@ -136,7 +136,7 @@ export default function StepLocation({ design }) {
       {pending && (
         <>
           <LocationMap center={pending} onCenter={setPending} />
-          <button type="button" onClick={confirm} disabled={confirmed} className={cx('flex h-[52px] w-full items-center justify-center gap-2 rounded-md text-[16px] font-semibold text-white', confirmed ? 'bg-emerald-600' : 'bg-blue-700 hover:bg-blue-800')}>
+          <button type="button" onClick={confirm} disabled={confirmed} className={cx('flex h-[52px] w-full items-center justify-center gap-2 rounded-md text-[16px] font-semibold text-brand-fg', confirmed ? 'bg-emerald-600' : 'bg-brand hover:bg-brand-600')}>
             <CheckCircle2 className="h-5 w-5" /> {confirmed ? 'Location Confirmed' : simple ? 'Confirm location' : 'Confirm Location'}
           </button>
         </>

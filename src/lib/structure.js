@@ -1,4 +1,5 @@
 // Mounting-structure take-off: iron columns (legs), rafters, purlins, base plates, steel weight.
+// Tables lying flush on a sloped roof have no columns: rails are fixed to the roof with hooks.
 
 const KG_PER_M = { column: 5.45, rafter: 4.2, purlin: 2.9, brace: 1.8 }; // 60x60x3 SHS, 80x40x3 RHS, 41x41 C, 40x40x3 angle
 
@@ -11,7 +12,13 @@ export function computeStructure(design) {
   let rafterM = 0;
   let purlinM = 0;
   let braceM = 0;
+  let hooks = 0;
   const rows = tables.map((t, i) => {
+    if (t.flush) {
+      hooks += t.legs.length;
+      purlinM += t.rows * 2 * (t.size.width + 0.1);
+      return { name: `T${i + 1}`, kind: 'flush', modules: t.modules.length, grid: `${t.rows} x ${t.cols}`, tilt: t.tilt, columns: 0, hooks: t.legs.length, frontLen: 0, backLen: 0 };
+    }
     const pairs = t.legs.length / 2;
     let fl = 0;
     let bl = 0;
@@ -27,7 +34,7 @@ export function computeStructure(design) {
     return { name: `T${i + 1}`, kind: t.kind, modules: t.modules.length, grid: `${t.rows} x ${t.cols}`, tilt: t.tilt, columns: t.legs.length, frontLen: fl, backLen: bl };
   });
   const columns = front + back;
-  const weight = columnM * KG_PER_M.column + rafterM * KG_PER_M.rafter + purlinM * KG_PER_M.purlin + braceM * KG_PER_M.brace;
+  const weight = columnM * KG_PER_M.column + rafterM * KG_PER_M.rafter + purlinM * KG_PER_M.purlin + braceM * KG_PER_M.brace + hooks * 0.45;
   return {
     rows,
     columns,
@@ -37,6 +44,7 @@ export function computeStructure(design) {
     rafterM,
     purlinM,
     braceM,
+    hooks,
     weight,
     basePlates: columns,
     anchorBolts: columns * 4,

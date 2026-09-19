@@ -19,7 +19,7 @@ export function Label({ children }) {
   return <div className="mb-2 text-[15px] font-medium text-slate-700">{children}</div>;
 }
 
-export const inputCls = 'h-[52px] w-full rounded-md border border-slate-300 bg-white px-4 text-[16px] shadow-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100';
+export const inputCls = 'h-[52px] w-full rounded-md border border-slate-300 bg-white px-4 text-[16px] shadow-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand-muted';
 
 export function Num({ label, value, onChange, step = 0.1, min = 0, max = 999, suffix }) {
   return (
@@ -56,7 +56,7 @@ export function RoundBtn({ icon: Icon, label, active, danger, onClick, disabled 
       disabled={disabled}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={onClick}
-      className={cx('group relative grid h-11 w-11 place-items-center rounded-full shadow-md transition disabled:opacity-40', active ? 'bg-blue-700 text-white' : danger ? 'bg-white text-red-500 hover:bg-red-50' : 'bg-white text-slate-700 hover:bg-slate-100')}
+      className={cx('group relative grid h-11 w-11 place-items-center rounded-full shadow-md transition disabled:opacity-40', active ? 'bg-brand text-brand-fg' : danger ? 'bg-white text-red-500 hover:bg-red-50' : 'bg-white text-slate-700 hover:bg-slate-100')}
     >
       <Icon className="h-[18px] w-[18px]" />
       <span className="pointer-events-none absolute left-full z-10 ml-2 hidden whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-xs text-white group-hover:block">{label}</span>
@@ -81,7 +81,7 @@ export function MiniNum({ label, value, onChange, step = 1, min = 0, max = 999, 
     <label className="flex items-center justify-between gap-3 text-sm">
       <span className="text-slate-600">{label}</span>
       <span className="flex items-center gap-1">
-        <input type="number" value={value} step={step} min={min} max={max} onChange={(e) => onChange(Math.min(max, Math.max(min, Number(e.target.value) || 0)))} className="h-8 w-20 rounded-lg border border-slate-300 px-2 text-right text-sm outline-none focus:border-blue-600" />
+        <input type="number" value={value} step={step} min={min} max={max} onChange={(e) => onChange(Math.min(max, Math.max(min, Number(e.target.value) || 0)))} className="h-8 w-20 rounded-lg border border-slate-300 px-2 text-right text-sm outline-none focus:border-brand" />
         <span className="w-6 text-xs text-slate-400">{suffix}</span>
       </span>
     </label>

@@ -1,4 +1,4 @@
-// Design model: roof sections (extruded polygons with parapets), obstructions, and panel
+// Design model: roof sections (extruded polygons — flat with parapets, or sloped), obstructions, and panel
 // "tables" (rows x cols of modules on a tilted frame with front/back legs).
 // Everything is in local metres around the project origin (x east, y north).
 
@@ -6,6 +6,7 @@ import { DEG, normalizeAzimuth } from './geo.js';
 import {
   circleHitsPoly,
   cleanPolygon,
+  clipHalfPlane,
   ensureCCW,
   edges,
   offsetPolygon,
@@ -32,17 +33,134 @@ let seq = 0;
 export const newId = (p = 'o') => `${p}${Date.now().toString(36)}${(seq++).toString(36)}`;
 
 // ---------- roof sections ----------
+// A section is flat (terrace, optional parapet) or sloped:
+//   shed  – one plane falling towards `slopeAz`
+//   gable – two planes meeting at a ridge; one faces `slopeAz`, the other the opposite way
+// `height` is the wall (eave) height, `pitch` the slope in degrees, `slopeAz` a compass bearing.
+// `ridge` (gable, 0.15–0.85, default 0.5) is the share of the roof's depth covered by the slope that
+// faces `slopeAz`. `rise2` (gable, metres, optional) is how far the *other* slope climbs from its own
+// edge to the ridge. Left out, both roof edges sit at the wall height; set, that side's edge ends up
+// higher or lower than the other — an uneven roof (say 1 m on one side and 2 m on the other).
+export const ROOF_TYPES = [
+  { id: 'flat', label: 'Flat' },
+  { id: 'shed', label: 'Single slope' },
+  { id: 'gable', label: 'Two slopes (gable)' },
+];
+/** Panels on a sloped roof sit on hooks this far above the surface (m). */
+export const FLUSH_STANDOFF = 0.1;
+
+export const isSloped = (s) => (s?.roofType === 'shed' || s?.roofType === 'gable') && s.pitch > 0;
+
 export function normSection(s) {
-  return { ...s, poly: ensureCCW(cleanPolygon(s.points)) };
+  const poly = ensureCCW(cleanPolygon(s.points));
+  if (!isSloped(s) || poly.length < 3) return { ...s, poly, roofType: 'flat', frame: null };
+  const az = normalizeAzimuth(s.slopeAz ?? 180);
+  const f = { x: Math.sin(az * DEG), y: Math.cos(az * DEG) }; // downhill direction of the plane facing `az`
+  const [dMin, dMax] = projectRange(poly, f.x, f.y);
+  const pitch = Math.min(60, Math.max(1, s.pitch));
+  const tan = Math.tan(pitch * DEG);
+  const gable = s.roofType === 'gable';
+  const ridge = gable ? Math.min(0.85, Math.max(0.15, s.ridge ?? 0.5)) : 1;
+  const dMid = dMax - ridge * (dMax - dMin); // plan position of the ridge (a shed's "ridge" is its high edge)
+  const rise = (dMax - dMid) * tan; // ridge height above the walls
+  const span2 = dMid - dMin;
+  // the other slope: at most 60° steep, and its edge never drops below half a metre above the ground
+  const rise2 = gable ? Math.min(Math.max(0.05, s.rise2 > 0 ? s.rise2 : rise), span2 * Math.tan(60 * DEG), s.height + rise - 0.5) : 0;
+  const tan2 = gable ? rise2 / span2 : 0;
+  const eave2 = gable ? s.height + rise - rise2 : s.height; // height of the other slope's low edge
+  const frame = { f, az, dMin, dMax, dMid, tan, tan2, rise, rise2, eave2, wallBase: Math.min(s.height, eave2), ridge, pitch2: gable ? Math.round((Math.atan(tan2) / DEG) * 10) / 10 : 0 };
+  // a pitched roof has no boundary wall
+  return { ...s, poly, pitch, slopeAz: az, parapetH: 0, frame };
+}
+
+/** Roof surface height at a point of this section. */
+export function roofZ(sec, x, y) {
+  const fr = sec.frame;
+  if (!fr) return sec.height;
+  const d = x * fr.f.x + y * fr.f.y;
+  if (d >= fr.dMid) return sec.height + Math.max(0, fr.dMax - d) * fr.tan;
+  return fr.eave2 + Math.max(0, d - fr.dMin) * fr.tan2;
+}
+
+export const ridgeHeight = (sec) => sec.height + (sec.frame ? sec.frame.rise : 0);
+
+/** The plane under a point: panels laid flush take this tilt and facing. */
+export function planeAt(sec, x, y) {
+  const fr = sec.frame;
+  if (!fr) return null;
+  const uphillSide = sec.roofType === 'gable' && x * fr.f.x + y * fr.f.y < fr.dMid;
+  return { tilt: uphillSide ? fr.pitch2 : sec.pitch, azimuth: normalizeAzimuth(fr.az + (uphillSide ? 180 : 0)) };
+}
+
+/** The slopes of a section as plan polygons with their facing: 1 for a shed, 2 for a gable, none for flat. */
+export function roofPlanes(sec) {
+  const fr = sec.frame;
+  if (!fr) return [];
+  if (sec.roofType !== 'gable') return [{ poly: sec.poly, azimuth: fr.az, tilt: sec.pitch }];
+  return [
+    { poly: clipHalfPlane(sec.poly, fr.f.x, fr.f.y, -fr.dMid), azimuth: fr.az, tilt: sec.pitch }, // the downhill half (d ≥ dMid) faces `az`
+    { poly: clipHalfPlane(sec.poly, -fr.f.x, -fr.f.y, fr.dMid), azimuth: normalizeAzimuth(fr.az + 180), tilt: fr.pitch2 },
+  ].filter((p) => p.poly.length >= 3);
+}
+
+/** Ridge of a gable roof as a segment [a, b] in plan, or null. */
+export function ridgeSegment(sec) {
+  const fr = sec.frame;
+  if (!fr || sec.roofType !== 'gable') return null;
+  const pts = [];
+  for (let i = 0; i < sec.poly.length; i++) {
+    const a = sec.poly[i];
+    const b = sec.poly[(i + 1) % sec.poly.length];
+    const da = a.x * fr.f.x + a.y * fr.f.y - fr.dMid;
+    const db = b.x * fr.f.x + b.y * fr.f.y - fr.dMid;
+    if ((da < 0 && db >= 0) || (da >= 0 && db < 0)) {
+      const t = da / (da - db);
+      pts.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+    }
+  }
+  if (pts.length < 2) return null;
+  const along = (p) => p.x * fr.f.y - p.y * fr.f.x;
+  pts.sort((p, q) => along(p) - along(q));
+  return [pts[0], pts[pts.length - 1]];
 }
 
 export function topSection(sections, x, y) {
   let best = null;
-  for (const s of sections) if (s.poly.length >= 3 && pointInPolygon({ x, y }, s.poly) && (!best || s.height > best.height)) best = s;
+  let bestZ = -Infinity;
+  for (const s of sections) {
+    if (s.poly.length < 3 || !pointInPolygon({ x, y }, s.poly)) continue;
+    const z = roofZ(s, x, y);
+    if (z > bestZ) {
+      best = s;
+      bestZ = z;
+    }
+  }
   return best;
 }
 
-export const roofHeightAt = (sections, x, y) => topSection(sections, x, y)?.height ?? 0;
+export function roofHeightAt(sections, x, y) {
+  const sec = topSection(sections, x, y);
+  return sec ? roofZ(sec, x, y) : 0;
+}
+
+/**
+ * Where panels may be auto-placed on a section, as fill zones. A flat roof is one zone using the
+ * design's tilt / facing / leg height. A sloped roof gives one zone per slope, with panels flush on
+ * it; the slope facing the equator comes first so a limited panel count goes to the better side.
+ */
+export function zonesForSection(sec, config, defaultAzimuth, lat, idPrefix = 'z') {
+  const shared = { type: 'zone', rowsPerTable: config.rowsPerTable, orientation: config.orientation };
+  if (!sec.frame) {
+    const inner = offsetPolygon(sec.poly, 0.05);
+    return [{ ...shared, id: `${idPrefix}-${sec.id}`, points: inner.length >= 3 ? inner : sec.poly, tilt: config.tilt, azimuth: defaultAzimuth, frontLeg: config.frontLeg, rowGap: config.rowGap }];
+  }
+  const sunward = lat >= 0 ? 180 : 0;
+  const away = (az) => Math.abs(((az - sunward + 540) % 360) - 180);
+  return roofPlanes(sec)
+    .sort((a, b) => away(a.azimuth) - away(b.azimuth))
+    // one panel row per table, packed edge to edge: rows on the same plane never shade each other
+    .map((pl, i) => ({ ...shared, id: `${idPrefix}-${sec.id}-${i}`, points: pl.poly, tilt: pl.tilt, azimuth: pl.azimuth, frontLeg: FLUSH_STANDOFF, rowsPerTable: 1, rowGap: 0.03, flush: true }));
+}
 
 /** Azimuth of the building edge normal closest to the equator-facing direction. */
 export function buildingAzimuth(sections, lat) {
@@ -106,10 +224,18 @@ export function rectPlacement(rect, ctx, { ignoreId = null, inset = 0.05 } = {})
   const c = { x: (rect[0].x + rect[2].x) / 2, y: (rect[0].y + rect[2].y) / 2 };
   const sec = topSection(ctx.sections, c.x, c.y);
   if (!sec) return { ok: false, reason: 'Outside the roof' };
+  // a terrace keeps a walkway along the parapet; a pitched roof only needs a small margin from its edges
+  if (sec.frame) inset = Math.min(inset, 0.3);
   const inner = ctx.insets.get(sec.id + ':' + inset) || ctx.insets.set(sec.id + ':' + inset, offsetPolygon(sec.poly, inset)).get(sec.id + ':' + inset);
   if (inner.length < 3) return { ok: false, reason: 'Roof too small' };
-  for (const p of rect) if (!pointInPolygon(p, inner)) return { ok: false, reason: 'Crosses the parapet' };
-  for (const v of inner) if (pointInPolygon(v, rect)) return { ok: false, reason: 'Crosses the parapet' };
+  const edge = sec.frame ? 'Too close to the roof edge' : 'Crosses the parapet';
+  for (const p of rect) if (!pointInPolygon(p, inner)) return { ok: false, reason: edge };
+  for (const v of inner) if (pointInPolygon(v, rect)) return { ok: false, reason: edge };
+  if (sec.frame && sec.roofType === 'gable') {
+    // every corner on the same side of the ridge, with a little clearance from it
+    const side = rect.map((p) => p.x * sec.frame.f.x + p.y * sec.frame.f.y - sec.frame.dMid);
+    if (!(side.every((d) => d > 0.15) || side.every((d) => d < -0.15))) return { ok: false, reason: 'Crosses the ridge' };
+  }
   for (const s of ctx.sections) if (s.id !== sec.id && s.height > sec.height && polysOverlap(rect, s.poly)) return { ok: false, reason: 'Hits a raised roof' };
   for (const b of ctx.obstaclePolys) if (polysOverlap(rect, b)) return { ok: false, reason: 'Hits an obstruction' };
   for (const t of ctx.trees) if (circleHitsPoly(t, t.r * 0.6, rect)) return { ok: false, reason: 'Under a tree' };
@@ -144,7 +270,7 @@ function fillZone(zone, ctx) {
           if (!run.length) return;
           const u = (run[0] + run[run.length - 1]) / 2;
           const p = at(u, v);
-          tables.push({ ...proto, id: `${zone.id}-${tables.length}`, source: zone.id, kind: 'zone', x: p.x, y: p.y, cols: run.length, azimuth: zone.azimuth, frontLeg: zone.frontLeg });
+          tables.push({ ...proto, id: `${zone.id}-${tables.length}`, source: zone.id, kind: 'zone', x: p.x, y: p.y, cols: run.length, azimuth: zone.azimuth, frontLeg: zone.frontLeg, flush: Boolean(zone.flush) });
           count += run.length * proto.rows;
           run = [];
         };
@@ -176,7 +302,11 @@ function expandTable(t, ctx) {
   const f = { x: Math.sin(t.azimuth * DEG), y: Math.cos(t.azimuth * DEG) };
   const c = { x: f.y, y: -f.x };
   const poly = rectPoly(t.x, t.y, s.width, s.depth, t.azimuth);
-  const base = Math.max(...poly.map((p) => roofHeightAt(sections, p.x, p.y)), roofHeightAt(sections, t.x, t.y));
+  // flat roof: clear the highest point under the table. Sloped roof: follow the surface, measured
+  // under the low (front) edge — the table has the roof's own tilt, so it stays parallel to it.
+  const base = t.flush
+    ? roofHeightAt(sections, t.x + f.x * (s.depth / 2), t.y + f.y * (s.depth / 2))
+    : Math.max(...poly.map((p) => roofHeightAt(sections, p.x, p.y)), roofHeightAt(sections, t.x, t.y));
   const sin = Math.sin(t.tilt * DEG);
   const cos = Math.cos(t.tilt * DEG);
   const modules = [];
@@ -230,7 +360,12 @@ export function buildDesign({ sections: rawSections, objects, config, lat, spec:
   ctx.obstaclePolys = obstaclePolys(ctx);
 
   // manual arrays first (zones flow around them)
-  const manual = objects.filter((o) => o.type === 'array').map((o) => ({ ...o, kind: o.elevated ? 'elevated' : 'array', source: o.id }));
+  const manual = objects.filter((o) => o.type === 'array').map((o) => {
+    const sec = topSection(sections, o.x, o.y);
+    const plane = sec && planeAt(sec, o.x, o.y);
+    // on a sloped roof a group always lies flush with the slope it is on, whatever tilt it was given
+    return plane ? { ...o, ...plane, frontLeg: FLUSH_STANDOFF, flush: true, kind: 'array', source: o.id } : { ...o, flush: false, kind: o.elevated ? 'elevated' : 'array', source: o.id };
+  });
   ctx.fixed = manual.map((t) => ({ id: t.id, poly: tableFootprint(t, spec) }));
   const tables = [];
   for (const t of manual) {

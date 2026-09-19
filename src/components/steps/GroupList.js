@@ -30,9 +30,9 @@ export default function GroupList({ design }) {
         const u = (patch) => s.updateObject(g.id, patch);
         const n = g.rows * g.cols;
         return (
-          <div key={g.id} className={cx('overflow-hidden rounded-md border transition', open ? 'border-blue-700 ring-2 ring-blue-700/20' : 'border-slate-200')}>
+          <div key={g.id} className={cx('overflow-hidden rounded-md border transition', open ? 'border-brand ring-2 ring-brand/20' : 'border-slate-200')}>
             <button type="button" onClick={() => s.set({ selectedId: open ? null : g.id })} className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-slate-50">
-              <span className={cx('grid h-7 w-7 shrink-0 place-items-center rounded-lg text-xs font-bold text-white', t?.valid === false ? 'bg-red-500' : 'bg-blue-600')}>{i + 1}</span>
+              <span className={cx('grid h-7 w-7 shrink-0 place-items-center rounded-lg text-xs font-bold text-brand-fg', t?.valid === false ? 'bg-red-500' : 'bg-brand')}>{i + 1}</span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">{g.name || `Group ${i + 1}`}</span>
                 <span className="block text-xs text-slate-500">
@@ -44,7 +44,7 @@ export default function GroupList({ design }) {
             {open && (
               <div className="space-y-3 border-t border-slate-100 bg-slate-50/60 p-3">
                 {t?.valid === false && <p className="rounded-lg bg-red-50 px-2 py-1.5 text-xs text-red-700">{t.reason} — drag this group to a free spot on the roof, or make it smaller.</p>}
-                <input value={g.name || ''} placeholder={`Group ${i + 1}`} onChange={(e) => u({ name: e.target.value })} className="h-8 w-full rounded-lg border border-slate-300 px-2 text-sm outline-none focus:border-blue-600" />
+                <input value={g.name || ''} placeholder={`Group ${i + 1}`} onChange={(e) => u({ name: e.target.value })} className="h-8 w-full rounded-lg border border-slate-300 px-2 text-sm outline-none focus:border-brand" />
                 <Adjust label="Tilt" value={g.tilt} min={0} max={45} suffix="°" onChange={(tilt) => u({ tilt })} />
                 <Adjust label={`Height (front leg) · ${(g.frontLeg * FT).toFixed(1)} ft`} value={g.frontLeg} min={0.2} max={4} step={0.05} suffix="m" onChange={(frontLeg) => u({ frontLeg })} />
                 {t && <p className="-mt-1 text-xs text-slate-500">Back leg: <b>{t.backLeg.toFixed(2)} m</b> · {t.legs.length} iron columns</p>}
