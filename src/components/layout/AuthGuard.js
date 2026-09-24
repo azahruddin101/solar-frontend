@@ -20,11 +20,11 @@ export default function AuthGuard({ role, children }) {
     else if (status === 'ready' && user.role !== role) router.replace(homeFor(user.role));
   }, [status, user, role, router]);
 
-  // a company workspace wears the company's colours
+  // company and agent workspaces wear the company's colours
   const primary = company?.theme?.primary;
   const accent = company?.theme?.accent;
   useEffect(() => {
-    if (role !== 'company' || !primary) return undefined;
+    if (role === 'superadmin' || !primary) return undefined;
     applyTheme({ primary, accent });
     return clearTheme;
   }, [role, primary, accent]);

@@ -1,14 +1,16 @@
 'use client';
 
 // Sidebar layout shared by the admin console and the company workspace.
-import { ArrowLeftRight, LogOut, Menu, X } from 'lucide-react';
+import { ArrowLeftRight, Bell, LogOut, Menu, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { assetUrl } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { useUnread } from '@/lib/unread';
 import { Avatar, ImageFrame, Toaster, cx } from '../kit';
 import { BrandMark, PRODUCT_NAME } from './Brand';
+import PushNotifications from './PushNotifications';
 
 function NavLink({ item, active, onNavigate }) {
   return (
@@ -16,9 +18,9 @@ function NavLink({ item, active, onNavigate }) {
       href={item.href}
       onClick={onNavigate}
       aria-current={active ? 'page' : undefined}
-      className={cx('group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors', active ? 'bg-white/12 text-white shadow-[inset_3px_0_0_var(--accent)]' : 'text-white/60 hover:bg-white/5 hover:text-white')}
+      className={cx('group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors', active ? 'bg-white/10 text-white shadow-[inset_3px_0_0_#ffffff]' : 'text-white hover:bg-white/5')}
     >
-      <item.icon className={cx('h-[18px] w-[18px] shrink-0', active ? 'text-accent' : 'text-white/45 group-hover:text-white/80')} />
+      <item.icon className={cx('h-[18px] w-[18px] shrink-0', active ? 'text-white' : 'text-white')} />
       <span className="flex-1 truncate">{item.label}</span>
       {item.badge !== undefined && <span className="rounded-full bg-white/10 px-2 py-px text-xs text-white/70">{item.badge}</span>}
     </Link>
@@ -30,10 +32,29 @@ export default function AppShell({ nav, workspace, children }) {
   const router = useRouter();
   const { user, company, impersonated, logout, stopImpersonating } = useSession();
   const [open, setOpen] = useState(false);
+  const unread = useUnread((s) => s.count);
+  const ticketsUnread = useUnread((s) => s.tickets);
+  const refreshUnread = useUnread((s) => s.refresh);
+  const inboxUser = user?.role !== 'superadmin';
+  const inboxLink = inboxUser ? nav.flatMap((g) => g.items).find((i) => i.href.endsWith('/notifications')) : null;
+
+  // Badge on the Notifications link; refreshed on navigation and every minute.
+  const supportUser = user?.role === 'superadmin' || user?.role === 'company';
+  useEffect(() => {
+    if (!inboxUser && !supportUser) return undefined;
+    const tick = () => refreshUnread(inboxUser);
+    tick();
+    const t = setInterval(tick, 60000);
+    return () => clearInterval(t);
+  }, [inboxUser, supportUser, refreshUnread, pathname]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setOpen(false), [pathname]);
 
+  const withBadge = (item) => {
+    const n = item.href.endsWith('/notifications') ? unread : item.href.endsWith('/support') ? ticketsUnread : 0;
+    return n ? { ...item, badge: n > 99 ? '99+' : n } : item;
+  };
   const isActive = (item) => (item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`));
   const signOut = () => {
     logout();
@@ -45,15 +66,13 @@ export default function AppShell({ nav, workspace, children }) {
   };
 
   const sidebar = (
-    <div className="relative isolate flex h-full w-64 flex-col bg-brand-950">
-      {/* glow of the company colour behind the logo; -z-10 keeps it under the content */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-72 bg-gradient-to-b from-brand-900 to-transparent" />
+    <div className="relative isolate flex h-full w-64 flex-col border-r border-white/5 bg-slate-900">
       {company?.logo ? (
         <div className="px-4 pt-4 pb-1">
           <ImageFrame src={assetUrl(company.logo)} className="h-14 w-full rounded-xl" />
           <div className="mt-3 px-1">
             <div className="truncate text-sm font-semibold text-white" title={company.name}>{company.name}</div>
-            <div className="truncate text-xs text-white/50">{workspace}</div>
+            <div className="truncate text-xs text-slate-400">{workspace}</div>
           </div>
         </div>
       ) : (
@@ -61,16 +80,16 @@ export default function AppShell({ nav, workspace, children }) {
           {company ? <Avatar name={company.name} square size={36} /> : <BrandMark size={36} />}
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-white" title={company?.name}>{company?.name || PRODUCT_NAME}</div>
-            <div className="truncate text-xs text-white/50">{workspace}</div>
+            <div className="truncate text-xs text-slate-400">{workspace}</div>
           </div>
         </div>
       )}
       <nav aria-label="Main" className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
         {nav.map((group) => (
           <div key={group.title || 'main'}>
-            {group.title && <div className="mb-1.5 px-3 text-[11px] font-semibold tracking-wider text-white/35 uppercase">{group.title}</div>}
+            {group.title && <div className="mb-1.5 px-3 text-[11px] font-semibold tracking-wider text-slate-500 uppercase">{group.title}</div>}
             <div className="space-y-0.5">
-              {group.items.map((item) => <NavLink key={item.href} item={item} active={isActive(item)} />)}
+              {group.items.map((item) => <NavLink key={item.href} item={withBadge(item)} active={isActive(item)} />)}
             </div>
           </div>
         ))}
@@ -80,8 +99,9 @@ export default function AppShell({ nav, workspace, children }) {
           <Avatar name={user.name || user.email} size={34} />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[13px] font-medium text-white">{user.name || (user.role === 'superadmin' ? 'Super Admin' : 'Account')}</div>
-            <div className="truncate text-xs text-white/50">{user.email}</div>
+            <div className="truncate text-xs text-slate-400">{user.email}</div>
           </div>
+          <PushNotifications />
           <button type="button" onClick={signOut} aria-label="Sign out" title="Sign out" className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-white/50 hover:bg-white/10 hover:text-white">
             <LogOut className="h-4 w-4" />
           </button>
@@ -112,7 +132,13 @@ export default function AppShell({ nav, workspace, children }) {
         )}
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 lg:hidden">
           <button type="button" aria-label="Open menu" onClick={() => setOpen(true)} className="grid h-9 w-9 place-items-center rounded-md text-slate-600 hover:bg-slate-100"><Menu className="h-5 w-5" /></button>
-          <span className="truncate text-sm font-semibold">{company?.name || PRODUCT_NAME}</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{company?.name || PRODUCT_NAME}</span>
+          {inboxLink && (
+            <Link href={inboxLink.href} aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'} className="relative grid h-9 w-9 shrink-0 place-items-center rounded-md text-slate-600 hover:bg-slate-100">
+              <Bell className="h-5 w-5" />
+              {unread > 0 && <span className="absolute top-0.5 right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-red-600 px-1 text-[10px] leading-none font-semibold text-white">{unread > 99 ? '99+' : unread}</span>}
+            </Link>
+          )}
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-6xl px-5 py-8 sm:px-8 lg:py-10">{children}</div>

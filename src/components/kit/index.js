@@ -1,8 +1,10 @@
 'use client';
 
 // UI kit for the SaaS screens (admin console, company workspace, sign-in). Tailwind + brand tokens.
-import { AlertTriangle, CheckCircle2, Loader2, X, XCircle } from 'lucide-react';
-import { useEffect, useId, useRef } from 'react';
+import { AlertTriangle, Camera, Download, CheckCircle2, CircleAlert, Eye, EyeOff, ImageIcon, Loader2, X, XCircle } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { openFile, signedFileUrl } from '@/lib/files';
 import { create } from 'zustand';
 
 export function cx(...c) {
@@ -29,6 +31,160 @@ export function Button({ variant, size, className, icon: Icon, loading, children
       {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : Icon && <Icon className="h-4 w-4" />}
       {children}
     </button>
+  );
+}
+
+/** Live camera capture. Uses getUserMedia (works on desktop webcams too); falls back to the native camera input where unavailable. */
+export function CameraButton({ onFile, disabled, size = 'sm', label = 'Take photo', className }) {
+  const fallbackRef = useRef(null);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState('');
+  const [ready, setReady] = useState(false);
+
+  const stop = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  };
+  const close = () => { stop(); setOpen(false); setReady(false); setError(''); };
+
+  const start = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) { fallbackRef.current?.click(); return; }
+    setError('');
+    setOpen(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+      streamRef.current = stream;
+      // the modal mounts the <video> on the next render
+      requestAnimationFrame(() => {
+        if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play().catch(() => {}); }
+      });
+    } catch (err) {
+      setError(err?.name === 'NotAllowedError' ? 'Camera permission was denied. Allow camera access in the browser and try again.' : 'No camera could be opened on this device.');
+    }
+  };
+
+  useEffect(() => stop, []);
+
+  const snap = () => {
+    const v = videoRef.current;
+    if (!v || !v.videoWidth) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = v.videoWidth;
+    canvas.height = v.videoHeight;
+    canvas.getContext('2d').drawImage(v, 0, 0);
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      onFile(new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' }));
+      close();
+    }, 'image/jpeg', 0.92);
+  };
+
+  return (
+    <>
+      <input ref={fallbackRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
+      <Button type="button" size={size} icon={Camera} disabled={disabled} className={className} onClick={start}>{label}</Button>
+      <Modal open={open} onClose={close} title="Take photo" footer={
+        <>
+          <Button type="button" onClick={close}>Cancel</Button>
+          <Button type="button" variant="primary" icon={Camera} disabled={!ready || !!error} onClick={snap}>Capture</Button>
+        </>
+      }>
+        {error ? <Alert>{error}</Alert> : (
+          <video ref={videoRef} playsInline muted onLoadedData={() => setReady(true)} className="w-full rounded-lg bg-black" />
+        )}
+      </Modal>
+    </>
+  );
+}
+
+/* ───────────── Image lightbox ───────────── */
+
+const useLightbox = create((set) => ({
+  item: null,
+  open: (src, alt = '') => set({ item: { src, alt } }),
+  close: () => set({ item: null }),
+}));
+
+/** Open a picture in the pop-up from code (e.g. a link to an uploaded image). */
+export const openImage = (src, alt = '') => useLightbox.getState().open(src, alt);
+
+/** Open a stored (protected) file: images in the pop-up viewer, anything else in a new tab. */
+export function openStoredFile(url, { mimetype = '', name = '' } = {}) {
+  if (mimetype.startsWith('image/')) signedFileUrl(url).then((signed) => openImage(signed, name)).catch(() => {});
+  else openFile(url);
+}
+
+/** An image that opens full-size in a pop-up when clicked. Use it for any picture a person may want to see properly. */
+export function ZoomImage({ src, alt = '', className, ...props }) {
+  const open = () => useLightbox.getState().open(src, alt);
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={alt}
+      role="button"
+      tabIndex={0}
+      title="Click to enlarge"
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); open(); }}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
+      className={cx('cursor-zoom-in', className)}
+      {...props}
+    />
+  );
+}
+
+/** Mounted once (root layout). Esc, the ✕ button or a click outside the picture closes it. */
+export function LightboxHost() {
+  const { item, close } = useLightbox();
+  useEffect(() => {
+    if (!item) return undefined;
+    // capture phase + stop: Esc closes only the picture, not the dialog behind it
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      close();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [item, close]);
+  if (!item || typeof document === 'undefined') return null;
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-label={item.alt || 'Image preview'} className="fixed inset-0 z-[100] flex animate-fade flex-col bg-slate-950/85 backdrop-blur-sm" onClick={close}>
+      <div className="flex shrink-0 items-center justify-between gap-3 px-4 py-3 text-white" onClick={(e) => e.stopPropagation()}>
+        <span className="min-w-0 truncate text-sm text-white/80">{item.alt}</span>
+        <div className="flex items-center gap-1">
+          {!item.src.startsWith('data:') && (
+            <a href={item.src} target="_blank" rel="noreferrer" aria-label="Open in a new tab" title="Open in a new tab" className="grid h-9 w-9 place-items-center rounded-full hover:bg-white/15"><Download className="h-5 w-5" /></a>
+          )}
+          <button type="button" autoFocus aria-label="Close" title="Close (Esc)" onClick={close} className="grid h-9 w-9 place-items-center rounded-full hover:bg-white/15"><X className="h-5 w-5" /></button>
+        </div>
+      </div>
+      <div className="flex min-h-0 flex-1 items-center justify-center p-4 pt-0">
+        {/* clicking the picture itself keeps it open; the dark area around it closes */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={item.src} alt={item.alt} onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full animate-pop rounded-lg object-contain shadow-2xl" />
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/** Two ways to supply an image: pick from the gallery/files, or shoot one with the camera now. */
+export function ImageSourceButtons({ onFiles, accept = 'image/png,image/jpeg,image/webp', multiple, disabled, size = 'sm', galleryLabel = 'Choose from gallery', cameraLabel = 'Take photo', className }) {
+  const galleryRef = useRef(null);
+  const handle = (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (files.length) onFiles(multiple ? files : files[0]);
+  };
+  return (
+    <div className={cx('flex flex-wrap items-center gap-2', className)}>
+      <input ref={galleryRef} type="file" accept={accept} multiple={multiple} className="hidden" onChange={handle} />
+      <Button type="button" size={size} icon={ImageIcon} disabled={disabled} onClick={() => galleryRef.current?.click()}>{galleryLabel}</Button>
+      <CameraButton size={size} disabled={disabled} label={cameraLabel} onFile={(f) => onFiles(multiple ? [f] : f)} />
+    </div>
   );
 }
 
@@ -70,6 +226,50 @@ const widthOf = (className) => (/(^|\s)w-/.test(className || '') ? '' : 'w-full'
 
 export function Input({ className, onValue, onChange, ...props }) {
   return <input className={cx(CONTROL, widthOf(className), 'h-10', className)} onChange={(e) => (onValue ? onValue(e.target.value) : onChange?.(e))} {...props} />;
+}
+
+/** Phone number: only digits, one leading +, spaces, dashes and brackets can be typed or pasted. */
+export function cleanPhoneInput(v) {
+  let d = String(v).replace(/\D/g, '');
+  if (d.length === 12 && d.startsWith('91')) d = d.slice(2); // pasted +91 98765 43210
+  else if (d.length === 11 && d.startsWith('0')) d = d.slice(1);
+  return d.slice(0, 10);
+}
+export function PhoneInput({ onValue, ...props }) {
+  return <Input type="tel" inputMode="numeric" autoComplete="tel" placeholder="10-digit mobile" onValue={(v) => onValue?.(cleanPhoneInput(v))} {...props} />;
+}
+
+/** Names: `person` allows letters, spaces . ' - ; `business` also digits and & , ( ) / + . Anything else is dropped as it is typed. */
+export function cleanName(v, kind = 'person') {
+  const drop = kind === 'business' ? /[^\p{L}\p{N}\p{M}\s.,&'’()/+-]/gu : /[^\p{L}\p{M}\s.'’-]/gu;
+  const start = kind === 'business' ? /^[^\p{L}\p{N}]+/u : /^[^\p{L}]+/u;
+  return String(v).replace(drop, '').replace(start, '').replace(/\s{2,}/g, ' ');
+}
+export function NameInput({ kind = 'person', onValue, ...props }) {
+  return <Input autoComplete="off" onValue={(v) => onValue?.(cleanName(v, kind))} {...props} />;
+}
+
+/** Password field with a show / hide button. `defaultVisible` for passwords someone is setting for another person. */
+export function PasswordInput({ className, defaultVisible = false, disabled, ...props }) {
+  const [visible, setVisible] = useState(defaultVisible);
+  return (
+    <span className={cx('relative block', widthOf(className), /(^|\s)(min-w-0|flex-1)/.test(className || '') && 'min-w-0 flex-1')}>
+      <Input {...props} disabled={disabled} type={visible ? 'text' : 'password'} className={cx('w-full pr-10', className)} />
+      <button
+        type="button"
+        aria-label={visible ? 'Hide password' : 'Show password'}
+        aria-pressed={visible}
+        title={visible ? 'Hide password' : 'Show password'}
+        disabled={disabled}
+        // keep the caret in the field while toggling
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setVisible(!visible)}
+        className="absolute inset-y-0 right-0 grid w-10 place-items-center rounded-r-lg text-slate-400 hover:text-slate-700 disabled:pointer-events-none disabled:opacity-50"
+      >
+        {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </span>
+  );
 }
 
 export function Textarea({ className, onValue, onChange, rows = 3, ...props }) {
@@ -180,11 +380,12 @@ export function Badge({ tone = 'slate', dot, children, className }) {
   );
 }
 
-export function Avatar({ name, src, size = 36, square, className }) {
+export function Avatar({ name, src, size = 36, square, className, zoom }) {
   const initials = (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
   const style = { width: size, height: size, fontSize: Math.round(size * 0.38) };
+  if (src && zoom) return <ZoomImage src={src} alt={name || 'Photo'} style={style} className={cx('shrink-0 bg-white object-cover ring-1 ring-slate-200', square ? 'rounded-lg' : 'rounded-full', className)} />;
   // eslint-disable-next-line @next/next/no-img-element
-  if (src) return <img src={src} alt="" style={style} className={cx('shrink-0 bg-white object-contain ring-1 ring-slate-200', square ? 'rounded-lg' : 'rounded-full', className)} />;
+  if (src) return <img src={src} alt="" style={style} className={cx('shrink-0 bg-white object-cover ring-1 ring-slate-200', square ? 'rounded-lg' : 'rounded-full', className)} />;
   return (
     <span style={style} className={cx('grid shrink-0 place-items-center bg-brand-soft font-semibold text-brand-ink', square ? 'rounded-lg' : 'rounded-full', className)}>
       {initials}
@@ -307,7 +508,7 @@ export function Modal({ open, onClose, title, description, size = 'md', children
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   if (!open) return null;
-  const sizes = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl' };
+  const sizes = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl', xl: 'max-w-5xl', '2xl': 'max-w-6xl' };
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6">
       <div className="absolute inset-0 animate-fade bg-slate-950/50 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
@@ -326,9 +527,11 @@ export function Modal({ open, onClose, title, description, size = 'md', children
   );
 }
 
-/** Modal wrapping a form: Enter submits, footer has Cancel + submit. */
-export function FormModal({ open, onClose, title, description, size, submitLabel = 'Save', busy, error, onSubmit, onInvalid, children, danger }) {
+/** Modal wrapping a form: Enter submits, footer has Cancel + submit. A failed save (`error`) opens the error dialog. */
+/** `noValidate`: skip the browser's own checks (the form validates itself with zod and shows field messages). */
+export function FormModal({ open, onClose, title, description, size, submitLabel = 'Save', busy, error, onSubmit, onInvalid, children, danger, noValidate }) {
   const id = useId();
+  useErrorDialog(error);
   return (
     <Modal
       open={open}
@@ -343,8 +546,7 @@ export function FormModal({ open, onClose, title, description, size, submitLabel
         </>
       }
     >
-      <form id={id} className="space-y-4" onInvalidCapture={onInvalid} onSubmit={(e) => { e.preventDefault(); onSubmit(); }}>
-        {error && <Alert>{error}</Alert>}
+      <form id={id} noValidate={noValidate} className="space-y-4" onInvalidCapture={onInvalid} onSubmit={(e) => { e.preventDefault(); onSubmit?.(e); }}>
         {children}
       </form>
     </Modal>
@@ -352,6 +554,7 @@ export function FormModal({ open, onClose, title, description, size, submitLabel
 }
 
 export function ConfirmDialog({ open, onClose, onConfirm, title, children, confirmLabel = 'Delete', busy, error }) {
+  useErrorDialog(error);
   return (
     <Modal
       open={open}
@@ -369,10 +572,77 @@ export function ConfirmDialog({ open, onClose, onConfirm, title, children, confi
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-red-50 text-red-600"><AlertTriangle className="h-5 w-5" /></span>
         <div className="min-w-0 pt-0.5 text-sm leading-relaxed text-slate-600">
           {children}
-          {error && <Alert className="mt-3">{error}</Alert>}
         </div>
       </div>
     </Modal>
+  );
+}
+
+/* ───────────── Error dialog ───────────── */
+
+const useErrors = create((set) => ({ current: null, show: (current) => set({ current }), close: () => set({ current: null }) }));
+
+/**
+ * Show what went wrong in a dialog the user has to acknowledge — for failed form saves.
+ * Accepts an Error or a message; several problems come one per line (validation) and are listed.
+ */
+export function showError(error, title) {
+  const message = String(error?.message ?? error ?? '').trim() || 'Something went wrong. Please try again.';
+  const offline = error?.status === 0;
+  useErrors.getState().show({ title: title || (offline ? 'No connection' : error?.status >= 500 ? 'Something went wrong on our side' : 'That didn’t work'), lines: message.split('\n').filter(Boolean) });
+}
+
+/** For forms that keep their error in state: opens the dialog whenever a new error arrives. */
+export function useErrorDialog(error) {
+  useEffect(() => {
+    if (error) showError(error);
+  }, [error]);
+}
+
+/** Rendered once per layout, next to the toasts. Sits above any open form modal. */
+function ErrorDialog() {
+  const { current, close } = useErrors();
+  const ok = useRef(null);
+  useEffect(() => {
+    if (!current) return undefined;
+    const prev = document.activeElement;
+    ok.current?.focus();
+    // capture: Escape / Enter close this dialog only, not the form modal underneath
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      e.stopImmediatePropagation();
+      close();
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      prev?.focus?.();
+    };
+  }, [current, close]);
+  if (!current) return null;
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+      <div className="absolute inset-0 animate-fade bg-slate-950/50 backdrop-blur-[2px]" onClick={close} aria-hidden />
+      <div role="alertdialog" aria-modal="true" aria-labelledby="error-dialog-title" aria-describedby="error-dialog-body" className="relative w-full max-w-md animate-pop overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex gap-4 px-6 pt-6 pb-5">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-red-50 text-red-600"><CircleAlert className="h-6 w-6" /></span>
+          <div className="min-w-0 flex-1 pt-0.5">
+            <h2 id="error-dialog-title" className="text-base font-semibold text-slate-900">{current.title}</h2>
+            <div id="error-dialog-body" className="mt-1.5 text-sm leading-relaxed text-slate-600">
+              {current.lines.length === 1 ? <p className="break-words">{current.lines[0]}</p> : (
+                <>
+                  <p>Please fix the following and try again:</p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">{current.lines.map((l) => <li key={l} className="break-words">{l}</li>)}</ul>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end border-t border-slate-100 bg-slate-50/70 px-6 py-3.5">
+          <Button ref={ok} variant="primary" onClick={close}>OK</Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -396,15 +666,18 @@ export const toast = {
 export function Toaster() {
   const { items, dismiss } = useToasts();
   return (
-    <div className="pointer-events-none fixed right-4 bottom-4 z-[60] flex w-[min(380px,calc(100vw-2rem))] flex-col gap-2" aria-live="polite">
-      {items.map((t) => (
-        <div key={t.id} className="pointer-events-auto flex animate-slide-in items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
-          {t.tone === 'error' ? <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" /> : <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" />}
-          <p className="min-w-0 flex-1 text-sm text-slate-700">{t.message}</p>
-          <IconButton icon={X} label="Dismiss" onClick={() => dismiss(t.id)} className="-mt-1 -mr-2" />
-        </div>
-      ))}
-    </div>
+    <>
+      <ErrorDialog />
+      <div className="pointer-events-none fixed right-4 bottom-4 z-[60] flex w-[min(380px,calc(100vw-2rem))] flex-col gap-2" aria-live="polite">
+        {items.map((t) => (
+          <div key={t.id} className="pointer-events-auto flex animate-slide-in items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
+            {t.tone === 'error' ? <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" /> : <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" />}
+            <p className="min-w-0 flex-1 text-sm text-slate-700">{t.message}</p>
+            <IconButton icon={X} label="Dismiss" onClick={() => dismiss(t.id)} className="-mt-1 -mr-2" />
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 

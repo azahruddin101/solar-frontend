@@ -1,11 +1,12 @@
 'use client';
 
-import { Copy, ExternalLink, MapPin, PenTool, Plus, Search, Trash2 } from 'lucide-react';
+import { Copy, ExternalLink, FileText, HardHat, MapPin, PenTool, Plus, Search, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { formatMoney } from '@/lib/energy';
+import { generateLifecyclePdf } from '@/lib/lifecyclePdf';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { Alert, Button, Card, ConfirmDialog, EmptyState, IconButton, Input, LoadingBlock, PageHeader, Select, Table, Td, Th, Tr, buttonClass, timeAgo, toast } from '../kit';
@@ -17,6 +18,7 @@ export default function Designs() {
   const company = useSession((s) => s.company);
   const { data, setData, loading, error } = useResource('/api/designs');
   const clients = useResource('/api/clients');
+  const projects = useResource('/api/projects');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [modal, setModal] = useState(null);
@@ -28,6 +30,17 @@ export default function Designs() {
     const q = query.trim().toLowerCase();
     return (data || []).filter((d) => (status === 'all' || d.status === status) && (clientId === 'all' || d.client?.id === clientId) && (!q || `${d.name} ${d.client?.name} ${d.summary?.address}`.toLowerCase().includes(q)));
   }, [data, query, status, clientId]);
+
+  const installationOf = useMemo(() => new Map((projects.data || []).map((p) => [p.design?.id, p.id])), [projects.data]);
+
+  const downloadHistory = async (d) => {
+    try {
+      const lifecycle = await api(`/api/designs/${d.id}/lifecycle`);
+      await generateLifecyclePdf({ lifecycle, company, client: lifecycle.client });
+    } catch (e) {
+      toast.error(e.message);
+    }
+  };
 
   const close = () => { setModal(null); setModalError(''); };
   const setDesignStatus = async (d, next) => {
@@ -110,6 +123,10 @@ export default function Designs() {
                   <Td>
                     <div className="flex items-center justify-end gap-0.5">
                       <Link href={designHref(d)} className={buttonClass({ size: 'sm', className: 'mr-1' })}><ExternalLink className="h-3.5 w-3.5" /> Open</Link>
+                      {installationOf.has(d.id)
+                        ? <IconButton icon={HardHat} label="View installation" className="text-brand" onClick={() => router.push(`/dashboard/installations/${installationOf.get(d.id)}`)} />
+                        : <IconButton icon={HardHat} label="Start installation" onClick={() => router.push(`/dashboard/installations?start=${d.id}`)} />}
+                      <IconButton icon={FileText} label="Download activity log (PDF)" onClick={() => downloadHistory(d)} />
                       <IconButton icon={Copy} label="Duplicate" onClick={() => duplicate(d)} />
                       <IconButton icon={Trash2} label="Delete" tone="danger" onClick={() => setModal({ type: 'delete', design: d })} />
                     </div>
@@ -123,7 +140,7 @@ export default function Designs() {
 
       {modal?.type === 'new' && <NewDesignModal clients={clients.data} clientId={clientId !== 'all' ? clientId : undefined} onClose={close} />}
       <ConfirmDialog open={modal?.type === 'delete'} onClose={close} onConfirm={remove} busy={busy} error={modalError} title="Delete this design?" confirmLabel="Delete design">
-        <b className="text-slate-900">{modal?.design?.name}</b> for {modal?.design?.client?.name} will be permanently deleted.
+        <b className="text-slate-900">{modal?.design?.name}</b> for {modal?.design?.client?.name} will be permanently deleted{installationOf.has(modal?.design?.id) ? <>, together with <b className="text-slate-900">its installation and activity log</b></> : ''}.
       </ConfirmDialog>
     </>
   );

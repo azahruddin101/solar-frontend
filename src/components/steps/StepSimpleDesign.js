@@ -2,10 +2,11 @@
 
 // One friendly screen for home owners: see the roof in 3D, pick how many panels, done.
 
-import { Box, ChevronDown, Minus, Move, Plus } from 'lucide-react';
+import { Box, ChevronDown, FileText, Minus, Move, Plus } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { autoGroups } from '@/lib/autofill';
+import { capFirst } from '@/lib/catalog';
 import { formatMoney } from '@/lib/energy';
 import { buildDesign, zonesForSection } from '@/lib/model';
 import { sceneApi } from '../scene/Scene3D';
@@ -14,6 +15,8 @@ import Editor2D from '../editor/Editor2D';
 import { cx } from '../ui';
 import { Adjust } from './DesignPanel';
 import GroupList from './GroupList';
+import ShadowReportModal from './ShadowReportModal';
+import { GstSummary } from './GstSummary';
 
 const Scene3D = dynamic(() => import('../scene/Scene3D'), { ssr: false });
 const FT = 3.281;
@@ -49,6 +52,24 @@ function PillarIcon({ shape }) {
   return <svg viewBox="0 0 24 24" className="h-6 w-6"><rect x="4.5" y="4.5" width="15" height="15" fill="none" stroke="#334155" strokeWidth="3" /></svg>;
 }
 
+/** Collapsible sidebar section: title and a one-line summary; the body shows when open. */
+function Section({ id, title, summary, open, onToggle, children }) {
+  return (
+    <section className="border-b border-slate-200">
+      <button type="button" aria-expanded={open} aria-controls={`sec-${id}`} onClick={() => onToggle(id)} className="flex w-full items-center gap-3 px-5 py-3.5 text-left hover:bg-slate-50">
+        <span className="text-sm font-semibold text-slate-800">{title}</span>
+        <span className="ml-auto truncate text-xs text-slate-500">{summary}</span>
+        <ChevronDown className={cx('h-4 w-4 shrink-0 text-slate-400 transition', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div id={`sec-${id}`} className="space-y-4 px-5 pb-5">
+          {children}
+        </div>
+      )}
+    </section>
+  );
+}
+
 const Big = ({ children }) => <h2 className="text-[22px] font-bold leading-tight">{children}</h2>;
 const Sub = ({ children }) => <p className="mt-1 text-sm text-slate-500">{children}</p>;
 
@@ -62,9 +83,26 @@ const Q = ({ n, children }) => (
 export default function StepSimpleDesign({ design }) {
   const s = useStore();
   const { config, objects, sections, finance } = s;
-  const [view, setView] = useState('3d');
+  const [chosenView, setView] = useState('3d');
   const [page, setPage] = useState(0);
-  const [tune, setTune] = useState(false);
+  // sidebar sections: one open at a time
+  const [openSec, setOpenSec] = useState(null);
+  const toggleSec = (id) => setOpenSec((cur) => (cur === id ? null : id));
+  // the header's Export menu asks for the shadow report; it needs the live 3D scene, so the view is
+  // 3D while it runs, and the dialog opens once the scene is up (it starts generating on open)
+  const wantShadow = useStore((st) => st.shadowReport);
+  const view = wantShadow ? '3d' : chosenView;
+  const [sceneReady, setSceneReady] = useState(false);
+  useEffect(() => {
+    if (!wantShadow) return undefined;
+    let id = 0;
+    const wait = () => (sceneApi.getScene ? setSceneReady(true) : (id = requestAnimationFrame(wait)));
+    id = requestAnimationFrame(wait);
+    return () => {
+      cancelAnimationFrame(id);
+      setSceneReady(false);
+    };
+  }, [wantShadow]);
   const { totals, structure, spec, fin } = design;
   const main = sections[0];
 
@@ -92,6 +130,13 @@ export default function StepSimpleDesign({ design }) {
   const count = totals.count;
   const setCount = (n) => {
     const v = Math.max(1, Math.min(Math.max(maxFit, 1), Math.round(n)));
+    const kw = ((v * spec.watts) / 1000).toFixed(2);
+    s.patch('config', {
+      pricingMode: 'custom',
+      sizeBy: 'kw',
+      sizeKw: kw,
+      sizeBill: String(Math.floor(v * perPanelMonth * tariff)),
+    });
     autoGroups(design, v >= maxFit ? 0 : v);
   };
   const applyAll = (patch) => s.set({ config: { ...config, ...patch }, objects: objects.map((o) => (o.type === 'zone' || o.type === 'array' ? { ...o, ...patch } : o)) });
@@ -123,12 +168,92 @@ export default function StepSimpleDesign({ design }) {
   const settle = useRef(0);
   const sizeFor = (mode, v) => {
     const other = equivalent(mode, v);
-    s.patch('config', { sizeBy: mode, sizeValue: undefined, sizeBill: mode === 'bill' ? v : other, sizeKw: mode === 'kw' ? v : other });
+    s.patch('config', { sizeBy: mode, sizeValue: undefined, sizeBill: mode === 'bill' ? v : other, sizeKw: mode === 'kw' ? v : other, pricingMode: 'custom' });
     const n = panelsFor(mode, v);
     settle.current = 2;
     autoGroups(design, n > 0 ? Math.min(maxFit, Math.max(1, n)) : 0, { atLeast: true });
   };
-  // switching the unit only changes how the requirement is shown — the layout stays as it is
+
+  // Selecting a package: place the exact number of panels defined in the package.
+  // Priority: 1) panel item qty  2) compute from pkg.kw + panel watts  3) keep current count.
+  // We read directly from design.catalog so there are no stale closure issues.
+  const pickPackage = (pkgId) => {
+    const pkg = (design.catalog.packages || []).find((p) => p.id === pkgId);
+    const pkgKw = pkg ? Number(pkg.kw) || 0 : 0;
+
+    // Find the panel line-item in this package
+    const panelItem = pkg?.items?.find((it) => it.itemType === 'panel' || it.name?.toLowerCase().includes('panel'));
+
+    // Panel count: use the exact qty from the package item if set
+    const exactQty = panelItem ? Number(panelItem.qty) || 0 : 0;
+
+    // Panel watts: try to resolve from catalog first (most reliable),
+    // then fall back to regex on name/model/spec, then current spec.
+    let panelWatts = spec.watts;
+    if (panelItem) {
+      // 1. Match by brand + model in the catalog
+      const catalogMatch = design.catalog.panels.find(
+        (p) =>
+          p.brand?.toLowerCase() === panelItem.brand?.toLowerCase() &&
+          p.model?.toLowerCase() === panelItem.model?.toLowerCase(),
+      );
+      if (catalogMatch) {
+        panelWatts = catalogMatch.watts;
+      } else {
+        // 2. Regex: look for patterns like "575W", "575 W", or a bare 3-4 digit number at end of name
+        const searchStr = `${panelItem.model || ''} ${panelItem.spec || ''} ${panelItem.name || ''}`;
+        const wattsMatch = searchStr.match(/(\d{3,4})\s*w\b/i) || searchStr.match(/\b(\d{3,4})\s*$/);
+        if (wattsMatch) panelWatts = Number(wattsMatch[1]);
+      }
+    }
+
+    // Determine the panel count to lay out
+    const n = exactQty > 0
+      ? exactQty                                                          // exact qty wins
+      : pkgKw > 0 && panelWatts > 0
+        ? Math.ceil((pkgKw * 1000) / panelWatts - 1e-9)                  // derive from kW
+        : 0;
+
+    if (n > 0) {
+      const clamped = Math.min(maxFit, Math.max(1, n));
+      // Compute effective kW from the panels that will actually be placed
+      const effectiveKw = ((clamped * panelWatts) / 1000).toFixed(2);
+      s.patch('config', {
+        packageId: pkgId,
+        sizeBy: 'kw',
+        sizeValue: undefined,
+        sizeKw: pkgKw > 0 ? String(pkgKw) : effectiveKw,
+        sizeBill: String(Math.floor(clamped * perPanelMonth * tariff)),
+      });
+      settle.current = 2;
+      autoGroups(design, clamped, { atLeast: true });
+    } else {
+      // No panel count info — just record the package, keep current layout
+      s.patch('config', { packageId: pkgId });
+    }
+  };
+
+  // Auto-apply the package layout in two additional situations:
+  //  A) On page load: packages arrive from the API after the design is already open → trigger once.
+  //  B) When the user switches back to package mode (pricingMode changes to 'package').
+  // Guard with a ref so we don't re-run on every render.
+  const pkgApplied = useRef('');
+  const pkgsAvailable = (design.catalog.packages || []).length > 0;
+  useEffect(() => {
+    if (config.pricingMode !== 'package') {
+      pkgApplied.current = ''; // reset when leaving package mode
+      return;
+    }
+    const pkgId = config.packageId || design.catalog.packages?.[0]?.id || '';
+    if (!pkgId || !pkgsAvailable) return;
+    // Only fire once per (pricingMode + packageId + packages-loaded) combination
+    const key = `${pkgId}:${pkgsAvailable}`;
+    if (pkgApplied.current === key) return;
+    pkgApplied.current = key;
+    pickPackage(pkgId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.pricingMode, config.packageId, pkgsAvailable]);
+
   const switchTo = (mode) => {
     if (mode === sizeBy) return;
     const current = sizeBy === 'kw' ? { sizeKw: sizeValue } : { sizeBill: sizeValue };
@@ -172,37 +297,51 @@ export default function StepSimpleDesign({ design }) {
     <>
       <div className="absolute inset-y-0 left-0 right-[400px]">
         {view === '3d' ? <Scene3D design={design} /> : <Editor2D design={design} />}
-        <div className="absolute left-4 top-4 flex rounded-full bg-white p-1 shadow-lg" onPointerDown={(e) => e.stopPropagation()}>
-          {[['3d', Box, '3D'], ['2d', Move, 'Plan view']].map(([k, Icon, label]) => (
-            <button key={k} type="button" onClick={() => { if (view === '3d' && k !== '3d') s.set({ snapshot: sceneApi.capture?.() || s.snapshot }); setView(k); }} className={cx('flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium', view === k ? 'bg-slate-900 text-white' : 'text-slate-600')}>
-              <Icon className="h-4 w-4" /> {label}
-            </button>
-          ))}
+        <div className="absolute left-4 top-4 flex items-center gap-2" onPointerDown={(e) => e.stopPropagation()}>
+          <div className="flex rounded-full bg-white p-1 shadow-lg">
+            {[['3d', Box, '3D'], ['2d', Move, 'Plan view']].map(([k, Icon, label]) => (
+              <button key={k} type="button" onClick={() => { if (view === '3d' && k !== '3d') s.set({ snapshot: sceneApi.capture?.() || s.snapshot }); setView(k); }} className={cx('flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium', view === k ? 'bg-slate-900 text-white' : 'text-slate-600')}>
+                <Icon className="h-4 w-4" /> {label}
+              </button>
+            ))}
+          </div>
         </div>
         {view === '2d' && (
           <div className="pointer-events-none absolute left-1/2 top-5 -translate-x-1/2 rounded-full bg-slate-900/85 px-5 py-2 text-sm text-white shadow-lg">
             {s.tool === 'add-array' ? 'Tap on the roof where you want panels' : 'Drag panels to move · pull the ⤡ corner to add or remove panels · orange dot turns them'}
           </div>
         )}
-        {view === '3d' && <div className="pointer-events-none absolute left-1/2 top-5 -translate-x-1/2 rounded-full bg-white/15 px-4 py-1.5 text-xs text-white">Drag to orbit · scroll to zoom · drag a panel group to move it</div>}
+        {view === '3d' && <div className="pointer-events-none absolute left-1/2 top-6 hidden -translate-x-1/2 rounded-full bg-black/35 px-3 py-1 text-[11px] text-white/85 backdrop-blur-sm lg:block">Drag to orbit · scroll to zoom · click a panel group for details, drag it to move</div>}
       </div>
 
       <aside className="absolute inset-y-0 right-0 flex w-[400px] flex-col border-l border-slate-200 bg-white">
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="space-y-4 px-5 py-4">
+          {/* 2 — result */}
+          <div className="rounded-xl bg-slate-900 p-4 text-white" aria-live="polite">
+            <div className="text-2xl font-bold">{count} panels <span className="text-base font-medium text-slate-300">· {totals.kwp.toFixed(1)} kW</span></div>
+            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
+              <div><div className="text-slate-400">Generates</div><div className="text-base font-bold">{Math.round(totals.acKwh / 12).toLocaleString()} units<span className="text-xs font-normal"> / month</span></div><div className="text-xs text-slate-400">{Math.round(totals.acKwh).toLocaleString()} kWh / year</div></div>
+              <div><div className="text-slate-400">Saves</div><div className="text-base font-bold">{money(fin.firstYearSavings / 12)}<span className="text-xs font-normal"> / month</span></div></div>
+              <div><div className="text-slate-400">Total price</div><div className="text-base font-bold">{money(design.cost.total)}</div>{!design.cost.gstIncluded && design.cost.gstAmount > 0 && <div className="text-[10px] text-slate-500">incl. GST</div>}</div>
+              <div><div className="text-slate-400">Payback</div><div className="text-base font-bold">{fin.payback ? `${fin.payback.toFixed(1)} years` : '25+ years'}</div></div>
+            </div>
+          </div>
+
           {/* 1 — the only question: size by bill or by kW */}
           <div>
-            <div className="text-base font-semibold">Size the system by</div>
+            <div className="text-sm font-semibold text-slate-800">Size the system by</div>
             <div role="radiogroup" aria-label="Size the system by" className="mt-2 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
               {[['bill', 'Monthly bill'], ['kw', 'Kilowatt (kW)']].map(([k, label]) => (
                 <button key={k} type="button" role="radio" aria-checked={sizeBy === k} onClick={() => switchTo(k)} className={cx('h-9 rounded-md text-sm font-medium whitespace-nowrap transition', sizeBy === k ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800')}>{label}</button>
               ))}
             </div>
-            <label htmlFor="size" className="mt-3 block text-sm font-medium text-slate-600">{sizeBy === 'bill' ? `Monthly electricity bill (${finance.currency})` : 'System size required (kW)'}</label>
+            <label htmlFor="size" className="mt-3 block text-xs font-medium text-slate-500">{sizeBy === 'bill' ? `Monthly electricity bill (${finance.currency})` : 'System size required (kW)'}</label>
             <div className="relative mt-1.5">
-              <input id="size" inputMode="decimal" value={sizeValue} onChange={(e) => sizeFor(sizeBy, e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1'))} placeholder={sizeBy === 'bill' ? 'e.g. 3500' : 'e.g. 5'} className="h-14 w-full rounded-md border-2 border-slate-300 pr-14 pl-4 text-2xl font-semibold outline-none focus:border-brand" />
+              <input id="size" inputMode="decimal" value={sizeValue} onChange={(e) => sizeFor(sizeBy, e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1'))} placeholder={sizeBy === 'bill' ? 'e.g. 3500' : 'e.g. 5'} className="h-11 w-full rounded-md border border-slate-300 pr-14 pl-3 text-lg font-semibold outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
               <span className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-sm font-medium text-slate-400">{sizeBy === 'bill' ? finance.currency : 'kW'}</span>
             </div>
-            <p className="mt-1.5 text-sm text-slate-500">
+            <p className="mt-1.5 text-xs text-slate-500">
               {needPanels > 0
                 ? <>
                     {sizeBy === 'bill' ? <>About <b>{Math.round(needUnits)} units</b>/month → </> : <><b>{amount} kW</b> → </>}
@@ -213,60 +352,44 @@ export default function StepSimpleDesign({ design }) {
             </p>
           </div>
 
-          {/* 2 — result */}
-          <div className="rounded-lg bg-slate-900 p-5 text-white" aria-live="polite">
-            <div className="text-3xl font-bold">{count} panels <span className="text-lg font-medium text-slate-300">· {totals.kwp.toFixed(1)} kW</span></div>
-            <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
-              <div><div className="text-slate-400">Generates</div><div className="text-lg font-bold">{Math.round(totals.acKwh / 12).toLocaleString()} units<span className="text-xs font-normal"> / month</span></div><div className="text-xs text-slate-400">{Math.round(totals.acKwh).toLocaleString()} kWh / year</div></div>
-              <div><div className="text-slate-400">Saves</div><div className="text-lg font-bold">{money(fin.firstYearSavings / 12)}<span className="text-xs font-normal"> / month</span></div></div>
-              <div><div className="text-slate-400">Total price</div><div className="text-lg font-bold">{money(design.cost.total)}</div></div>
-              <div><div className="text-slate-400">Payback</div><div className="text-lg font-bold">{fin.payback ? `${fin.payback.toFixed(1)} years` : '25+ years'}</div></div>
-            </div>
-          </div>
-
           {totals.invalid > 0 && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{totals.invalid} red group{totals.invalid > 1 ? 's are' : ' is'} overlapping something and not counted. Drag it to a free place.</p>}
 
-          {/* 3 — two dropdowns */}
-          <div className="grid gap-3">
+          </div>
+          <div className="border-t border-slate-200">
+          <Section id="equipment" title="Panels & poles" summary={config.pricingMode === 'package' ? 'From the package' : [brandOf(spec), `${spec.watts} W`].join(' · ')} open={openSec === 'equipment'} onToggle={toggleSec}>
+            {config.pricingMode === 'package' ? <p className="text-xs text-slate-500">Panels and poles are set by the selected package (see Materials).</p> : null}
+          {/* 3 — dropdowns for panels, poles and custom materials (Only shown in Custom mode; package mode manages these via the package) */}
+          {config.pricingMode !== 'package' && (
             <div className="grid gap-3">
-              <label className="text-sm font-medium">1. Panel brand
-                <select className="mt-1 h-11 w-full rounded-md border border-slate-300 px-3 text-sm" value={brandOf(spec)} onChange={(e) => pickBrand(e.target.value)}>
-                  {brands.map((b) => <option key={b} value={b}>{b}</option>)}
-                </select>
-              </label>
-              <label className="text-sm font-medium">2. Model
-                <select className="mt-1 h-11 w-full rounded-md border border-slate-300 px-3 text-sm" value={spec.id} onChange={(e) => pickPanel(e.target.value)}>
-                  {models.map((p) => <option key={p.id} value={p.id}>{p.model || `${p.watts} W`} · {p.watts} W</option>)}
-                </select>
-              </label>
+              <div className="grid gap-3">
+                <label className="text-xs font-medium text-slate-500">Panel brand
+                  <select className="mt-1 h-10 w-full rounded-md border border-slate-300 px-3 text-sm text-slate-800" value={brandOf(spec)} onChange={(e) => pickBrand(e.target.value)}>
+                    {brands.map((b) => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-medium text-slate-500">Model
+                  <select className="mt-1 h-10 w-full rounded-md border border-slate-300 px-3 text-sm text-slate-800" value={spec.id} onChange={(e) => pickPanel(e.target.value)}>
+                    {models.map((p) => <option key={p.id} value={p.id}>{p.model || `${p.watts} W`} · {p.watts} W</option>)}
+                  </select>
+                </label>
+              </div>
+              <p className="-mt-1 text-xs text-slate-500">
+                {spec.watts} W · {spec.length} × {spec.width} m · {money(spec.price)} per panel
+                {spec.manufactureYear ? ` · made ${spec.manufactureYear}` : ''}{spec.warrantyYears != null ? ` · ${spec.warrantyYears}-year warranty` : ''}
+              </p>
+              {/* poles only exist on flat roofs; flush-mounted panels use roof hooks */}
+              {(structure.columns > 0 || !structure.hooks) && (
+                <label className="text-xs font-medium text-slate-500">Mounting pole
+                  <select className="mt-1 h-10 w-full rounded-md border border-slate-300 px-3 text-sm text-slate-800" value={design.pillar.id} onChange={(e) => s.patch('config', { pillarId: e.target.value })}>
+                    {design.catalog.pillars.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.shape.replace('-', ' ')}) · {money(p.pricePerFt)}/ft</option>)}
+                  </select>
+                </label>
+              )}
             </div>
-            <p className="-mt-1 text-xs text-slate-500">
-              {spec.watts} W · {spec.length} × {spec.width} m · {money(spec.price)} per panel
-              {spec.manufactureYear ? ` · made ${spec.manufactureYear}` : ''}{spec.warrantyYears != null ? ` · ${spec.warrantyYears}-year warranty` : ''}
-            </p>
-            {/* poles only exist on flat roofs; flush-mounted panels use roof hooks */}
-            {(structure.columns > 0 || !structure.hooks) && (
-            <label className="text-sm font-medium">Mounting pole
-                <select className="mt-1 h-11 w-full rounded-md border border-slate-300 px-3 text-sm" value={design.pillar.id} onChange={(e) => s.patch('config', { pillarId: e.target.value })}>
-                  {design.catalog.pillars.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.shape.replace('-', ' ')}) · {money(p.pricePerFt)}/ft</option>)}
-                </select>
-              </label>
-            )}
-          </div>
+          )}
 
-          <div className="rounded-lg border border-slate-200 p-4 text-sm">
-            <div className="flex justify-between py-0.5"><span>{count} × {spec.watts} W panel</span><b>{money(design.cost.panels)}</b></div>
-            {structure.columns > 0 && <div className="flex justify-between py-0.5"><span>{structure.columns} poles · {Math.round(design.cost.pillarFt)} ft</span><b>{money(design.cost.pillars)}</b></div>}
-            {structure.hooks > 0 && <div className="flex justify-between py-0.5"><span>{structure.hooks} roof hooks (flush mount)</span><span className="text-slate-400">in installation</span></div>}
-            <div className="flex justify-between py-0.5"><span>Inverter, wiring, installation</span><b>{money(design.cost.other)}</b></div>
-            <div className="mt-1 flex justify-between border-t border-slate-200 pt-1.5 text-base"><span className="font-semibold">Total</span><b>{money(design.cost.total)}</b></div>
-          </div>
-
-          {/* everything else is optional */}
-          <button type="button" aria-expanded={tune} onClick={() => setTune(!tune)} className="flex w-full items-center justify-between border-t border-slate-200 pt-4 text-sm font-medium text-slate-600">
-            Adjust design <ChevronDown className={cx('h-4 w-4 transition', tune && 'rotate-180')} />
-          </button>
-          {tune && (
+          </Section>
+          <Section id="adjust" title="Adjust layout" summary={`${count} panels · ${config.tilt}° tilt`} open={openSec === 'adjust'} onToggle={toggleSec}>
             <div className="space-y-4">
               <div className="flex items-center gap-3">
                 <button type="button" aria-label="One panel less" onClick={() => setCount(count - 1)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Minus className="h-4 w-4" /></button>
@@ -281,11 +404,321 @@ export default function StepSimpleDesign({ design }) {
               <GroupList design={design} />
               <button type="button" onClick={() => { setView('2d'); s.set({ tool: 'add-array', selectedId: null }); }} className="w-full rounded-md border border-slate-300 py-2.5 text-sm font-medium hover:bg-slate-50">Add panels manually (plan view)</button>
             </div>
-          )}
+          </Section>
+          <Section id="pricing" title="Materials" summary={config.pricingMode === 'package' ? design.cost.package?.name || 'Package' : 'Custom'} open={openSec === 'pricing'} onToggle={toggleSec}>
+            <div className="space-y-4">
+          {/* Pricing mode selection: Package vs Custom */}
+          <div>
+            <div className="mb-1.5 text-xs font-medium text-slate-500">Pricing mode</div>
+            <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-200/70 p-1">
+              {[
+                ['package', 'Package'],
+                ['custom', 'Custom'],
+              ].map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => {
+                    if (mode === (config.pricingMode || 'custom')) return; // already active
+                    s.patch('config', { pricingMode: mode });
+                    // When switching TO package mode, immediately apply the selected/default package
+                    if (mode === 'package') {
+                      const pkgId = config.packageId || design.catalog.packages?.[0]?.id || '';
+                      if (pkgId) setTimeout(() => pickPackage(pkgId), 0);
+                    }
+                  }}
+                  className={cx(
+                    'h-8 rounded-md text-xs font-semibold transition',
+                    (config.pricingMode || 'custom') === mode
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {config.pricingMode === 'package' && (
+              <div className="mt-3 space-y-2">
+                <label className="text-xs font-medium text-slate-700 block">
+                  Select Package
+                  <select
+                    className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-800 focus:border-brand outline-none"
+                    value={design.cost.package?.id || config.packageId || ''}
+                    onChange={(e) => pickPackage(e.target.value)}
+                  >
+                    {!design.catalog.packages?.length && (
+                      <option value="">No packages in catalog yet (using standard)</option>
+                    )}
+                    {(design.catalog.packages || []).map((pkg) => (
+                      <option key={pkg.id} value={pkg.id}>
+                        {pkg.name} ({pkg.kw ? `${pkg.kw} kW · ` : ''}{money(pkg.price)})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {design.cost.package && (
+                  <div className="rounded-md border border-slate-200 bg-white p-2.5 text-xs text-slate-600">
+                    <div className="flex justify-between items-center font-semibold text-slate-800">
+                      <span>{design.cost.package.name}</span>
+                      <span className="text-brand font-bold">{money(design.cost.package.price)}</span>
+                    </div>
+                    {design.cost.package.description && (
+                      <p className="text-[11px] text-slate-500 mt-0.5">{design.cost.package.description}</p>
+                    )}
+                    <div className="mt-2.5 pt-2 border-t border-slate-100 space-y-1">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                        Bundled Scope & Equipment
+                      </span>
+                      {design.cost.package.items?.length ? (
+                        design.cost.package.items.map((it, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-[11px] text-slate-600">
+                            <span className="truncate">
+                              <span className="font-medium text-slate-800">{it.name}</span>
+                              {(it.brand || it.model) && (
+                                <span className="text-slate-500 ml-1">
+                                  ({[it.brand, it.model].filter(Boolean).join(' ')})
+                                </span>
+                              )}
+                            </span>
+                            <span className="font-mono text-[10px] text-slate-400 shrink-0 ml-2">
+                              {it.qty} {it.unit}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-[11px] text-slate-400">
+                          Panels, inverter, poles, cabling, earthing, ACDB/DCDB bundled
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Floor Placement Surcharge */}
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-500">Floor placement</span>
+              {Number(config.floorPlacement || 0) === 0 ? (
+                <span className="text-xs text-emerald-600 font-medium">Ground (₹0)</span>
+              ) : (
+                <span className="text-xs text-slate-600 font-medium">Floor {config.floorPlacement}</span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <label className="text-xs text-slate-600">
+                Installation level
+                <select
+                  className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs"
+                  value={config.floorPlacement ?? 0}
+                  onChange={(e) => {
+                    const fl = Number(e.target.value);
+                    // default standard floor charges: Ground is 0, each floor above adds default increment (e.g. 5000/floor) unless user customized
+                    const defaultCost = fl === 0 ? 0 : fl * 5000;
+                    s.patch('config', { floorPlacement: fl, floorCost: defaultCost });
+                  }}
+                >
+                  <option value={0}>Ground Floor (0)</option>
+                  <option value={1}>1st Floor</option>
+                  <option value={2}>2nd Floor</option>
+                  <option value={3}>3rd Floor</option>
+                  <option value={4}>4th Floor</option>
+                  <option value={5}>5th Floor+</option>
+                </select>
+              </label>
+
+              <label className="text-xs text-slate-600">
+                Placement cost ({finance.currency})
+                <input
+                  type="number"
+                  min={0}
+                  step="any"
+                  className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs"
+                  value={config.floorCost ?? 0}
+                  onChange={(e) => s.patch('config', { floorCost: Number(e.target.value) || 0 })}
+                />
+              </label>
+            </div>
+          </div>
+
+          {/* Custom Mode Other Materials (Dynamically rendered from company's own categories) */}
+          {config.pricingMode !== 'package' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-500">Electrical & BOS materials</span>
+                  <span className="text-[11px] text-slate-400">From company catalog</span>
+                </div>
+
+                {(!design.catalog.materialCategories || design.catalog.materialCategories.length === 0) ? (
+                  <p className="text-xs text-slate-500 py-1">
+                    No custom material categories added yet (using baseline Balance of System). Add products to your categories in the Product Catalog to select specific inverters, wire, earthing, etc.
+                  </p>
+                ) : (
+                  design.catalog.materialCategories.map((cat) => {
+                    const isWire = cat.name.toLowerCase().includes('wire') || cat.name.toLowerCase().includes('cable');
+                    const entry = config.customMaterials?.[cat.id] || {};
+                    const selectedProd = cat.products?.find((p) => p.id === entry.productId);
+                    const qty = entry.qty ?? 1;
+                    const lineTotal = selectedProd ? (Number(selectedProd.price) || 0) * qty : 0;
+
+                    const updateCategory = (patch) => {
+                      const prevCM = config.customMaterials || {};
+                      const currentEntry = prevCM[cat.id] || {};
+                      s.patch('config', {
+                        customMaterials: {
+                          ...prevCM,
+                          [cat.id]: { ...currentEntry, ...patch },
+                        },
+                      });
+                    };
+
+                    return (
+                      <div key={cat.id}>
+                        <div className="flex justify-between text-xs font-medium text-slate-700 mb-1">
+                          <span>{cat.name}</span>
+                          {selectedProd && (
+                            <span className="text-slate-900 font-semibold">{money(lineTotal)}</span>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <select
+                            className="h-9 flex-1 w-full rounded-md border border-slate-300 bg-white px-2 text-xs"
+                            value={entry.productId || ''}
+                            onChange={(e) => updateCategory({ productId: e.target.value })}
+                          >
+                            <option value="">Default BOS {cat.name}</option>
+                            {cat.products.map((p) => (
+                              <option key={p.id} value={p.id} >
+                                {p.name} ({money(p.price)}{isWire ? `/${capFirst(p.unit) || 'Bundle'}` : ''})
+                              </option>
+                            ))}
+                          </select>
+
+                          {isWire ? (
+                            <div className="relative flex items-center">
+                              <input
+                                type="number"
+                                min={1}
+                                title="Number of bundles"
+                                placeholder="Bundles"
+                                className="h-9 w-20 rounded-md border border-slate-300 bg-white pr-6 pl-2 text-center text-xs"
+                                value={qty}
+                                onChange={(e) => updateCategory({ qty: Math.max(1, Number(e.target.value) || 1) })}
+                              />
+                              <span className="pointer-events-none absolute right-1.5 text-[10px] text-slate-400">bdl</span>
+                            </div>
+                          ) : (
+                            <input
+                              type="number"
+                              min={1}
+                              title="Quantity"
+                              className="h-9 w-14 rounded-md border border-slate-300 bg-white px-1.5 text-center text-xs"
+                              value={qty}
+                              onChange={(e) => updateCategory({ qty: Math.max(1, Number(e.target.value) || 1) })}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+
+            </div>
+          </Section>
+          <Section id="cost" title="Cost breakdown" summary={money(design.cost.total)} open={openSec === 'cost'} onToggle={toggleSec}>
+          {/* Cost breakdown card */}
+          <div className="text-sm">
+            {config.pricingMode === 'package' ? (
+              <>
+                <div className="flex justify-between py-0.5">
+                  <span className="font-medium text-slate-800">
+                    Package ({design.cost.package?.name || 'Selected package'})
+                  </span>
+                  <b>{money(design.cost.packagePrice)}</b>
+                </div>
+                <div className="text-[11px] text-slate-400 pb-1 border-b border-slate-100">
+                  Bundled: {count} modules, structure, BOS & installation
+                </div>
+                {Number(design.cost.floorCost) > 0 && (
+                  <div className="flex justify-between py-1 text-xs text-slate-600">
+                    <span>Floor placement (Floor {config.floorPlacement})</span>
+                    <b>{money(design.cost.floorCost)}</b>
+                  </div>
+                )}
+                <div className="mt-1 flex justify-between border-t border-slate-200 pt-1.5 text-base">
+                  <span className="font-semibold">Total</span>
+                  <b>{money(design.cost.subtotal ?? design.cost.total)}</b>
+                </div>
+                <GstSummary cost={design.cost} config={config} onConfig={(p) => s.patch('config', p)} money={money} />
+              </>
+            ) : (
+              <>
+                <div className="flex justify-between py-0.5">
+                  <span>{count} × {spec.watts} W panel</span>
+                  <b>{money(design.cost.panels)}</b>
+                </div>
+                {structure.columns > 0 && (
+                  <div className="flex justify-between py-0.5">
+                    <span>{structure.columns} poles · {Math.round(design.cost.pillarFt)} ft</span>
+                    <b>{money(design.cost.pillars)}</b>
+                  </div>
+                )}
+                {structure.hooks > 0 && (
+                  <div className="flex justify-between py-0.5">
+                    <span>{structure.hooks} roof hooks (flush mount)</span>
+                    <span className="text-slate-400">in installation</span>
+                  </div>
+                )}
+
+                {design.cost.hasChosenMaterials ? (
+                  <>
+                    {(design.cost.categoryMaterials || []).map((m) => (
+                      <div key={m.categoryId} className="flex justify-between py-0.5 text-xs text-slate-600">
+                        <span>{m.categoryName}: {m.productName} (×{m.qty} {m.unit})</span>
+                        <b>{money(m.total)}</b>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <div className="flex justify-between py-0.5">
+                    <span>Inverter, wiring, installation (BOS)</span>
+                    <b>{money(design.cost.other)}</b>
+                  </div>
+                )}
+
+
+                {Number(design.cost.floorCost) > 0 && (
+                  <div className="flex justify-between py-0.5 text-xs text-slate-600">
+                    <span>Floor placement (Floor {config.floorPlacement})</span>
+                    <b>{money(design.cost.floorCost)}</b>
+                  </div>
+                )}
+                <div className="mt-1 flex justify-between border-t border-slate-200 pt-1.5 text-base">
+                  <span className="font-semibold">Total</span>
+                  <b>{money(design.cost.subtotal ?? design.cost.total)}</b>
+                </div>
+                <GstSummary cost={design.cost} config={config} onConfig={(p) => s.patch('config', p)} money={money} />
+              </>
+            )}
+          </div>
+
+
+
+          </Section>
+          </div>
         </div>
         {/* after a panel change: re-size to the bill / kW if one is set, otherwise keep the same number of panels */}
         <button id="rearrange" type="button" hidden onClick={() => (amount > 0 ? sizeFor(sizeBy, sizeValue) : autoGroups(design, count >= maxFit ? 0 : count))} />
       </aside>
+      <ShadowReportModal open={Boolean(wantShadow) && sceneReady} mode={wantShadow || 'report'} onClose={() => useStore.getState().set({ shadowReport: false })} design={design} />
     </>
   );
 }

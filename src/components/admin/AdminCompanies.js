@@ -7,29 +7,61 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, assetUrl } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
-import { Alert, LogoChip, Button, Card, ConfirmDialog, EmptyState, FormField, FormModal, IconButton, Input, LoadingBlock, PageHeader, Select, Table, Tabs, Td, Textarea, Th, Toggle, Tr, formatDate, timeAgo, toast } from '../kit';
-import { PLANS, PlanBadge, StatusBadge } from './shared';
+import { adminCompanyCreateSchema, adminCompanyUpdateSchema, newPassword, useValidation } from '@/lib/validation';
+import { Alert, Button, Card, ConfirmDialog, EmptyState, FormField, FormModal, IconButton, Input, NameInput, PhoneInput, LoadingBlock, LogoChip, PageHeader, PasswordInput, Select, Table, Tabs, Td, Textarea, Th, Toggle, Tr, formatDate, timeAgo, toast } from '../kit';
+import { PlanBadge, StatusBadge } from './shared';
 
-const BLANK = { name: '', contactName: '', loginEmail: '', password: '', phone: '', address: '', website: '', taxId: '', plan: 'starter', status: 'active', notes: '', limits: { maxClients: 0, maxDesigns: 0 }, features: { pdfBranding: true, excelImport: true } };
+const BLANK = { name: '', contactName: '', loginEmail: '', password: '', phone: '', address: '', website: '', taxId: '', pan: '', planId: '', status: 'active', notes: '', limits: { maxClients: 25, maxDesigns: 50, maxConcurrentLogins: 2 }, features: { pdfBranding: true, excelImport: true } };
 
+// always has a letter and a digit, as the password rules require
 const randomPassword = () => {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-  return Array.from(crypto.getRandomValues(new Uint32Array(12)), (n) => chars[n % chars.length]).join('');
+  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const chars = letters + digits;
+  const pick = (set, n) => set[n % set.length];
+  const r = crypto.getRandomValues(new Uint32Array(12));
+  const out = Array.from(r, (n) => pick(chars, n));
+  out[0] = pick(letters, r[0]);
+  out[1] = pick(digits, r[1]);
+  return out.join('');
 };
 
 function CompanyForm({ company, onClose, onSaved }) {
+  const plans = useResource('/api/admin/plans');
   const editing = Boolean(company?.id);
-  const [form, setForm] = useState(() => (editing ? { ...BLANK, ...company, limits: { ...BLANK.limits, ...company.limits }, features: { ...BLANK.features, ...company.features } } : { ...BLANK, password: randomPassword() }));
+  const [form, setForm] = useState(() => (editing ? { ...BLANK, ...company, planId: company.planId || company.planDetail?.id || '', limits: { ...BLANK.limits, ...company.limits }, features: { ...BLANK.features, ...company.features } } : { ...BLANK, password: randomPassword() }));
   const [tab, setTab] = useState('profile');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const v = useValidation(editing ? adminCompanyUpdateSchema : adminCompanyCreateSchema, form);
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+  const selectedPlan = (plans.data || []).find((p) => p.id === form.planId);
+  const customPlan = selectedPlan?.kind === 'custom';
+
+  const pickPlan = (planId) => {
+    const p = (plans.data || []).find((x) => x.id === planId);
+    setForm((f) => ({
+      ...f,
+      planId,
+      limits: p && p.kind !== 'custom' ? { maxClients: p.maxClients, maxDesigns: p.maxDesigns, maxConcurrentLogins: p.maxConcurrentLogins } : f.limits,
+    }));
+  };
+
+  useEffect(() => {
+    if (editing || form.planId || !plans.data?.length) return;
+    const basic = plans.data.find((p) => p.code === 'basic') || plans.data[0];
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (basic) pickPlan(basic.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plans.data, editing]);
 
   const submit = async () => {
+    const body = v.validate();
+    if (!body) return setTab('profile');
     setBusy(true);
     setError('');
     try {
-      const saved = editing ? await api(`/api/admin/companies/${company.id}`, { method: 'PATCH', body: form }) : await api('/api/admin/companies', { method: 'POST', body: form });
+      const saved = editing ? await api(`/api/admin/companies/${company.id}`, { method: 'PATCH', body }) : await api('/api/admin/companies', { method: 'POST', body });
       onSaved(saved, editing ? null : { email: form.loginEmail, password: form.password });
     } catch (e) {
       setError(e.message);
@@ -38,28 +70,41 @@ function CompanyForm({ company, onClose, onSaved }) {
   };
 
   return (
-    <FormModal open onClose={onClose} size="lg" title={editing ? `Edit ${company.name}` : 'Add a company'} description={editing ? undefined : 'Creates the company workspace and its sign-in.'} submitLabel={editing ? 'Save changes' : 'Create company'} busy={busy} error={error} onSubmit={submit} onInvalid={() => setTab('profile')}>
+    <FormModal open onClose={onClose} size="lg" title={editing ? `Edit ${company.name}` : 'Add a company'} description={editing ? undefined : 'Creates the company workspace and its sign-in.'} submitLabel={editing ? 'Save changes' : 'Create company'} busy={busy} error={error} onSubmit={submit} onInvalid={() => setTab('profile')} noValidate>
       <Tabs value={tab} onChange={setTab} tabs={[{ id: 'profile', label: 'Company & sign-in' }, { id: 'access', label: 'Plan & limits' }, { id: 'features', label: 'Features' }]} />
       {/* keep every tab mounted so required fields still validate on submit */}
       <div className={tab === 'profile' ? 'grid gap-4 sm:grid-cols-2' : 'hidden'}>
-        <FormField label="Company name" className="sm:col-span-2"><Input required maxLength={120} value={form.name} onValue={(v) => set({ name: v })} placeholder="Sunrise Solar Pvt Ltd" /></FormField>
-        <FormField label="Sign-in email"><Input type="email" required value={form.loginEmail} onValue={(v) => set({ loginEmail: v })} placeholder="owner@company.com" /></FormField>
-        {editing ? <FormField label="Contact person" optional><Input value={form.contactName} onValue={(v) => set({ contactName: v })} /></FormField> : (
-          <FormField label="Temporary password" hint="Share it with the company; they can change it after signing in.">
-            <div className="flex gap-2"><Input required minLength={8} value={form.password} onValue={(v) => set({ password: v })} className="font-mono" /><Button onClick={() => set({ password: randomPassword() })}>Generate</Button></div>
+        <FormField label="Company name" className="sm:col-span-2" error={v.error('name')}><NameInput kind="business" maxLength={120} value={form.name} onValue={(x) => set({ name: x })} placeholder="Sunrise Solar Pvt Ltd" /></FormField>
+        <FormField label="Sign-in email" error={v.error('loginEmail')}><Input type="email" value={form.loginEmail} onValue={(x) => set({ loginEmail: x })} placeholder="owner@company.com" /></FormField>
+        {editing ? <FormField label="Contact person" optional error={v.error('contactName')}><NameInput value={form.contactName} onValue={(x) => set({ contactName: x })} /></FormField> : (
+          <FormField label="Temporary password" hint="Share it with the company; they can change it after signing in." error={v.error('password')}>
+            <div className="flex gap-2"><PasswordInput defaultVisible value={form.password} onValue={(x) => set({ password: x })} className="min-w-0 flex-1 font-mono" /><Button onClick={() => set({ password: randomPassword() })}>Generate</Button></div>
           </FormField>
         )}
-        {!editing && <FormField label="Contact person" optional><Input value={form.contactName} onValue={(v) => set({ contactName: v })} /></FormField>}
-        <FormField label="Phone" optional><Input value={form.phone} onValue={(v) => set({ phone: v })} /></FormField>
-        <FormField label="Website" optional><Input value={form.website} onValue={(v) => set({ website: v })} placeholder="www.company.com" /></FormField>
-        <FormField label="GSTIN / Tax ID" optional><Input value={form.taxId} onValue={(v) => set({ taxId: v })} /></FormField>
-        <FormField label="Address" optional className="sm:col-span-2"><Textarea rows={2} value={form.address} onValue={(v) => set({ address: v })} /></FormField>
+        {!editing && <FormField label="Contact person" optional error={v.error('contactName')}><NameInput value={form.contactName} onValue={(x) => set({ contactName: x })} /></FormField>}
+        <FormField label="Phone" optional error={v.error('phone')}><PhoneInput maxLength={20} value={form.phone} onValue={(x) => set({ phone: x })} /></FormField>
+        <FormField label="Website" optional error={v.error('website')}><Input value={form.website} onValue={(x) => set({ website: x })} placeholder="www.company.com" /></FormField>
+        <FormField label="GSTIN" optional error={v.error('taxId')}><Input maxLength={15} value={form.taxId} onValue={(x) => set({ taxId: x.replace(/[^A-Za-z0-9]/g, '').toUpperCase() })} /></FormField>
+        <FormField label="PAN" optional error={v.error('pan')}><Input maxLength={10} value={form.pan || ''} onValue={(x) => set({ pan: x.replace(/[^A-Za-z0-9]/g, '').toUpperCase() })} /></FormField>
+        <FormField label="Address" optional className="sm:col-span-2" error={v.error('address')}><Textarea rows={2} maxLength={400} value={form.address} onValue={(x) => set({ address: x })} /></FormField>
       </div>
       <div className={tab === 'access' ? 'grid gap-4 sm:grid-cols-2' : 'hidden'}>
-        <FormField label="Plan"><Select value={form.plan} onValue={(v) => set({ plan: v })}>{PLANS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</Select></FormField>
+        <FormField label="Plan" hint="Fixed plans only. Custom plans go through Custom requests after the company pays.">
+          <Select required value={form.planId} onValue={pickPlan}>
+            <option value="">Choose a plan</option>
+            {(plans.data || []).filter((p) => p.active && p.kind === 'fixed').map((p) => <option key={p.id} value={p.id}>{p.name} · ₹{p.priceMonthly}/mo</option>)}
+          </Select>
+        </FormField>
         <FormField label="Status" hint="Suspended companies cannot sign in."><Select value={form.status} onValue={(v) => set({ status: v })}><option value="active">Active</option><option value="suspended">Suspended</option></Select></FormField>
-        <FormField label="Maximum clients" hint="0 means unlimited."><Input type="number" min={0} value={form.limits.maxClients} onValue={(v) => set({ limits: { ...form.limits, maxClients: Number(v) || 0 } })} /></FormField>
-        <FormField label="Maximum designs" hint="0 means unlimited."><Input type="number" min={0} value={form.limits.maxDesigns} onValue={(v) => set({ limits: { ...form.limits, maxDesigns: Number(v) || 0 } })} /></FormField>
+        <FormField label="Maximum clients" hint={customPlan ? 'Set limits for this custom plan.' : 'Copied from the plan.'}>
+          <Input type="number" min={1} step="1" disabled={!customPlan && Boolean(selectedPlan)} value={form.limits.maxClients} onValue={(x) => set({ limits: { ...form.limits, maxClients: x } })} />
+        </FormField>
+        <FormField label="Maximum designs">
+          <Input type="number" min={1} step="1" disabled={!customPlan && Boolean(selectedPlan)} value={form.limits.maxDesigns} onValue={(x) => set({ limits: { ...form.limits, maxDesigns: x } })} />
+        </FormField>
+        <FormField label="Concurrent sign-ins" hint="Active devices (company + agents).">
+          <Input type="number" min={1} step="1" disabled={!customPlan && Boolean(selectedPlan)} value={form.limits.maxConcurrentLogins} onValue={(x) => set({ limits: { ...form.limits, maxConcurrentLogins: x } })} />
+        </FormField>
         <FormField label="Internal notes" optional hint="Only visible to super admins." className="sm:col-span-2"><Textarea value={form.notes} onValue={(v) => set({ notes: v })} maxLength={1000} /></FormField>
       </div>
       <div className={tab === 'features' ? 'space-y-5' : 'hidden'}>
@@ -74,7 +119,11 @@ function PasswordModal({ company, onClose }) {
   const [password, setPassword] = useState(randomPassword);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const pwError = newPassword.safeParse(password).error?.issues[0]?.message;
+  const [tried, setTried] = useState(false);
   const submit = async () => {
+    setTried(true);
+    if (pwError) return;
     setBusy(true);
     try {
       await api(`/api/admin/companies/${company.id}/password`, { method: 'POST', body: { password } });
@@ -86,9 +135,9 @@ function PasswordModal({ company, onClose }) {
     }
   };
   return (
-    <FormModal open onClose={onClose} size="sm" title="Reset password" description={`${company.name} · ${company.loginEmail}`} submitLabel="Reset password" busy={busy} error={error} onSubmit={submit}>
-      <FormField label="New password" hint="Copy it now — it is not shown again.">
-        <div className="flex gap-2"><Input required minLength={8} value={password} onValue={setPassword} className="font-mono" /><Button onClick={() => setPassword(randomPassword())}>Generate</Button></div>
+    <FormModal open onClose={onClose} size="sm" title="Reset password" description={`${company.name} · ${company.loginEmail}`} submitLabel="Reset password" busy={busy} error={error} onSubmit={submit} noValidate>
+      <FormField label="New password" hint="Copy it now — it is not shown again." error={tried ? pwError : undefined}>
+        <div className="flex gap-2"><PasswordInput defaultVisible value={password} onValue={setPassword} className="min-w-0 flex-1 font-mono" /><Button onClick={() => setPassword(randomPassword())}>Generate</Button></div>
       </FormField>
     </FormModal>
   );
@@ -188,11 +237,11 @@ export default function AdminCompanies() {
                       <div className="min-w-0"><div className="max-w-[220px] truncate font-medium text-slate-900">{c.name}</div><div className="max-w-[220px] truncate text-xs text-slate-500">{c.loginEmail}</div></div>
                     </div>
                   </Td>
-                  <Td><PlanBadge plan={c.plan} /></Td>
+                  <Td><PlanBadge plan={c.plan} planDetail={c.planDetail} /></Td>
                   <Td><StatusBadge status={c.status} /></Td>
                   <Td className="text-[13px] leading-snug whitespace-nowrap text-slate-500">
-                    <div><span className="text-slate-800 tabular-nums">{c.counts.clients}</span>{c.limits.maxClients ? ` / ${c.limits.maxClients}` : ''} {c.counts.clients === 1 ? 'client' : 'clients'}</div>
-                    <div><span className="text-slate-800 tabular-nums">{c.counts.designs}</span>{c.limits.maxDesigns ? ` / ${c.limits.maxDesigns}` : ''} {c.counts.designs === 1 ? 'design' : 'designs'}</div>
+                    <div><span className="text-slate-800 tabular-nums">{c.counts.clients}</span>{` / ${c.limits.maxClients}`} {c.counts.clients === 1 ? 'client' : 'clients'}</div>
+                    <div><span className="text-slate-800 tabular-nums">{c.counts.designs}</span>{` / ${c.limits.maxDesigns}`} {c.counts.designs === 1 ? 'design' : 'designs'}</div>
                   </Td>
                   <Td className="whitespace-nowrap text-slate-500">{timeAgo(c.lastLoginAt)}</Td>
                   <Td className="whitespace-nowrap text-slate-500">{formatDate(c.createdAt)}</Td>

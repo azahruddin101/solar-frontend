@@ -79,6 +79,19 @@ export function formatNumber(v, decimals = 0) {
   return Number(v || 0).toLocaleString('en-US', { maximumFractionDigits: decimals, minimumFractionDigits: decimals });
 }
 
+/** GST on top of subtotal; split equally into SGST and CGST for display. */
+export function computeGst(subtotal, { included = true, percent = 0 } = {}) {
+  const base = Number(subtotal) || 0;
+  const gstIncluded = included !== false;
+  const gstPercent = Math.max(0, Math.min(100, Number(percent) || 0));
+  if (gstIncluded || gstPercent <= 0) {
+    return { subtotal: base, gstIncluded: true, gstPercent: 0, gstAmount: 0, sgst: 0, cgst: 0, grandTotal: base };
+  }
+  const gstAmount = base * (gstPercent / 100);
+  const half = gstAmount / 2;
+  return { subtotal: base, gstIncluded: false, gstPercent, gstAmount, sgst: half, cgst: half, grandTotal: base + gstAmount };
+}
+
 export function computeFinancials({ kwp, annualKwh, tariff, costPerKw, degradation = 0.5, escalation = 3, years = 25 }) {
   const cost = kwp * costPerKw;
   const rows = [];

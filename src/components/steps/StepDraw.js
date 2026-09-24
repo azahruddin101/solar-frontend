@@ -27,7 +27,7 @@ export default function StepDraw({ design }) {
           : 'Drag corners to adjust · right-click a corner to delete it · add elevated roof sections on top'}
       </Hint>
       {!sections.length && (
-        <Card className="absolute bottom-6 left-1/2 w-[420px] -translate-x-1/2">
+        <Card className="absolute top-6 right-0 w-[420px] -translate-x-1/2">
           <div className="text-[15px] font-semibold">How to mark the roof</div>
           <ol className="mt-1.5 list-decimal space-y-0.5 pl-5 text-sm text-slate-600">
             <li>Scroll to zoom in on your house, drag to move the picture.</li>

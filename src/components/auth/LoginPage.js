@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { homeFor, useSession } from '@/lib/session';
-import { Alert, Button, FormField, FullPageLoader, Input } from '../kit';
+import { loginSchema, useValidation } from '@/lib/validation';
+import { Alert, Button, FormField, FullPageLoader, Input, PasswordInput } from '../kit';
 import { BrandLogo } from '../layout/Brand';
 
 const POINTS = [
@@ -20,6 +21,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [deviceSessions, setDeviceSessions] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -29,14 +31,19 @@ export default function LoginPage() {
     if (status === 'ready') router.replace(homeFor(user.role));
   }, [status, user, router]);
 
-  const submit = async (e) => {
-    e.preventDefault();
+  const v = useValidation(loginSchema, { email, password });
+  const submit = async (e, replaceSessions = false) => {
+    e?.preventDefault?.();
+    const data = v.validate();
+    if (!data) return;
     setBusy(true);
     setError('');
+    if (!replaceSessions) setDeviceSessions(null);
     try {
-      await login(email, password);
+      await login(data.email, password, { replaceSessions });
     } catch (err) {
       setError(err.message);
+      if (err.code === 'DEVICE_LIMIT' && err.details?.sessions?.length) setDeviceSessions(err.details.sessions);
       setBusy(false);
     }
   };
@@ -70,13 +77,33 @@ export default function LoginPage() {
           <Link href="/" className="mb-10 inline-block lg:hidden"><BrandLogo /></Link>
           <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Sign in</h2>
           <p className="mt-1.5 text-sm text-slate-500">Use the email and password for your company or admin account.</p>
-          <form onSubmit={submit} className="mt-8 space-y-4">
-            {error && <Alert>{error}</Alert>}
-            <FormField label="Email">
-              <Input type="email" autoComplete="email" required autoFocus value={email} onValue={setEmail} placeholder="you@company.com" className="h-11" />
+          <form onSubmit={submit} noValidate className="mt-8 space-y-4">
+            {error && (
+              <Alert>
+                {error}
+                {deviceSessions && (
+                  <ul className="mt-3 space-y-1.5 border-t border-red-200/60 pt-3 text-[13px] font-normal text-slate-700">
+                    {deviceSessions.map((s) => (
+                      <li key={s.sessionId}>
+                        <span className="font-medium text-slate-900">{s.userName}</span>
+                        {' · '}{s.device}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {deviceSessions && (
+                  <div className="mt-3 space-y-2 border-t border-red-200/60 pt-3">
+                    <p className="text-[13px] font-normal text-slate-600">Can’t reach that device? Sign out all other devices and continue here (your password is verified again).</p>
+                    <Button type="button" variant="secondary" size="sm" loading={busy} onClick={(e) => submit(e, true)}>Sign out other devices and sign in</Button>
+                  </div>
+                )}
+              </Alert>
+            )}
+            <FormField label="Email" error={v.error('email')}>
+              <Input type="email" autoComplete="email" autoFocus value={email} onValue={setEmail} placeholder="you@company.com" className="h-11" />
             </FormField>
-            <FormField label="Password">
-              <Input type="password" autoComplete="current-password" required value={password} onValue={setPassword} className="h-11" />
+            <FormField label="Password" error={v.error('password')}>
+              <PasswordInput autoComplete="current-password" value={password} onValue={setPassword} className="h-11" />
             </FormField>
             <Button type="submit" variant="primary" size="lg" loading={busy} className="w-full">Sign in {!busy && <ArrowRight className="h-4 w-4" />}</Button>
           </form>

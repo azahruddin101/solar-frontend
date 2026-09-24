@@ -41,7 +41,7 @@ function LocationMap({ center, onCenter }) {
 
   const btn = 'grid h-10 w-10 place-items-center rounded-lg bg-white text-slate-700 shadow-md hover:bg-slate-50';
   return (
-    <div className="relative h-[420px] overflow-hidden rounded-lg bg-slate-200">
+    <div className="relative h-[min(420px,48vh)] min-h-[320px] overflow-hidden rounded-lg bg-slate-200">
       <div ref={el} className="absolute inset-0" />
       {!MAPS_API_KEY || err ? (
         <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-slate-500">
@@ -136,9 +136,26 @@ export default function StepLocation({ design }) {
       {pending && (
         <>
           <LocationMap center={pending} onCenter={setPending} />
-          <button type="button" onClick={confirm} disabled={confirmed} className={cx('flex h-[52px] w-full items-center justify-center gap-2 rounded-md text-[16px] font-semibold text-brand-fg', confirmed ? 'bg-emerald-600' : 'bg-brand hover:bg-brand-600')}>
-            <CheckCircle2 className="h-5 w-5" /> {confirmed ? 'Location Confirmed' : simple ? 'Confirm location' : 'Confirm Location'}
-          </button>
+          <div className="sticky bottom-0 z-30 -mx-6 mt-3 border-t border-slate-200 bg-white/95 px-6 py-3 backdrop-blur-md">
+  <button
+    type="button"
+    onClick={confirm}
+    disabled={confirmed}
+    className={cx(
+      'flex h-[52px] w-full items-center justify-center gap-2 rounded-lg text-[16px] font-semibold text-brand-fg shadow-sm transition-all',
+      confirmed
+        ? 'cursor-default bg-emerald-600'
+        : 'bg-brand hover:bg-brand-600 hover:shadow-md active:scale-[0.99]'
+    )}
+  >
+    <CheckCircle2 className="h-5 w-5" />
+    {confirmed
+      ? 'Location Confirmed'
+      : simple
+        ? 'Confirm location'
+        : 'Confirm Location'}
+  </button>
+</div>
         </>
       )}
 

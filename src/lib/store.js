@@ -23,10 +23,15 @@ const initial = {
   solar: { status: 'idle', data: null, error: null },
   sections: [], // {id, name, points, height, parapetH, parapetT}
   objects: [], // array | zone | tree | block
-  config: { specId: '', pillarId: '', orientation: 'portrait', tilt: 15, azimuthMode: 'building', azimuth: 180, setback: 0.6, frontLeg: 0.4, rowsPerTable: 2, rowGap: 0, maxPanels: 0, targetKw: 0, sizeBy: 'bill', sizeBill: '', sizeKw: '' }, // sized by monthly bill or by kW; both are kept so switching shows the same system either way
+  config: { specId: '', pillarId: '', orientation: 'portrait', tilt: 15, azimuthMode: 'building', azimuth: 180, setback: 0.6, frontLeg: 0.4, rowsPerTable: 2, rowGap: 0, maxPanels: 0, targetKw: 0, sizeBy: 'bill', sizeBill: '', sizeKw: '', pricingMode: 'custom', packageId: '', floorPlacement: 0, floorCost: 0, customMaterials: {}, gstIncluded: true, gstPercent: 18 }, // sized by monthly bill or by kW; both are kept so switching shows the same system either way
   electrical: { inverterId: 'auto' },
   finance: { currency: 'INR', tariff: 8, costPerKw: 55000, efficiency: 85, degradation: 0.5, escalation: 3, init: false },
   sun: { season: 'today', hour: 12 },
+  // transient {day, hour} the shadow report drives the sun with; the user's `sun` is left untouched
+  sunOverride: null,
+  // transient: the header's Export menu asks the open 3D step to run the shadow report —
+  // 'report' (shadow analysis PDF) or 'combined' (proposal with the shadow analysis appended)
+  shadowReport: false,
   tool: 'select',
   pendingBlock: null,
   pendingKey: null,

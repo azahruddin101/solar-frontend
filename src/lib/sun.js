@@ -16,6 +16,12 @@ export function dayOfYear(month, dayOfMonth = 21) {
   return MONTH_START[month] + dayOfMonth;
 }
 
+/**
+ * Below this height of the unit sun vector (z ≈ sin altitude, about 1.1°) the 3D viewer switches the
+ * sun light off: there is no direct sunlight. The shadow report uses the same threshold.
+ */
+export const SUN_UP_MIN_Z = 0.02;
+
 function declination(day) {
   return 23.45 * DEG * Math.sin((2 * Math.PI * (284 + day)) / 365);
 }

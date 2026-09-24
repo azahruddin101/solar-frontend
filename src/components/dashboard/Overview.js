@@ -13,7 +13,7 @@ export default function Overview() {
   const { company, user } = useSession();
   const clients = useResource('/api/clients');
   const designs = useResource('/api/designs');
-  const panels = useResource('/api/panels');
+  const catalog = useResource('/api/catalog');
   const [creating, setCreating] = useState(false);
 
   const list = designs.data || [];
@@ -25,11 +25,11 @@ export default function Overview() {
     { done: Boolean(company.logo), label: 'Upload your logo', href: '/dashboard/settings?tab=branding' },
     { done: Boolean(company.signature), label: 'Add your e-signature', href: '/dashboard/settings?tab=branding' },
     { done: Boolean(company.phone && company.address), label: 'Complete your company profile', href: '/dashboard/settings' },
-    { done: (panels.data?.length || 0) > 0, label: 'Add the solar panels you sell', href: '/dashboard/catalog' },
+    { done: (catalog.data?.panels.length || 0) > 0, label: 'Add the solar panels you sell', href: '/dashboard/catalog' },
     { done: (clients.data?.length || 0) > 0, label: 'Add your first client', href: '/dashboard/clients?new=1' },
   ];
   const remaining = setup.filter((s) => !s.done).length;
-  const loading = clients.loading || designs.loading || panels.loading;
+  const loading = clients.loading || designs.loading || catalog.loading;
 
   return (
     <>
@@ -40,7 +40,7 @@ export default function Overview() {
       {(clients.error || designs.error) && <Alert className="mb-6">{clients.error || designs.error}</Alert>}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Clients" value={clients.data?.length ?? '—'} icon={Users} hint={company.limits.maxClients ? `Plan limit: ${company.limits.maxClients}` : undefined} />
+        <StatCard label="Clients" value={clients.data?.length ?? '—'} icon={Users} hint={company.billing?.limits?.maxClients ? `Plan limit: ${company.billing.limits.maxClients}` : company.limits.maxClients ? `Plan limit: ${company.limits.maxClients}` : undefined} />
         <StatCard label="Designs" value={designs.data ? list.length : '—'} icon={PenTool} hint={designs.data ? `${list.filter((d) => d.status === 'won').length} won · ${open.length} open` : undefined} />
         <StatCard label="Designed capacity" value={designs.data ? kwp.toFixed(1) : '—'} unit="kWp" icon={Zap} />
         <StatCard label="Open pipeline" value={designs.data ? formatMoney(pipeline, company.currency) : '—'} icon={Wallet} hint="Draft and proposed designs" />

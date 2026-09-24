@@ -65,8 +65,13 @@ export default function DesignPanel({ design }) {
 
   /** Apply to defaults and to every existing array / zone. */
   const applyAll = (patch) => s.set({ config: { ...config, ...patch }, objects: objects.map((o) => (o.type === 'array' && !o.elevated) || o.type === 'zone' ? { ...o, ...patch } : o) });
-  const u = (patch) => s.updateObject(sel.id, patch);
-  const setTarget = (kw) => s.patch('config', { targetKw: kw, maxPanels: kw > 0 ? Math.ceil((kw * 1000) / spec.watts) : 0 });
+  const u = (patch) => {
+    s.updateObject(sel.id, patch);
+    if (s.config.pricingMode === 'package' && (patch.rows !== undefined || patch.cols !== undefined || patch.rowsPerTable !== undefined)) {
+      s.patch('config', { pricingMode: 'custom' });
+    }
+  };
+  const setTarget = (kw) => s.patch('config', { targetKw: kw, maxPanels: kw > 0 ? Math.ceil((kw * 1000) / spec.watts) : 0, pricingMode: 'custom' });
   const needed = config.targetKw > 0 ? Math.ceil((config.targetKw * 1000) / spec.watts) : 0;
   const label = (o, i) => `${o.type === 'zone' ? 'Zone' : o.elevated ? 'Elevated structure' : 'Array'} ${i + 1}`;
 

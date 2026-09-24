@@ -4,11 +4,13 @@ import { Wallet } from 'lucide-react';
 import { formatMoney } from '@/lib/energy';
 import { useStore } from '@/lib/store';
 import { FormPage, inputCls, Label, Num } from './common';
+import { GstSummary } from './GstSummary';
 
 export default function StepFinancials({ design }) {
   const f = useStore((s) => s.finance);
   const project = useStore((s) => s.project);
   const patch = useStore((s) => s.patch);
+  const config = useStore((s) => s.config);
   const u = (p) => patch('finance', { ...p, init: true });
   const money = (v) => formatMoney(v, f.currency);
   const fin = design.fin;
@@ -30,12 +32,49 @@ export default function StepFinancials({ design }) {
       </div>
       <div className="rounded-lg border border-slate-200 p-4 text-sm">
         <div className="mb-2 font-semibold">Price breakdown</div>
-        {[[`${design.totals.count} × ${design.spec.name} @ ${money(design.spec.price)}`, design.cost.panels], [`Pillars (${design.pillar.name}) ${Math.round(design.cost.pillarFt)} ft @ ${money(design.pillar.pricePerFt)}/ft`, design.cost.pillars], ['Inverter, wiring, installation', design.cost.other]].map(([l, v]) => (
-          <div key={l} className="flex justify-between py-1"><span className="text-slate-600">{l}</span><b>{money(v)}</b></div>
-        ))}
-        <div className="mt-1 flex justify-between border-t border-slate-200 pt-2 text-base"><span className="font-semibold">Total</span><b>{money(design.cost.total)}</b></div>
-        <p className="mt-1 text-xs text-slate-400">Electricity price {money(design.catalog.tariff)}/unit. Prices are set by the admin.</p>
+        {design.cost.isPackage ? (
+          <>
+            <div className="flex justify-between py-1">
+              <span className="text-slate-600">Package: {design.cost.package?.name || 'Solar Package'}</span>
+              <b>{money(design.cost.packagePrice)}</b>
+            </div>
+            {design.cost.floorCost > 0 && (
+              <div className="flex justify-between py-1">
+                <span className="text-slate-600">Floor placement (Floor {design.cost.floorPlacement})</span>
+                <b>{money(design.cost.floorCost)}</b>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="flex justify-between py-1"><span className="text-slate-600">{design.totals.count} × {design.spec.name} @ {money(design.spec.price)}</span><b>{money(design.cost.panels)}</b></div>
+            {design.structure.columns > 0 && (
+              <div className="flex justify-between py-1"><span className="text-slate-600">Pillars ({design.pillar.name}) {Math.round(design.cost.pillarFt)} ft</span><b>{money(design.cost.pillars)}</b></div>
+            )}
+            {design.cost.hasChosenMaterials ? (
+              <>
+                {(design.cost.categoryMaterials || []).map((m) => (
+                  <div key={m.categoryId} className="flex justify-between py-1">
+                    <span className="text-slate-600">{m.categoryName}: {m.productName} (×{m.qty} {m.unit})</span>
+                    <b>{money(m.total)}</b>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <div className="flex justify-between py-1"><span className="text-slate-600">Inverter, wiring, installation (BOS)</span><b>{money(design.cost.other)}</b></div>
+            )}
+
+            {design.cost.floorCost > 0 && (
+              <div className="flex justify-between py-1"><span className="text-slate-600">Floor placement (Floor {design.cost.floorPlacement})</span><b>{money(design.cost.floorCost)}</b></div>
+            )}
+          </>
+        )}
+
+        <div className="mt-1 flex justify-between border-t border-slate-200 pt-2 text-base"><span className="font-semibold">Total</span><b>{money(design.cost.subtotal ?? design.cost.total)}</b></div>
+        <GstSummary cost={design.cost} config={config} onConfig={(p) => patch('config', p)} money={money} compact />
+        <p className="mt-1 text-xs text-slate-400">Electricity price {money(design.catalog.tariff)}/unit. Prices are set by the company.</p>
       </div>
+
       <div className="grid grid-cols-3 gap-3">
         {kpis.map(([l, v]) => (
           <div key={l} className="rounded-lg bg-slate-50 p-4">

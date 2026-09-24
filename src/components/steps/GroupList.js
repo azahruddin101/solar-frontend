@@ -20,6 +20,9 @@ export default function GroupList({ design }) {
     const sec = design.sections[0];
     const c = sec ? polygonCentroid(sec.poly) : { x: 0, y: 0 };
     s.addObject({ id: newId('g'), type: 'array', name: `Group ${groups.length + 1}`, x: c.x, y: c.y, rows: s.config.rowsPerTable, cols: 4, tilt: s.config.tilt, azimuth: design.defaultAzimuth, frontLeg: s.config.frontLeg, orientation: s.config.orientation });
+    if (s.config.pricingMode === 'package') {
+      s.patch('config', { pricingMode: 'custom' });
+    }
   };
 
   return (
@@ -27,7 +30,12 @@ export default function GroupList({ design }) {
       {groups.map((g, i) => {
         const open = g.id === s.selectedId;
         const t = design.tables.find((x) => x.source === g.id);
-        const u = (patch) => s.updateObject(g.id, patch);
+        const u = (patch) => {
+          s.updateObject(g.id, patch);
+          if (s.config.pricingMode === 'package' && (patch.rows !== undefined || patch.cols !== undefined)) {
+            s.patch('config', { pricingMode: 'custom' });
+          }
+        };
         const n = g.rows * g.cols;
         return (
           <div key={g.id} className={cx('overflow-hidden rounded-md border transition', open ? 'border-brand ring-2 ring-brand/20' : 'border-slate-200')}>
@@ -61,10 +69,24 @@ export default function GroupList({ design }) {
                   ))}
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => s.addObject({ ...g, id: newId('g'), name: `${g.name || 'Group'} copy`, x: g.x + 2, y: g.y - 2 })} className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white text-xs font-medium hover:bg-slate-50">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      s.addObject({ ...g, id: newId('g'), name: `${g.name || 'Group'} copy`, x: g.x + 2, y: g.y - 2 });
+                      if (s.config.pricingMode === 'package') s.patch('config', { pricingMode: 'custom' });
+                    }}
+                    className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white text-xs font-medium hover:bg-slate-50"
+                  >
                     <Copy className="h-3.5 w-3.5" /> Duplicate
                   </button>
-                  <button type="button" onClick={() => s.remove(g.id)} className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-white text-xs font-medium text-red-600 hover:bg-red-50">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      s.remove(g.id);
+                      if (s.config.pricingMode === 'package') s.patch('config', { pricingMode: 'custom' });
+                    }}
+                    className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-white text-xs font-medium text-red-600 hover:bg-red-50"
+                  >
                     <Trash2 className="h-3.5 w-3.5" /> Delete
                   </button>
                 </div>

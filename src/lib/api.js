@@ -1,5 +1,24 @@
 // The API lives in the separate Node backend (backend/); this app has no server routes.
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000').replace(/\/+$/, '');
+const CONFIGURED_API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000').replace(/\/+$/, '');
+
+/**
+ * Opened from another device (a phone on http://192.168.x.x:3000), "localhost" would point at that device,
+ * so a localhost API URL follows whatever host the page itself was loaded from.
+ */
+function resolveApiUrl() {
+  if (typeof window === 'undefined') return CONFIGURED_API_URL;
+  try {
+    const url = new URL(CONFIGURED_API_URL);
+    const local = ['localhost', '127.0.0.1'];
+    if (local.includes(url.hostname) && !local.includes(window.location.hostname)) {
+      url.hostname = window.location.hostname;
+      return url.toString().replace(/\/+$/, '');
+    }
+  } catch { /* keep the configured value */ }
+  return CONFIGURED_API_URL;
+}
+
+export const API_URL = resolveApiUrl();
 
 export const apiUrl = (path) => `${API_URL}${path}`;
 /** Absolute URL of an uploaded file (logo, signature, QR) stored as /uploads/… */
@@ -23,10 +42,11 @@ export const tokens = {
 };
 
 export class ApiError extends Error {
-  constructor(status, message, code) {
+  constructor(status, message, code, details) {
     super(message);
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -51,8 +71,8 @@ export async function api(path, { method = 'GET', body, form, signal, keepalive 
   }
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    if (res.status === 401 && path !== '/api/auth/login') onUnauthorized?.();
-    throw new ApiError(res.status, data?.error || `Request failed (${res.status})`, data?.code);
+    if (res.status === 401 && path !== '/api/auth/login' && path !== '/api/auth/logout') onUnauthorized?.();
+    throw new ApiError(res.status, data?.error || `Request failed (${res.status})`, data?.code, data?.details);
   }
   return data;
 }

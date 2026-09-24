@@ -7,41 +7,46 @@ import { useRef, useState } from 'react';
 import { api, assetUrl } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { THEME_PRESETS, foregroundOn, isHex, luminance } from '@/lib/theme';
-import { Alert, Badge, Button, Card, CardHeader, FormField, ImageFrame, Input, PageHeader, Spinner, Tabs, Textarea, cx, toast } from '../kit';
+import { companySelfSchema, useValidation } from '@/lib/validation';
+import { Alert, Badge, Button, Card, CardHeader, FormField, ImageFrame, ImageSourceButtons, Input, NameInput, PhoneInput, PageHeader, Spinner, Tabs, Textarea, cx, showError, toast } from '../kit';
 import RichTextEditor from '../kit/RichTextEditor';
 import AccountSettings from '../layout/AccountSettings';
 
-function useCompanyForm(keys) {
+function useCompanyForm(keys, schema) {
   const { company, setCompany } = useSession();
   const [form, setForm] = useState(() => Object.fromEntries(keys.map((k) => [k, company[k] ?? ''])));
   const [busy, setBusy] = useState(false);
+  const v = useValidation(schema || companySelfSchema, form);
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
-  const save = async (e, body = form, message = 'Saved') => {
+  const save = async (e, body, message = 'Saved') => {
     e?.preventDefault();
+    body ??= v.validate();
+    if (!body) return;
     setBusy(true);
     try {
       setCompany(await api('/api/company', { method: 'PUT', body }));
       toast.success(message);
     } catch (err) {
-      toast.error(err.message);
+      showError(err, 'Your changes were not saved');
     }
     setBusy(false);
   };
-  return { company, form, set, save, busy };
+  return { company, form, set, save, busy, v };
 }
 
 function Profile() {
-  const { form, set, save, busy } = useCompanyForm(['name', 'email', 'phone', 'website', 'taxId', 'address']);
+  const { form, set, save, busy, v } = useCompanyForm(['name', 'email', 'phone', 'website', 'taxId', 'pan', 'address']);
   return (
     <Card className="max-w-3xl">
       <CardHeader title="Company profile" description="Printed in the “Prepared by” block and footer of every proposal." />
-      <form onSubmit={save} className="grid gap-4 p-6 sm:grid-cols-2">
-        <FormField label="Company name" className="sm:col-span-2"><Input required maxLength={120} value={form.name} onValue={(v) => set({ name: v })} /></FormField>
-        <FormField label="Contact email"><Input type="email" value={form.email} onValue={(v) => set({ email: v })} /></FormField>
-        <FormField label="Phone"><Input maxLength={40} value={form.phone} onValue={(v) => set({ phone: v })} /></FormField>
-        <FormField label="Website" optional><Input maxLength={200} value={form.website} onValue={(v) => set({ website: v })} placeholder="www.company.com" /></FormField>
-        <FormField label="GSTIN / Tax ID" optional><Input maxLength={60} value={form.taxId} onValue={(v) => set({ taxId: v })} /></FormField>
-        <FormField label="Address" className="sm:col-span-2"><Textarea rows={2} maxLength={400} value={form.address} onValue={(v) => set({ address: v })} /></FormField>
+      <form onSubmit={save} noValidate className="grid gap-4 p-6 sm:grid-cols-2">
+        <FormField label="Company name" className="sm:col-span-2" error={v.error('name')}><NameInput kind="business" maxLength={120} value={form.name} onValue={(x) => set({ name: x })} /></FormField>
+        <FormField label="Contact email" optional error={v.error('email')}><Input type="email" value={form.email} onValue={(x) => set({ email: x })} /></FormField>
+        <FormField label="Phone" optional error={v.error('phone')}><PhoneInput maxLength={20} value={form.phone} onValue={(x) => set({ phone: x })} /></FormField>
+        <FormField label="Website" optional error={v.error('website')}><Input maxLength={200} value={form.website} onValue={(x) => set({ website: x })} placeholder="www.company.com" /></FormField>
+        <FormField label="GSTIN" optional hint="15 characters, like 27ABCDE1234F1Z5." error={v.error('taxId')}><Input maxLength={15} value={form.taxId} onValue={(x) => set({ taxId: x.replace(/[^A-Za-z0-9]/g, '').toUpperCase() })} className="uppercase" /></FormField>
+        <FormField label="PAN" optional hint="10 characters, like ABCDE1234F." error={v.error('pan')}><Input maxLength={10} value={form.pan} onValue={(x) => set({ pan: x.replace(/[^A-Za-z0-9]/g, '').toUpperCase() })} className="uppercase" /></FormField>
+        <FormField label="Address" optional className="sm:col-span-2" error={v.error('address')}><Textarea rows={2} maxLength={400} value={form.address} onValue={(x) => set({ address: x })} /></FormField>
         <div className="sm:col-span-2"><Button type="submit" variant="primary" loading={busy}>Save profile</Button></div>
       </form>
     </Card>
@@ -103,8 +108,8 @@ function AssetUploader({ asset }) {
 
   const upload = async (file) => {
     if (!file) return;
-    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return toast.error('Upload a PNG, JPG or WebP image');
-    if (file.size > 2 * 1024 * 1024) return toast.error('Image must be 2 MB or smaller');
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return showError('Upload a PNG, JPG or WebP image.', 'That file can’t be used');
+    if (file.size > 2 * 1024 * 1024) return showError('The image must be 2 MB or smaller.', 'That file is too large');
     setBusy(true);
     try {
       const form = new FormData();
@@ -168,7 +173,7 @@ function AssetUploader({ asset }) {
         <div className="mt-1 text-xs text-slate-400">{tip} · PNG, JPG or WebP up to 2 MB</div>
       </div>
       <div className="mt-4 flex items-center gap-2 border-t border-slate-100 px-4 py-3">
-        <Button size="sm" icon={Upload} disabled={busy} onClick={() => input.current?.click()}>{url ? 'Replace' : 'Upload'}</Button>
+        <ImageSourceButtons onFiles={upload} disabled={busy} galleryLabel={url ? 'Replace from gallery' : 'Choose from gallery'} />
         {url && <Button size="sm" variant="dangerGhost" icon={Trash2} disabled={busy} onClick={remove} className="ml-auto">Remove</Button>}
       </div>
     </div>
@@ -227,7 +232,7 @@ function Branding() {
       setCompany(await api('/api/company', { method: 'PUT', body: { theme } }));
       toast.success('Theme saved — your workspace and proposals now use it');
     } catch (e) {
-      toast.error(e.message);
+      showError(e, 'The theme was not saved');
     }
     setBusy(false);
   };
@@ -282,15 +287,15 @@ function Branding() {
 }
 
 function Proposal() {
-  const { form, set, save, busy } = useCompanyForm(['signatoryName', 'signatoryTitle', 'qrLabel', 'tagline', 'pdfTerms']);
+  const { form, set, save, busy, v } = useCompanyForm(['signatoryName', 'signatoryTitle', 'qrLabel', 'tagline', 'pdfTerms']);
   return (
     <Card className="max-w-3xl">
       <CardHeader title="Proposal text" description="The cover tagline, and the sign-off on the last page next to your e-signature and QR code." />
-      <form onSubmit={save} className="grid gap-4 p-6 sm:grid-cols-2">
-        <FormField label="Signatory name"><Input maxLength={120} value={form.signatoryName} onValue={(v) => set({ signatoryName: v })} placeholder="Anita Sharma" /></FormField>
-        <FormField label="Signatory title"><Input maxLength={120} value={form.signatoryTitle} onValue={(v) => set({ signatoryTitle: v })} placeholder="Director" /></FormField>
-        <FormField label="Cover tagline" hint="Handwritten-style line on the first page of the PDF." className="sm:col-span-2"><Input maxLength={60} value={form.tagline} onValue={(v) => set({ tagline: v })} placeholder="Clean energy for a brighter tomorrow" /></FormField>
-        <FormField label="QR code caption" className="sm:col-span-2"><Input maxLength={80} value={form.qrLabel} onValue={(v) => set({ qrLabel: v })} placeholder="Scan to pay / contact us" /></FormField>
+      <form onSubmit={save} noValidate className="grid gap-4 p-6 sm:grid-cols-2">
+        <FormField label="Signatory name" optional error={v.error('signatoryName')}><NameInput maxLength={120} value={form.signatoryName} onValue={(x) => set({ signatoryName: x })} placeholder="Anita Sharma" /></FormField>
+        <FormField label="Signatory title" optional error={v.error('signatoryTitle')}><Input maxLength={80} value={form.signatoryTitle} onValue={(x) => set({ signatoryTitle: x })} placeholder="Director" /></FormField>
+        <FormField label="Cover tagline" hint="Handwritten-style line on the first page of the PDF." optional className="sm:col-span-2" error={v.error('tagline')}><Input maxLength={160} value={form.tagline} onValue={(x) => set({ tagline: x })} placeholder="Clean energy for a brighter tomorrow" /></FormField>
+        <FormField label="QR code caption" optional className="sm:col-span-2" error={v.error('qrLabel')}><Input maxLength={80} value={form.qrLabel} onValue={(x) => set({ qrLabel: x })} placeholder="Scan to pay / contact us" /></FormField>
         {/* not a <label>: clicking toolbar buttons inside a label would re-focus the editor */}
         <div className="sm:col-span-2">
           <div className="mb-1.5 flex items-baseline justify-between text-[13px] font-medium text-slate-700">Terms &amp; conditions <span className="text-xs font-normal text-slate-400">Optional</span></div>

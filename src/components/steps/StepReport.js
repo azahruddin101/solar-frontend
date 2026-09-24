@@ -7,6 +7,7 @@ import { generatePdf } from '@/lib/pdf';
 import { useSession } from '@/lib/session';
 import { useStore } from '@/lib/store';
 import { MONTHS } from '@/lib/sun';
+import { ZoomImage } from '../kit';
 import { FormPage, Label } from './common';
 import { LayoutSvg } from './Drawings';
 
@@ -47,7 +48,7 @@ export default function StepReport({ design }) {
         <div>
           <Label>3D model</Label>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={snapshot} alt="3D model" className="w-full rounded-lg" />
+          <ZoomImage src={snapshot} alt="3D model" className="w-full rounded-lg" />
         </div>
       )}
       <div>

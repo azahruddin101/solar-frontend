@@ -2,18 +2,22 @@
 
 // Proposal PDF — every page is A4 portrait. Branded for the company (logo, colours, e-signature,
 // QR code, terms) and addressed to its client:
-//   1 cover · 2 summary & letter · 3 system details · 4–5 drawings · 6 electrical & structure ·
-//   7 bill of materials · 8 energy & financials · 9 price & acceptance
+//   1 cover · 2 summary & letter · 3 system details · 4–6 drawings (layout, strings, single line
+//   diagram) · 7 electrical design · 8 bill of materials · 9 energy & financials · 10 price & acceptance
+// With `shadow` (results of a shadow analysis run) the shadow report follows as its last section.
 
 import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
 import { loadBranding } from './branding.js';
+import { capFirst } from './catalog.js';
 import { drawCover } from './pdfCover.js';
 import { formatMoney, formatNumber } from './energy.js';
 import { compassLabel } from './geo.js';
 import { rectPoly } from './geometry.js';
 import { ridgeSegment } from './model.js';
 import { drawRichText, richTextIsEmpty } from './pdfRichText.js';
+import { drawSld, sldSchedule } from './pdfSld.js';
+import { appendShadowReport } from './shadowReport/shadowReportPdf.js';
 import { MONTHS } from './sun.js';
 
 // A4 portrait, millimetres
@@ -31,8 +35,6 @@ const LINE = [226, 232, 240];
 const SOFT = [248, 250, 252];
 const WHITE = [255, 255, 255];
 const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-/** Mix `rgb` towards white: 0 = the colour, 1 = white. */
-const tint = (rgb, t) => rgb.map((c) => Math.round(c + (255 - c) * t));
 
 /* ───────────── primitives ───────────── */
 
@@ -99,11 +101,11 @@ function newPage(doc, r, title) {
   return TOP + 4;
 }
 
-/** Footer on every page except the cover: contact line, page numbers. */
-function footers(doc, r) {
+/** Footer on proposal pages 2…`last`: contact line, page numbers out of the whole document. */
+function footers(doc, r, last = doc.getNumberOfPages()) {
   const pages = doc.getNumberOfPages();
   const contact = [r.company.name, r.company.phone, r.company.email, r.company.website].filter(Boolean).join('   |   ');
-  for (let i = 2; i <= pages; i++) {
+  for (let i = 2; i <= last; i++) {
     doc.setPage(i);
     doc.setDrawColor(...LINE);
     doc.setLineWidth(0.3);
@@ -315,35 +317,6 @@ function titleBlock(doc, r, sheet, title, y) {
   return y + h;
 }
 
-function drawSld(doc, r, el, y) {
-  const boxes = [['PV ARRAY', `${el.strings.length} strings`, `${el.kwp.toFixed(2)} kWp`], ['DCDB', 'Fuse + SPD', ''], ['INVERTER', `${el.inverterCount} x ${el.inverter.kw} kW`, ''], ['ACDB', 'MCB + SPD', ''], ['NET METER', 'Bi-directional', ''], ['GRID', 'LT panel', '']];
-  const gap = 5.6;
-  const bw = (CW - gap * (boxes.length - 1)) / boxes.length;
-  const bh = 17;
-  boxes.forEach((bx, i) => {
-    const x = M + i * (bw + gap);
-    doc.setFillColor(...(i === 2 ? tint(r.brand.primary, 0.9) : SOFT));
-    doc.setDrawColor(...INK);
-    doc.setLineWidth(0.35);
-    doc.rect(x, y, bw, bh, 'FD');
-    text(doc, bx[0], x + bw / 2, y + 6, { size: 7, style: 'bold', color: INK, align: 'center' });
-    text(doc, bx[1], x + bw / 2, y + 10.5, { size: 6.5, color: MUTED, align: 'center' });
-    text(doc, bx[2], x + bw / 2, y + 14, { size: 6.5, color: MUTED, align: 'center' });
-    if (i < boxes.length - 1) {
-      doc.setDrawColor(...(i < 2 ? [220, 38, 38] : [37, 99, 235]));
-      doc.setLineWidth(0.5);
-      doc.line(x + bw, y + bh / 2, x + bw + gap, y + bh / 2);
-    }
-  });
-  doc.setFillColor(220, 38, 38);
-  doc.rect(M, y + bh + 3.2, 5, 0.6, 'F');
-  text(doc, 'DC', M + 6.5, y + bh + 4.4, { size: 6.5, color: MUTED });
-  doc.setFillColor(37, 99, 235);
-  doc.rect(M + 14, y + bh + 3.2, 5, 0.6, 'F');
-  text(doc, 'AC', M + 20.5, y + bh + 4.4, { size: 6.5, color: MUTED });
-  return y + bh + 8;
-}
-
 /* ───────────── charts ───────────── */
 
 /** A round axis maximum just above `v` (1, 2, 4, 5, 8 × 10ⁿ — all divide into four clean ticks). */
@@ -462,7 +435,7 @@ function signOff(doc, r, y) {
  * `company` is the signed-in company (profile, theme, logo, e-signature, QR, terms) and `client`
  * the person the design was made for — together they personalise every page.
  */
-export async function generatePdf({ design, project, place, finance, snapshot, company = {}, client = {}, designId = '' }) {
+export async function generatePdf({ design, project, place, finance, snapshot, company = {}, client = {}, designId = '', shadow = null }) {
   company = { name: project.preparedBy || 'Solar proposal', ...company };
   client = { name: project.customer || '', ...(client || {}) };
   const brand = await loadBranding(company);
@@ -554,20 +527,86 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
     titleBlock(doc, r, sheet, title, y + drawingH + 4);
   }
 
-  // 6 — electrical
-  y = newPage(doc, r, 'Electrical design');
+  // 6 — single line diagram
+  y = newPage(doc, r, 'Single line diagram');
   y = section(doc, r, 'Single line diagram', y);
-  y = drawSld(doc, r, el, y) + 6;
-  y = section(doc, r, 'Inverter & strings', y);
+  const sldH = BOTTOM - y - 19 - 4;
+  drawSld(doc, el, spec, M, y, CW, sldH);
+  titleBlock(doc, r, 'E-03', 'Single line diagram', y + sldH + 4);
+
+  // 7 — electrical
+  y = newPage(doc, r, 'Electrical design');
+  if (el.strings.length) {
+    y = section(doc, r, 'Equipment schedule (sheet E-03)', y);
+    autoTable(doc, { ...table(), startY: y, styles: { ...table().styles, fontSize: 7.5, cellPadding: { top: 1.6, bottom: 1.6, left: 2.5, right: 2.5 } }, head: [['Tag', 'Item', 'Specification', 'Qty']], body: sldSchedule(el, spec, moduleName, totals.count), ...numeric(3), columnStyles: { 0: { cellWidth: 20, fontStyle: 'bold', textColor: INK }, 1: { cellWidth: 42 }, 3: { halign: 'right', cellWidth: 20 } } });
+    y = ensure(doc, r, doc.lastAutoTable.finalY + 4, 12);
+    text(doc, wrap(doc, 'Protection ratings are sized from the design currents (string fuse 1.56 x Isc, DC isolator 1.25 x Isc per MPPT, AC breakers 1.25 x inverter output current); cable sizes assume copper conductors derated for rooftop runs. Final selection to be verified against equipment datasheets, IS / IEC 60364-7-712 and DISCOM net-metering requirements.', CW, 7), M, y, { size: 7, color: MUTED, lineHeight: 1.35 });
+    y += 13;
+  }
+  y = section(doc, r, 'Inverter & strings', ensure(doc, r, y, 40));
   y = specGrid(doc, [['Inverter', `${el.inverterCount || 0} x ${el.inverter?.kw ?? '-'} kW ${el.inverter?.kw <= 6 ? 'single-phase' : 'three-phase'}`], ['DC / AC ratio', el.dcAc ? el.dcAc.toFixed(2) : '-'], ['AC capacity', `${el.acKw ?? '-'} kW`], ['Modules per string', [...new Set(el.strings.map((st) => st.count))].sort((a, c) => a - c).join(' / ') || '-'], ['Allowed string length', `${el.minLen ?? '-'} to ${el.maxLen ?? '-'} modules`]], y) + 6;
   autoTable(doc, { ...table(), startY: y, head: [['String', 'Modules', 'Power', 'Voc STC', 'Voc cold', 'Isc', 'Inverter']], body: el.strings.map((s) => [s.name, s.count, `${s.kwp.toFixed(2)} kWp`, `${s.voc.toFixed(0)} V`, `${s.vocCold.toFixed(0)} V`, `${s.isc} A`, `INV-${s.inverter}`]) });
 
-  // 7 — bill of materials
+  // 8 — bill of materials
   y = newPage(doc, r, 'Bill of materials');
   y = section(doc, r, 'Bill of materials', y);
-  autoTable(doc, { ...table(), startY: y, head: [['#', 'Item', 'Specification', 'Qty', 'Unit']], body: el.bom.map((row, i) => [i + 1, ...row]), ...numeric(3), columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 2: { cellWidth: 78 }, 3: { halign: 'right', cellWidth: 16 }, 4: { cellWidth: 18 } } });
 
-  // 8 — energy & financials
+  let bomRows = [];
+  if (cost.isPackage) {
+    if (cost.package?.items?.length) {
+      bomRows = cost.package.items.map((it) => {
+        const specParts = [
+          it.brand && `Brand: ${it.brand}`,
+          it.model && `Model: ${it.model}`,
+          it.spec,
+        ].filter(Boolean).join(' · ');
+        return [it.name, specParts || '-', it.qty || 1, capFirst(it.unit) || 'Nos'];
+      });
+    }
+  } else {
+    // Custom mode: only include the items selected and configured during design creation:
+    // 1. Solar modules
+    bomRows.push([
+      'Solar modules',
+      [spec.brand, spec.model, `${spec.watts} W`, `(${spec.length} x ${spec.width} m)`].filter(Boolean).join(' '),
+      totals.count,
+      'nos',
+    ]);
+
+    // 2. Mounting structure / poles (if elevated/poles used)
+    if (design.structure.columns > 0) {
+      bomRows.push([
+        `Pillars / Mounting structure (${design.pillar?.name || 'Poles'})`,
+        `${Math.ceil(cost.pillarFt)} ft total length (${design.pillar?.shape || 'iron column'})`,
+        design.structure.columns,
+        'nos',
+      ]);
+    } else if (design.structure.hooks > 0) {
+      bomRows.push([
+        'Mounting structure (Roof hooks / rails)',
+        'Flush-mounted roof rails & hooks',
+        design.structure.hooks,
+        'nos',
+      ]);
+    }
+
+    // 3. Category materials actually chosen by the user
+    if (cost.categoryMaterials?.length) {
+      for (const m of cost.categoryMaterials) {
+        bomRows.push([
+          m.categoryName,
+          m.productName,
+          m.qty,
+          m.unit || 'nos',
+        ]);
+      }
+    }
+  }
+
+  autoTable(doc, { ...table(), startY: y, head: [['#', 'Item', 'Specification', 'Qty', 'Unit']], body: bomRows.map((row, i) => [i + 1, ...row]), ...numeric(3), columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 2: { cellWidth: 78 }, 3: { halign: 'right', cellWidth: 16 }, 4: { cellWidth: 18 } } });
+
+
+  // 9 — energy & financials
   y = newPage(doc, r, 'Energy & financials');
   y = section(doc, r, 'Monthly energy production (kWh)', y);
   y = monthlyChart(doc, r, totals.monthly, y + 3) + 4;
@@ -579,30 +618,109 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
   y = ensure(doc, r, doc.lastAutoTable.finalY + 6, 12);
   text(doc, wrap(doc, `Assumptions: performance ratio ${finance.efficiency}%, module degradation ${finance.degradation}% per year, tariff escalation ${finance.escalation}% per year. Yield ${design.yieldModel.source === 'google' ? 'calibrated with Google Solar API sunshine data' : 'from a clear-sky model with a regional cloudiness factor'}; shading from parapets, raised roofs, obstructions, trees and adjacent tables computed hourly for 12 representative days. Figures are indicative and should be verified on site.`, CW, 7.5), M, y, { size: 7.5, color: MUTED, lineHeight: 1.35 });
 
-  // 9 — price & acceptance
+  // 10 — price & acceptance
   y = newPage(doc, r, 'Price & acceptance');
   y = section(doc, r, `Price summary (${finance.currency})`, y);
+
+  let priceRows = [];
+  if (cost.isPackage) {
+    // Package mode: list all bundled equipment with product name and [-] against price
+    const pkg = cost.package;
+    const items = pkg?.items?.length ? pkg.items : [];
+
+    priceRows = items.map((it) => {
+      const details = [
+        it.brand && `Brand: ${it.brand}`,
+        it.model && `Model: ${it.model}`,
+        it.spec,
+        it.qty && `Qty: ${it.qty} ${it.unit || ''}`.trim(),
+      ].filter(Boolean).join(' · ');
+      return [
+        it.name,
+        details || it.description || 'Included in package',
+        '-',
+      ];
+    });
+
+    // Add Package base line
+    priceRows.push([
+      `Package: ${pkg?.name || 'All-Inclusive Solar Package'}`,
+      pkg?.description || `${totals.kwp.toFixed(2)} kW complete turnkey rooftop package (all equipment above included)`,
+      money(cost.packagePrice),
+    ]);
+
+    // Floor placement surcharge if applicable
+    if (Number(cost.floorCost) > 0) {
+      priceRows.push([
+        'Floor placement',
+        cost.floorPlacement === 0 ? 'Ground level (₹0)' : `Floor ${cost.floorPlacement} rooftop installation surcharge`,
+        money(cost.floorCost),
+      ]);
+    }
+  } else {
+    // Custom mode: calculate prices on the basis of chosen materials (panels, poles, and company categories)
+    priceRows = [
+      ['Solar modules', `${totals.count} x ${moduleName} ${spec.watts} W`, money(cost.panels)],
+      ['Mounting structure', design.structure.columns ? `${design.pillar?.name || 'Poles'} - ${formatNumber(cost.pillarFt)} ft` : `Flush mount: ${design.structure.hooks} roof hooks and rails`, money(cost.pillars)],
+    ];
+
+    if (cost.hasChosenMaterials) {
+      for (const m of (cost.categoryMaterials || [])) {
+        priceRows.push([m.categoryName, `${m.productName} (Qty: ${m.qty} ${m.unit})`, money(m.total)]);
+      }
+    } else {
+      priceRows.push(['Balance of system', 'Inverter, cabling, protection devices, installation and commissioning', money(cost.other)]);
+    }
+
+    if (Number(cost.floorCost) > 0) {
+      priceRows.push([
+        'Floor placement',
+        cost.floorPlacement === 0 ? 'Ground level (₹0)' : `Floor ${cost.floorPlacement} installation surcharge`,
+        money(cost.floorCost),
+      ]);
+    }
+  }
+
+
+
   autoTable(doc, {
     ...table(),
     startY: y,
     head: [['Item', 'Description', 'Amount']],
-    body: [
-      ['Solar modules', `${totals.count} x ${moduleName} ${spec.watts} W`, money(cost.panels)],
-      ['Mounting structure', design.structure.columns ? `${design.pillar?.name || 'Poles'} - ${formatNumber(cost.pillarFt)} ft` : `Flush mount: ${design.structure.hooks} roof hooks and rails (priced in balance of system)`, money(cost.pillars)],
-      ['Balance of system', 'Inverter, cabling, protection devices, installation and commissioning', money(cost.other)],
-    ],
+    body: priceRows,
     ...numeric(2),
-    columnStyles: { 0: { cellWidth: 42, fontStyle: 'bold', textColor: INK }, 2: { halign: 'right', cellWidth: 40 } },
+    columnStyles: { 0: { cellWidth: 48, fontStyle: 'bold', textColor: INK }, 2: { halign: 'right', cellWidth: 38 } },
   });
   y = doc.lastAutoTable.finalY + 3;
+
+  const subtotal = cost.subtotal ?? cost.total;
+  const gstExtra = cost.gstIncluded === false && (cost.gstAmount || 0) > 0;
+  if (gstExtra) {
+    autoTable(doc, {
+      ...table(),
+      startY: y,
+      body: [
+        ['Subtotal (excl. GST)', money(subtotal)],
+        [`SGST (${(cost.gstPercent / 2).toFixed(2)}%)`, money(cost.sgst)],
+        [`CGST (${(cost.gstPercent / 2).toFixed(2)}%)`, money(cost.cgst)],
+      ],
+      theme: 'plain',
+      styles: { fontSize: 8.5, textColor: BODY },
+      columnStyles: { 0: { cellWidth: CW - 42 }, 1: { halign: 'right', cellWidth: 42 } },
+    });
+    y = doc.lastAutoTable.finalY + 3;
+  }
+
   doc.setFillColor(...brand.primary);
   doc.rect(M, y, CW, 13, 'F');
-  text(doc, 'TOTAL INVESTMENT', M + 4, y + 8.2, { size: 8.5, style: 'bold', color: brand.primaryFg });
+  text(doc, gstExtra ? 'GRAND TOTAL (INCL. GST)' : 'TOTAL INVESTMENT', M + 4, y + 8.2, { size: 8.5, style: 'bold', color: brand.primaryFg });
   text(doc, `${totals.kwp.toFixed(2)} kWp system`, M + 46, y + 8.2, { size: 8.5, color: brand.primaryFg });
   text(doc, money(cost.total), W - M - 4, y + 8.8, { size: 13, style: 'bold', color: brand.primaryFg, align: 'right' });
   signOff(doc, r, y + 13 + 12);
 
-  footers(doc, r);
+  const proposalEnd = doc.getNumberOfPages();
+  if (shadow) await appendShadowReport(doc, shadow);
+  footers(doc, r, proposalEnd);
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  doc.save(`${[slug(client.name), slug(r.title)].filter(Boolean).join('_') || 'solar-proposal'}.pdf`);
+  doc.save(`${[slug(client.name), slug(r.title)].filter(Boolean).join('_') || 'solar-proposal'}${shadow ? '_with-shadow-analysis' : ''}.pdf`);
 }

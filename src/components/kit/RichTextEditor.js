@@ -4,7 +4,7 @@
 // (<p>, <h3>, <ol>/<ul>, <strong>…); the backend sanitises it again on save.
 // Quill's stylesheet is imported in app/dashboard/layout.js; the look is tuned in globals.css.
 import { useEffect, useRef, useState } from 'react';
-import { toRichHtml } from '@/lib/richText';
+import { sanitizeRichHtml, toRichHtml } from '@/lib/richText';
 import { cx } from './index';
 
 const TOOLBAR = [
@@ -36,7 +36,7 @@ export default function RichTextEditor({ value, onChange, placeholder, maxLength
       el.appendChild(editorEl);
       const q = new Quill(editorEl, { theme: 'snow', placeholder, formats: FORMATS, modules: { toolbar: TOOLBAR } });
       q.root.setAttribute('aria-label', ariaLabel || 'Rich text');
-      q.clipboard.dangerouslyPasteHTML(toRichHtml(value), 'silent'); // Quill keeps only FORMATS, so pasted HTML cannot inject markup
+      q.clipboard.dangerouslyPasteHTML(sanitizeRichHtml(toRichHtml(value)), 'silent'); // Quill keeps only FORMATS, so pasted HTML cannot inject markup
       q.history.clear();
       const length = () => Math.max(0, q.getLength() - 1);
       setCount(length());
@@ -45,7 +45,7 @@ export default function RichTextEditor({ value, onChange, placeholder, maxLength
         setCount(length());
         if (source === 'silent') return;
         // getSemanticHTML writes real <ul>/<ol> (Quill's own DOM uses <ol data-list>) and pads with &nbsp;
-        onChangeRef.current?.(length() ? q.getSemanticHTML().replace(/&nbsp;| /g, ' ') : '');
+        onChangeRef.current?.(length() ? sanitizeRichHtml(q.getSemanticHTML().replace(/&nbsp;| /g, ' ')) : '');
       });
       quill.current = q;
       setReady(true);

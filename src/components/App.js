@@ -1,13 +1,14 @@
 'use client';
 
-import { AlertCircle, ArrowLeft, ArrowRight, Check, ChevronLeft, CloudOff, Download, Loader2 } from 'lucide-react';
+import { AlertCircle, ArrowRight, Check, ChevronDown, ChevronLeft, CloudOff, Download, FileStack, FileText, Loader2 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, assetUrl } from '@/lib/api';
 import { generatePdf } from '@/lib/pdf';
 import { useSession } from '@/lib/session';
+import { useMapToken } from '@/lib/staticMap';
 import { PRO_SLUGS, SIMPLE_SLUGS, SIMPLE_STEPS, useStore } from '@/lib/store';
 import { useDesign } from '@/lib/useDesign';
 import { useDesignSync } from '@/lib/useDesignSync';
@@ -42,19 +43,78 @@ function useSolar() {
   }, [origin, patch]);
 }
 
-/** The company's own panels, poles and pricing — applied once the design itself has loaded. */
-function useCatalog(ready) {
+/** The company's own panels, poles and pricing — applied once the design itself has loaded.
+ * Catalog and packages are fetched from separate endpoints and merged into one store value. */
+function useCatalog(ready, companyId) {
   const set = useStore((s) => s.set);
   useEffect(() => {
-    if (!ready) return;
-    api('/api/catalog')
-      .then((catalog) => {
+    if (!ready || !companyId) return;
+    Promise.all([
+      api('/api/catalog'),
+      api('/api/packages').catch(() => []),
+    ]).then(([catalog, packages]) => {
         const st = useStore.getState();
-        const finance = st.finance.currency === catalog.currency && st.finance.tariff === catalog.tariff && st.finance.init ? st.finance : { ...st.finance, currency: catalog.currency, tariff: catalog.tariff, init: true };
-        set({ catalog, finance });
+        const finance =
+          st.finance.currency === catalog.currency &&
+          st.finance.tariff === catalog.tariff &&
+          st.finance.init
+            ? st.finance
+            : { ...st.finance, currency: catalog.currency, tariff: catalog.tariff, init: true };
+        set({ catalog: { ...catalog, packages }, finance });
       })
       .catch(() => {});
-  }, [set, ready]);
+  }, [set, ready, companyId]);
+}
+
+
+/** Header "Actions" dropdown: download the proposal, run the shadow report. */
+function ActionsMenu({ items, busy }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e) => {
+      if (e.type === 'keydown' ? e.key === 'Escape' : !ref.current?.contains(e.target)) setOpen(false);
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', close);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', close);
+    };
+  }, [open]);
+  return (
+    <div ref={ref} className="relative ml-auto shrink-0 md:ml-0">
+      <button type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="inline-flex h-9 items-center gap-2 rounded-md bg-brand px-3.5 text-sm font-semibold text-brand-fg hover:bg-brand-600">
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+        <span className="hidden sm:inline">Export</span>
+        <ChevronDown className={cx('h-4 w-4 transition', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 top-11 z-50 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-xl">
+          {items.map(({ key, icon: Icon, label, hint, disabled, onClick }) => (
+            <button
+              key={key}
+              type="button"
+              role="menuitem"
+              disabled={disabled}
+              onClick={() => {
+                setOpen(false);
+                onClick();
+              }}
+              className="flex w-full items-start gap-3 px-3 py-2.5 text-left hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Icon className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
+              <span>
+                <span className="block text-sm font-medium text-slate-800">{label}</span>
+                <span className="block text-xs text-slate-500">{hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const SAVE_LABEL = { saved: 'All changes saved', dirty: 'Saving…', saving: 'Saving…', error: 'Not saved — retrying on next change' };
@@ -76,7 +136,8 @@ export default function App({ designId, slug }) {
   const sync = useDesignSync(designId, summary);
   const loaded = sync.status === 'ready' && state.designId === designId;
   useSolar();
-  useCatalog(loaded);
+  useCatalog(loaded, company?.id);
+  const mapReady = useMapToken(); // satellite images need it before the scene mounts
 
   // one flow only: Location → Roof → Solar plan
   const slugs = SIMPLE_SLUGS;
@@ -109,7 +170,23 @@ export default function App({ designId, slug }) {
         </div>
       </div>
     );
-  if (!loaded) return <FullPageLoader />;
+  if (!loaded || !mapReady) return <FullPageLoader />;
+
+  // a new company starts with an empty catalog: the designer needs its own solar panel and pole first
+  const cat = state.catalog;
+  if (cat && (!cat.panels?.length || !cat.pillars?.length)) {
+    const missing = [!cat.panels?.length && 'a solar panel', !cat.pillars?.length && 'a pole'].filter(Boolean).join(' and ');
+    return (
+      <div className="grid h-dvh place-items-center bg-slate-50 px-6 text-center">
+        <div className="max-w-md">
+          <span className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-xl bg-brand-soft text-brand"><AlertCircle className="h-6 w-6" /></span>
+          <h1 className="text-lg font-semibold text-slate-900">Add your products first</h1>
+          <p className="mt-1 text-sm text-slate-500">The designer uses your own catalog. Add {missing} under Product catalog (create a “Solar panels” category with type panels, and a “Poles” category with type poles), then come back to this design.</p>
+          <Link href="/dashboard/catalog" className={buttonClass({ variant: 'primary', className: 'mt-6' })}>Go to Product catalog</Link>
+        </div>
+      </div>
+    );
+  }
 
   const blocker =
     Screen === StepLocation ? !ready[0] && 'Confirm the location to continue'
@@ -136,6 +213,13 @@ export default function App({ designId, slug }) {
     }
     setExporting(false);
   };
+  const noPanels = !design.totals.count;
+  const has3d = Screen === Step3D || Screen === StepSimpleDesign; // the shadow renders come from the live 3D view
+  const actions = [
+    last && { key: 'pdf', icon: Download, label: 'Download proposal (PDF)', hint: noPanels ? 'Place at least one panel first' : 'Branded proposal for your client', disabled: exporting || noPanels, onClick: downloadPdf },
+    has3d && { key: 'combined', icon: FileStack, label: 'Proposal + shadow analysis (PDF)', hint: noPanels ? 'Place at least one panel first' : 'One PDF: the proposal followed by the shadow report', disabled: exporting || noPanels, onClick: () => state.set({ shadowReport: 'combined' }) },
+    has3d && { key: 'shadow', icon: FileText, label: 'Shadow analysis only (PDF)', hint: noPanels ? 'Place at least one panel first' : 'Hour-by-hour shading on the panels', disabled: noPanels, onClick: () => state.set({ shadowReport: 'report' }) },
+  ].filter(Boolean);
   const SaveIcon = sync.save === 'saved' ? Check : sync.save === 'error' ? CloudOff : Loader2;
 
   return (
@@ -154,16 +238,12 @@ export default function App({ designId, slug }) {
         <div className={cx('ml-auto hidden items-center gap-1.5 text-xs md:flex', sync.save === 'error' ? 'text-red-600' : 'text-slate-400')} role="status">
           <SaveIcon className={cx('h-3.5 w-3.5', (sync.save === 'dirty' || sync.save === 'saving') && 'animate-spin')} /> {SAVE_LABEL[sync.save]}
         </div>
-        {last && (
-          <button type="button" onClick={downloadPdf} disabled={exporting || !design.totals.count} title={design.totals.count ? undefined : 'Place at least one panel first'} className="ml-auto inline-flex h-9 shrink-0 items-center gap-2 rounded-md bg-brand px-3.5 text-sm font-semibold text-brand-fg hover:bg-brand-600 disabled:bg-slate-300 md:ml-0">
-            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            <span className="hidden sm:inline">Download proposal (PDF)</span><span className="sm:hidden">PDF</span>
-          </button>
-        )}
+        {actions.length > 0 && <ActionsMenu items={actions} busy={exporting} />}
       </header>
 
-      <nav aria-label="Progress" className="shrink-0 overflow-x-auto border-b border-slate-200 bg-white px-5">
-        <ol className="flex min-w-max items-center gap-1 py-2.5">
+      {/* steps on the left; what is still missing and the next step on the right (no footer bar) */}
+      <nav aria-label="Progress" className="flex shrink-0 items-center gap-4 overflow-x-auto border-b border-slate-200 bg-white px-5">
+        <ol className="flex min-w-max flex-1 items-center gap-1 py-2.5">
           {names.map((name, i) => {
             const ok = reachable(i);
             const done = i < step;
@@ -180,21 +260,22 @@ export default function App({ designId, slug }) {
             );
           })}
         </ol>
+        {blocker && (
+          <span className="shrink-0 text-xs text-slate-500" role="status">
+            {blocker}
+          </span>
+        )}
+        {!last && (
+          <button type="button" disabled={Boolean(blocker)} onClick={() => go(step + 1)} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-brand px-3.5 text-[13px] font-semibold text-brand-fg hover:bg-brand-600 disabled:bg-slate-300">
+            Continue to {names[step + 1]} <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        )}
       </nav>
 
       <main className="relative min-h-0 flex-1">
         <Screen design={design} />
       </main>
 
-      <footer className="flex h-16 shrink-0 items-center justify-between border-t border-slate-200 bg-white px-5">
-        <button type="button" disabled={step === 0} onClick={() => go(step - 1)} className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:invisible">
-          <ArrowLeft className="h-4 w-4" /> Back
-        </button>
-        <div className="text-sm text-slate-500" role="status">{blocker || `Step ${step + 1} of ${slugs.length}`}</div>
-        <button type="button" disabled={Boolean(blocker) || last} onClick={() => go(step + 1)} className={cx('inline-flex h-10 items-center gap-2 rounded-md bg-brand px-5 text-sm font-semibold text-brand-fg hover:bg-brand-600 disabled:bg-slate-300', last && 'invisible')}>
-          Continue <ArrowRight className="h-4 w-4" />
-        </button>
-      </footer>
       <Toaster />
     </div>
   );

@@ -255,6 +255,7 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
     if (tool === 'add-block') return s.addObject({ id: newId('b'), type: 'block', name: 'Water tank', w: 2, d: 2, h: 1.8, ...(s.pendingBlock || {}), x: w.x, y: w.y, rot: design.defaultAzimuth });
     if (tool === 'add-array' || tool === 'add-elevated') {
       const elevated = tool === 'add-elevated';
+      if (s.config.pricingMode === 'package') s.patch('config', { pricingMode: 'custom' });
       return s.addObject({ id: newId('a'), type: 'array', elevated, x: w.x, y: w.y, rows: elevated ? 3 : 2, cols: 4, tilt: elevated ? 10 : config.tilt, azimuth: design.defaultAzimuth, frontLeg: elevated ? 2.4 : config.frontLeg, orientation: config.orientation });
     }
     // pan
@@ -319,6 +320,7 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
       const rows = Math.max(1, Math.min(8, Math.round((vExt + PANEL_GAP) / (one.depth + PANEL_GAP))));
       const size = tableSize({ ...o, rows, cols }, design.spec);
       s.updateObject(o.id, { rows, cols, x: d.anchor.x + c.x * (size.width / 2) - f.x * (size.depth / 2), y: d.anchor.y + c.y * (size.width / 2) - f.y * (size.depth / 2) });
+      if (s.config.pricingMode === 'package') s.patch('config', { pricingMode: 'custom' });
     } else if (d.kind === 'resize-block') {
       const o = s.objects.find((k) => k.id === d.id);
       if (!o) return;

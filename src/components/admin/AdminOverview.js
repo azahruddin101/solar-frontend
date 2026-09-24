@@ -44,7 +44,7 @@ export default function AdminOverview() {
                       <div className="min-w-0"><div className="truncate font-medium text-slate-900">{c.name}</div><div className="truncate text-xs text-slate-500">{c.loginEmail}</div></div>
                     </div>
                   </Td>
-                  <Td><PlanBadge plan={c.plan} /></Td>
+                  <Td><PlanBadge plan={c.plan} planDetail={c.planDetail} /></Td>
                   <Td><StatusBadge status={c.status} /></Td>
                   <Td className="text-right tabular-nums">{c.counts.clients}</Td>
                   <Td className="text-right tabular-nums">{c.counts.designs}</Td>

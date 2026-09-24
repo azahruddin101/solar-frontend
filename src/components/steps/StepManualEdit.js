@@ -17,10 +17,16 @@ export default function StepManualEdit({ design }) {
   const pick = (t) => set({ tool: tool === t ? 'select' : t, selectedId: null });
   const st = useStore.getState;
 
-  const autoFill = () => autoFillRoof(design);
+  const autoFill = () => {
+    if (st().config.pricingMode === 'package') st().patch('config', { pricingMode: 'custom' });
+    autoFillRoof(design);
+  };
   const duplicate = () => {
     const o = st().objects.find((x) => x.id === selectedId);
-    if (o && o.type !== 'zone') st().addObject({ ...o, id: newId('c'), x: o.x + 2, y: o.y - 2 });
+    if (o && o.type !== 'zone') {
+      st().addObject({ ...o, id: newId('c'), x: o.x + 2, y: o.y - 2 });
+      if (st().config.pricingMode === 'package') st().patch('config', { pricingMode: 'custom' });
+    }
   };
   const hints = {
     'draw-zone': 'Click corners of the area on which you want to place the panels · Enter to finish',

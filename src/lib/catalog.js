@@ -1,5 +1,29 @@
 // A company's product catalog (Dashboard → Product catalog): panels priced per piece, pillars per foot.
 
+/** Default “per …” labels; companies can edit their list under Dashboard → Product units. */
+export const DEFAULT_PRODUCT_UNITS = ['Piece', 'Nos', 'Set', 'Metre', 'Foot', 'Kg', 'Box', 'Roll', 'Lot', 'Bundle'];
+
+/** "nos" → "Nos": upper-case the first letter, leave the rest as typed. */
+export const capFirst = (value) => {
+  const s = String(value ?? '').trim();
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
+};
+export const MAX_PRODUCT_UNITS = 30;
+
+export function productUnitsFor(company) {
+  const units = company?.productUnits;
+  return Array.isArray(units) && units.length ? units : DEFAULT_PRODUCT_UNITS;
+}
+
+/** Pick a saved unit, or the first in the company list when the product has a legacy/other label. */
+export function normalizeProductUnit(unit, companyUnits) {
+  const list = companyUnits?.length ? companyUnits : DEFAULT_PRODUCT_UNITS;
+  if (!list.length) return '';
+  const trimmed = String(unit ?? '').trim();
+  const match = list.find((u) => u.toLowerCase() === trimmed.toLowerCase());
+  return match ?? list[0];
+}
+
 export const PILLAR_SHAPES = [
   { id: 'l-shape', label: 'L-shape (angle)' },
   { id: 'cylindrical', label: 'Cylindrical (round pipe)' },
@@ -53,5 +77,10 @@ export function normalizeCatalog(raw) {
   }));
   if (!c.panels.length) c.panels = normalizeCatalog(DEFAULT_CATALOG).panels;
   if (!c.pillars.length) c.pillars = normalizeCatalog(DEFAULT_CATALOG).pillars;
+  c.packages = Array.isArray(c.packages) ? c.packages : [];
+  c.materialCategories = Array.isArray(c.materialCategories) ? c.materialCategories : [];
   return c;
 }
+
+
+
