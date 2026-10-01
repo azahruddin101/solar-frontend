@@ -18,6 +18,7 @@ import { IMAGE_QUALITY, RENDER_SIZES } from './config.js';
  * @property {number} sunAzimuth
  * @property {string} sunCompass
  * @property {number} panelCount
+ * @property {string} [buildingLabel]  set only when the design has more than one building
  */
 
 function roundedRect(ctx, x, y, w, h, r) {
@@ -128,6 +129,22 @@ export function drawOverlay(ctx, width, height, info) {
   ctx.fillStyle = 'rgba(255,255,255,0.85)';
   ctx.textBaseline = 'middle';
   ctx.fillText(caption, cx + 24 * k, cy + ch / 2 + 1 * k);
+
+  // which building this close-up is framed on (only drawn on a multi-building design)
+  if (info.buildingLabel) {
+    ctx.font = `700 ${26 * k}px ${FONT}`;
+    const bw = ctx.measureText(info.buildingLabel).width + 44 * k;
+    const bh = 40 * k;
+    const bx = width - pad - bw;
+    const by = pad;
+    roundedRect(ctx, bx, by, bw, bh, 10 * k);
+    ctx.fillStyle = 'rgba(8, 12, 22, 0.80)';
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText(info.buildingLabel, bx + 22 * k, by + bh / 2 + 1 * k);
+  }
 }
 
 /**

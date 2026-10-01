@@ -18,7 +18,7 @@ const csp = [
   "font-src 'self' data: https://fonts.gstatic.com",
   `connect-src 'self' ${apiOrigin} https://*.googleapis.com https://*.google.com https://*.gstatic.com https://onesignal.com https://*.onesignal.com blob: data:`,
   "worker-src 'self' blob: https://cdn.onesignal.com",
-  "frame-src 'self' https://onesignal.com https://*.onesignal.com https://*.google.com",
+  `frame-src 'self' ${apiOrigin} https://onesignal.com https://*.onesignal.com https://*.google.com`,
   "media-src 'self' blob: data:",
   "object-src 'none'",
   "base-uri 'self'",

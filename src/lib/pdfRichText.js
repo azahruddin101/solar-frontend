@@ -155,7 +155,7 @@ function drawMarker(doc, marker, x, y, size, color) {
  * Draw `html` starting at (x, y) within `width`. `ensure(y, need)` must return a y that has `need`
  * millimetres free (adding a page when necessary). Returns the y below the last line.
  */
-export function drawRichText(doc, html, { x, y, width, size = 8.5, color = [51, 65, 85], headingColor = [15, 23, 42], linkColor = [29, 78, 216], markerColor = linkColor, ensure = (yy) => yy }) {
+export function drawRichText(doc, html, { x, y, width, size = 8.5, color = [0, 0, 0], headingColor = [15, 23, 42], linkColor = [29, 78, 216], markerColor = linkColor, ensure = (yy) => yy }) {
   const blocks = parseRichText(html);
   blocks.forEach((block, i) => {
     const fs = SIZES[block.kind] || size;

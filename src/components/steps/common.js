@@ -19,6 +19,7 @@ export function Label({ children }) {
   return <div className="mb-2 text-[15px] font-medium text-slate-700">{children}</div>;
 }
 
+import { NumField } from '../kit';
 export const inputCls = 'h-[52px] w-full rounded-md border border-slate-300 bg-white px-4 text-[16px] shadow-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand-muted';
 
 export function Num({ label, value, onChange, step = 0.1, min = 0, max = 999, suffix }) {
@@ -26,7 +27,7 @@ export function Num({ label, value, onChange, step = 0.1, min = 0, max = 999, su
     <label className="block">
       <Label>{label}</Label>
       <div className="relative">
-        <input type="number" className={inputCls} value={value} step={step} min={min} max={max} onChange={(e) => onChange(Math.min(max, Math.max(min, Number(e.target.value) || 0)))} />
+        <NumField className={inputCls} value={value} step={step} min={min} max={max} onValue={onChange} />
         {suffix && <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-slate-400">{suffix}</span>}
       </div>
     </label>
@@ -81,7 +82,7 @@ export function MiniNum({ label, value, onChange, step = 1, min = 0, max = 999, 
     <label className="flex items-center justify-between gap-3 text-sm">
       <span className="text-slate-600">{label}</span>
       <span className="flex items-center gap-1">
-        <input type="number" value={value} step={step} min={min} max={max} onChange={(e) => onChange(Math.min(max, Math.max(min, Number(e.target.value) || 0)))} className="h-8 w-20 rounded-lg border border-slate-300 px-2 text-right text-sm outline-none focus:border-brand" />
+        <NumField value={value} step={step} min={min} max={max} onValue={onChange} className="h-8 w-20 rounded-lg border border-slate-300 px-2 text-right text-sm outline-none focus:border-brand" />
         <span className="w-6 text-xs text-slate-400">{suffix}</span>
       </span>
     </label>

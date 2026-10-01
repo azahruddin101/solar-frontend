@@ -8,14 +8,16 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { agentRolesFor, agentRolesLabel, agentsForStepRole } from '@/lib/agents';
 import { api, assetUrl } from '@/lib/api';
+import { importLibrary, MAPS_API_KEY } from '@/lib/googleMaps';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { useSignedUrl } from '@/lib/files';
+import { DEFAULT_STEP_PRIORITY, STEP_PRIORITIES, stepColor } from '@/lib/steps';
 import { stepCreateSchema, useValidation } from '@/lib/validation';
 import { Alert, Avatar, Badge, Button, Card, CardHeader, ConfirmDialog, FormField, FormModal, IconButton, ImageSourceButtons, Input, LoadingBlock, PageHeader, Select, Textarea, ZoomImage, cx, showError, toast } from '../kit';
 import { generateLifecyclePdf } from '@/lib/lifecyclePdf';
 import { describeLifecycleEvent } from '@/lib/lifecycleLog';
-import { Progress, ProjectStatusBadge, StepStatusBadge, formatDateTime } from './shared';
+import { Progress, ProjectStatusBadge, StepPriorityBadge, StepStatusBadge, formatDateTime } from './shared';
 
 /** A photo attached to an activity-log entry (protected: opened through a signed link). */
 function StepPhoto({ url }) {
@@ -25,12 +27,42 @@ function StepPhoto({ url }) {
     : <span className="mt-2 block h-20 w-28 animate-pulse rounded-md bg-slate-200/70" aria-label="Loading photo" />;
 }
 
+const addressCache = new Map(); // "lat,lng" (5dp) → resolved address, shared across every entry on the page
+let geocoder = null;
+
+/** Where a GPS point logged on an activity-log entry actually is — falls back to the coordinates while resolving or if reverse geocoding fails. */
+function GeoLabel({ lat, lng }) {
+  const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
+  const [address, setAddress] = useState(addressCache.get(key) || '');
+  useEffect(() => {
+    if (!MAPS_API_KEY || addressCache.has(key)) return;
+    let dead = false;
+    (geocoder ? Promise.resolve(geocoder) : importLibrary('geocoding').then(({ Geocoder }) => (geocoder = new Geocoder())))
+      .then((g) => g.geocode({ location: { lat, lng } }))
+      .then((res) => {
+        const formatted = res.results?.[0]?.formatted_address || '';
+        addressCache.set(key, formatted);
+        if (!dead) setAddress(formatted);
+      })
+      .catch(() => {});
+    return () => (dead = true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return (
+    <p className="mt-1 text-xs text-slate-500">
+      <MapPin className="mr-1 inline h-3.5 w-3.5" />
+      {address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`}
+    </p>
+  );
+}
+
 function StepForm({ step, agents, roleOptions, onClose, onSubmit }) {
   const [form, setForm] = useState({
     name: step?.name || '',
     description: step?.description || '',
     role: step?.role || '',
     assignee: step?.assignee?.id || '',
+    priority: step?.priority || DEFAULT_STEP_PRIORITY,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -61,6 +93,11 @@ function StepForm({ step, agents, roleOptions, onClose, onSubmit }) {
     <FormModal open onClose={onClose} size="sm" title={step ? 'Edit step' : 'Add a step'} description="Only this installation changes — your step template stays as it is." submitLabel={step ? 'Save changes' : 'Add step'} busy={busy} error={error} onSubmit={submit} noValidate>
       <FormField label="Step name" error={v.error('name')}><Input maxLength={80} value={form.name} onValue={(x) => set({ name: x })} placeholder="e.g. Net-meter application" /></FormField>
       <FormField label="What needs doing" optional error={v.error('description')}><Textarea rows={2} maxLength={400} value={form.description} onValue={(x) => set({ description: x })} /></FormField>
+      <FormField label="Priority" hint="Medium unless you choose otherwise.">
+        <Select value={form.priority} onValue={(x) => set({ priority: x })}>
+          {STEP_PRIORITIES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </Select>
+      </FormField>
       <FormField label="Role" optional hint="Only agents with this role can be assigned.">
         <Select value={form.role} onValue={setRole}>
           <option value="">Any role</option>
@@ -177,10 +214,10 @@ function StepMarker({ index, status }) {
   return <span className={cx('grid h-8 w-8 shrink-0 place-items-center rounded-full text-[13px] font-semibold', status === 'in_progress' ? 'bg-brand text-brand-fg' : 'bg-slate-100 text-slate-500 ring-1 ring-slate-200 ring-inset')}>{index + 1}</span>;
 }
 
-export default function ProjectView({ id, mode }) {
+export default function ProjectView({ id, mode, basePath = '/dashboard/installations' }) {
   const owner = mode === 'owner';
   const base = owner ? '/api/projects' : '/api/my/projects';
-  const back = owner ? '/dashboard/installations' : '/agent';
+  const back = owner ? basePath : '/agent';
   const router = useRouter();
   const company = useSession((s) => s.company);
   const me = useSession((s) => s.user);
@@ -252,7 +289,7 @@ export default function ProjectView({ id, mode }) {
     <>
       <Link href={back} className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-900"><ArrowLeft className="h-4 w-4" /> {owner ? 'All installations' : 'My tasks'}</Link>
       <PageHeader title={design?.name || 'Installation'} description={<span className="flex flex-wrap items-center gap-x-4 gap-y-1"><ProjectStatusBadge status={project.status} /><span>Started {formatDateTime(project.createdAt)}</span></span>}>
-        {owner && design && <Link href={`/design/${design.id}/plan`} className="text-sm font-medium text-brand hover:underline">Open design</Link>}
+        {owner && design && <Link href={`/design/${design.id}/plan`} className="text-sm font-medium text-brand hover:underline">Open proposal</Link>}
         {owner && <Button variant="dangerGhost" icon={Trash2} onClick={() => setModal({ type: 'delete' })}>Delete</Button>}
       </PageHeader>
 
@@ -271,12 +308,13 @@ export default function ProjectView({ id, mode }) {
               const mine = owner || s.assignee?.id === me.id;
               const eligibleAgents = agentsForStepRole(activeAgents, s.role);
               return (
-                <li key={s.id} className={cx('flex gap-4 border-b border-slate-100 px-6 py-4 last:border-0', !owner && s.assignee?.id === me.id && s.status !== 'done' && 'bg-brand-soft/50')}>
+                <li key={s.id} style={{ borderLeftColor: stepColor(s) }} className={cx('flex gap-4 border-b border-l-4 border-slate-100 px-6 py-4 last:border-b-0', !owner && s.assignee?.id === me.id && s.status !== 'done' && 'bg-brand-soft/50')}>
                   <StepMarker index={i} status={s.status} />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                       <span className={cx('font-medium', s.status === 'done' ? 'text-slate-500' : 'text-slate-900')}>{s.name}</span>
                       <StepStatusBadge status={s.status} />
+                      <StepPriorityBadge step={s} />
                       {s.role && <Badge tone="slate">{s.role}</Badge>}
                       {!owner && s.assignee?.id === me.id && <Badge tone="brand">Yours</Badge>}
                     </div>
@@ -320,7 +358,7 @@ export default function ProjectView({ id, mode }) {
         <Card className="overflow-hidden">
           <CardHeader
             title="Project history"
-            description="Client, design, status changes, and installation — oldest first."
+            description="Client, proposal, status changes, and installation — oldest first."
             action={<Button size="sm" icon={Download} loading={pdfBusy} disabled={lifecycle.loading} onClick={downloadLifecyclePdf}>Download PDF</Button>}
           />
           <form onSubmit={addNote} className="space-y-2 border-b border-slate-100 px-6 py-4">
@@ -344,12 +382,7 @@ export default function ProjectView({ id, mode }) {
                       <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{d.phase}</p>
                       <p className="text-[13px] leading-snug text-slate-700">{d.who && <b className="font-semibold text-slate-900">{d.who} </b>}{d.text}</p>
                       {d.detail && <p className="mt-1 rounded-md bg-slate-50 px-2.5 py-1.5 text-[13px] leading-relaxed whitespace-pre-wrap text-slate-600">{d.detail}</p>}
-                      {(d.lat != null && d.lng != null) && (
-                        <p className="mt-1 text-xs text-slate-500">
-                          <MapPin className="mr-1 inline h-3.5 w-3.5" />
-                          {Number(d.lat).toFixed(5)}, {Number(d.lng).toFixed(5)}
-                        </p>
-                      )}
+                      {(d.lat != null && d.lng != null) && <GeoLabel lat={Number(d.lat)} lng={Number(d.lng)} />}
                       {d.imageUrl && (
                         <StepPhoto url={d.imageUrl} />
                       )}
@@ -392,7 +425,7 @@ export default function ProjectView({ id, mode }) {
         <b className="text-slate-900">{modal?.step?.name}</b> will be removed from this installation. The activity log keeps its history.
       </ConfirmDialog>
       <ConfirmDialog open={modal?.type === 'delete'} onClose={close} onConfirm={() => confirm(() => api(`${base}/${id}`, { method: 'DELETE' }), () => { toast.success('Installation deleted'); router.replace(back); })} busy={busy} error={modalError} title="Delete this installation?" confirmLabel="Delete installation">
-        The steps and the whole activity log of <b className="text-slate-900">{design?.name}</b> will be permanently deleted. The design itself is kept.
+        The steps and the whole activity log of <b className="text-slate-900">{design?.name}</b> will be permanently deleted. The proposal itself is kept.
       </ConfirmDialog>
     </>
   );

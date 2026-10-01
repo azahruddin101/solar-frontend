@@ -50,10 +50,10 @@ function buildTimeline(ticket, isMine) {
 
 const ACTIONS = { created: 'Ticket opened', message: 'Message', status_changed: 'Status changed', reopened: 'Reopened' };
 
-export default function TicketThread({ id, admin = false }) {
+export default function TicketThread({ id, admin = false, basePath }) {
   const me = useSession((s) => s.user);
   const refreshBadge = useUnread((s) => s.refresh);
-  const base = admin ? '/admin/support' : '/dashboard/support';
+  const base = basePath || (admin ? '/admin/support' : '/dashboard/support');
   const [ticket, setTicket] = useState(null);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -101,7 +101,7 @@ export default function TicketThread({ id, admin = false }) {
     try { setTicket(await api(`/api/tickets/${id}/status`, { method: 'PUT', body: { status } })); } catch (e) { toast.error(e.message); }
   };
 
-  const isMine = useCallback((m) => m.author === me.id || (admin ? m.authorRole === 'superadmin' : m.authorRole === 'company'), [me.id, admin]);
+  const isMine = useCallback((m) => m.author === me.id || (admin ? m.authorRole === 'superadmin' : m.authorRole !== 'superadmin'), [me.id, admin]);
   const timeline = useMemo(() => (ticket ? buildTimeline(ticket, isMine) : []), [ticket, isMine]);
 
   if (error && !ticket) return <><Link href={base} className="mb-4 inline-flex items-center gap-1 text-sm text-brand hover:underline"><ArrowLeft className="h-4 w-4" /> Support</Link><Alert>{error}</Alert></>;

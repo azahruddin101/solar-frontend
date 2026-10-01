@@ -1,5 +1,6 @@
-import Categories from '@/components/dashboard/Categories';
+import { redirect } from 'next/navigation';
 
+// this list now lives on the Manage Masters page; old links keep working
 export default function Page() {
-  return <Categories />;
+  redirect('/dashboard/masters?tab=catalog-categories');
 }

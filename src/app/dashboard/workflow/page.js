@@ -1,5 +1,6 @@
-import Workflow from '@/components/dashboard/Workflow';
+import { redirect } from 'next/navigation';
 
+// this list now lives on the Manage Masters page; old links keep working
 export default function Page() {
-  return <Workflow />;
+  redirect('/dashboard/masters?tab=installation-steps');
 }

@@ -1,18 +1,24 @@
 'use client';
 
-import { AlertCircle, ArrowRight, Check, ChevronDown, ChevronLeft, CloudOff, Download, FileStack, FileText, Loader2 } from 'lucide-react';
+import { AlertCircle, ArrowRight, Check, ChevronDown, ChevronLeft, CloudOff, Download, FileStack, FileText, Loader2, QrCode } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, assetUrl } from '@/lib/api';
 import { generatePdf } from '@/lib/pdf';
+import { RETURN_PAGE_KEY } from './RouteTracker';
 import { useSession } from '@/lib/session';
 import { useMapToken } from '@/lib/staticMap';
 import { PRO_SLUGS, SIMPLE_SLUGS, SIMPLE_STEPS, useStore } from '@/lib/store';
+import { pricingFrom3D } from '@/lib/pricing';
 import { useDesign } from '@/lib/useDesign';
 import { useDesignSync } from '@/lib/useDesignSync';
+import { useResource } from '@/lib/useResource';
 import { FullPageLoader, LogoChip, Toaster, buttonClass, toast } from './kit';
+import CoverPicker from './kit/CoverPicker';
+import ClientChangeRequestPanel from './dashboard/ClientChangeRequestPanel';
+import ShareModal from './dashboard/ShareModal';
 import { sceneApi } from './scene/Scene3D';
 import StepDraw from './steps/StepDraw';
 import StepElectrical from './steps/StepElectrical';
@@ -128,12 +134,16 @@ export default function App({ designId, slug }) {
   const state = useStore();
   const design = useDesign();
   const [exporting, setExporting] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [coverFor, setCoverFor] = useState(null); // the export waiting for a front page: 'pdf' | 'combined'
 
   const summary = useMemo(
-    () => ({ address: state.place?.address || '', kwp: Number(design.totals.kwp.toFixed(3)), panels: design.totals.count, cost: Math.round(design.cost.total), annualKwh: Math.round(design.totals.acKwh) }),
-    [state.place, design.totals.kwp, design.totals.count, design.totals.acKwh, design.cost.total],
+    () => ({ address: state.place?.address || '', kwp: Number(design.totals.kwp.toFixed(3)), panels: design.totals.count, cost: Math.round(design.cost.total), annualKwh: Math.round(design.totals.acKwh), pricing: pricingFrom3D(design, state.config) }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.place, design.totals.kwp, design.totals.count, design.totals.acKwh, design.cost, state.config],
   );
   const sync = useDesignSync(designId, summary);
+  const designMeta = useResource(`/api/designs/${designId}`);
   const loaded = sync.status === 'ready' && state.designId === designId;
   useSolar();
   useCatalog(loaded, company?.id);
@@ -164,9 +174,9 @@ export default function App({ designId, slug }) {
       <div className="grid h-dvh place-items-center bg-slate-50 px-6 text-center">
         <div>
           <span className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-xl bg-red-50 text-red-600"><AlertCircle className="h-6 w-6" /></span>
-          <h1 className="text-lg font-semibold text-slate-900">This design could not be opened</h1>
+          <h1 className="text-lg font-semibold text-slate-900">This proposal could not be opened</h1>
           <p className="mt-1 text-sm text-slate-500">{sync.error}</p>
-          <Link href="/dashboard/designs" className={buttonClass({ variant: 'primary', className: 'mt-6' })}>Back to designs</Link>
+          <Link href="/dashboard/designs" className={buttonClass({ variant: 'primary', className: 'mt-6' })}>Back to proposals</Link>
         </div>
       </div>
     );
@@ -181,7 +191,7 @@ export default function App({ designId, slug }) {
         <div className="max-w-md">
           <span className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-xl bg-brand-soft text-brand"><AlertCircle className="h-6 w-6" /></span>
           <h1 className="text-lg font-semibold text-slate-900">Add your products first</h1>
-          <p className="mt-1 text-sm text-slate-500">The designer uses your own catalog. Add {missing} under Product catalog (create a “Solar panels” category with type panels, and a “Poles” category with type poles), then come back to this design.</p>
+          <p className="mt-1 text-sm text-slate-500">The designer uses your own catalog. Add {missing} under Product catalog (create a “Solar panels” category with type panels, and a “Poles” category with type poles), then come back to this proposal.</p>
           <Link href="/dashboard/catalog" className={buttonClass({ variant: 'primary', className: 'mt-6' })}>Go to Product catalog</Link>
         </div>
       </div>
@@ -200,13 +210,29 @@ export default function App({ designId, slug }) {
   };
   const last = step === slugs.length - 1;
 
-  const downloadPdf = async () => {
+  /** Every proposal download starts with the front-page choice. */
+  const chooseCover = (kind) => {
+    // the 3D view supplies the cover picture; in plan view the last captured one is used
+    const snapshot = sceneApi.capture?.() || state.snapshot;
+    if (snapshot !== state.snapshot) state.set({ snapshot });
+    setCoverFor(kind);
+  };
+  const downloadPdf = async (cover) => {
+    if (coverFor === 'combined') {
+      // the shadow analysis runs first; its dialog builds the proposal with this front page
+      state.set({ cover, shadowReport: 'combined' });
+      setCoverFor(null);
+      return;
+    }
     setExporting(true);
     try {
-      // the 3D view supplies the cover picture; in plan view the last captured one is used
-      const snapshot = sceneApi.capture?.() || state.snapshot;
-      if (snapshot !== state.snapshot) state.set({ snapshot });
-      await generatePdf({ design, project: state.project, place: state.place, finance: state.finance, snapshot, company, client: state.client, designId: state.designId });
+      const { blob, filename } = await generatePdf({ design, project: state.project, place: state.place, finance: state.finance, snapshot: state.snapshot, company, client: state.client, designId: state.designId, validUntil: state.validUntil, cover });
+      setCoverFor(null);
+      if (state.designId && blob) {
+        const form = new FormData();
+        form.append('file', blob, filename);
+        api(`/api/designs/${state.designId}/versions`, { method: 'POST', form }).catch((e) => console.error('Could not archive quotation PDF version', e));
+      }
     } catch (e) {
       console.error(e);
       toast.error('Sorry, the PDF could not be created. Please try again.');
@@ -216,8 +242,9 @@ export default function App({ designId, slug }) {
   const noPanels = !design.totals.count;
   const has3d = Screen === Step3D || Screen === StepSimpleDesign; // the shadow renders come from the live 3D view
   const actions = [
-    last && { key: 'pdf', icon: Download, label: 'Download proposal (PDF)', hint: noPanels ? 'Place at least one panel first' : 'Branded proposal for your client', disabled: exporting || noPanels, onClick: downloadPdf },
-    has3d && { key: 'combined', icon: FileStack, label: 'Proposal + shadow analysis (PDF)', hint: noPanels ? 'Place at least one panel first' : 'One PDF: the proposal followed by the shadow report', disabled: exporting || noPanels, onClick: () => state.set({ shadowReport: 'combined' }) },
+    last && { key: 'pdf', icon: Download, label: 'Download proposal (PDF)', hint: noPanels ? 'Place at least one panel first' : 'Branded proposal for your client', disabled: exporting || noPanels, onClick: () => chooseCover('pdf') },
+    has3d && { key: 'combined', icon: FileStack, label: 'Proposal + shadow analysis (PDF)', hint: noPanels ? 'Place at least one panel first' : 'One PDF: the proposal followed by the shadow report', disabled: exporting || noPanels, onClick: () => chooseCover('combined') },
+    { key: 'share', icon: QrCode, label: 'Share link & QR code', hint: 'A public page anyone can open, no sign-in', onClick: () => setShareOpen(true) },
     has3d && { key: 'shadow', icon: FileText, label: 'Shadow analysis only (PDF)', hint: noPanels ? 'Place at least one panel first' : 'Hour-by-hour shading on the panels', disabled: noPanels, onClick: () => state.set({ shadowReport: 'report' }) },
   ].filter(Boolean);
   const SaveIcon = sync.save === 'saved' ? Check : sync.save === 'error' ? CloudOff : Loader2;
@@ -225,9 +252,14 @@ export default function App({ designId, slug }) {
   return (
     <div className="flex h-dvh flex-col bg-slate-50 text-slate-900">
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4">
-        <Link href="/dashboard/designs" className="flex items-center gap-1 rounded-md py-1.5 pr-2.5 pl-1.5 text-[13px] font-medium text-slate-600 hover:bg-slate-100" aria-label="Back to designs">
-          <ChevronLeft className="h-4 w-4" /> <span className="hidden sm:inline">Designs</span>
-        </Link>
+        <button
+          type="button"
+          onClick={() => router.push((typeof window !== 'undefined' && sessionStorage.getItem(RETURN_PAGE_KEY)) || '/dashboard/designs')}
+          className="flex items-center gap-1 rounded-md py-1.5 pr-2.5 pl-1.5 text-[13px] font-medium text-slate-600 hover:bg-slate-100"
+          aria-label="Back"
+        >
+          <ChevronLeft className="h-4 w-4" /> <span className="hidden sm:inline">Proposals</span>
+        </button>
         <div className="flex min-w-0 items-center gap-3 border-l border-slate-200 pl-4">
           <LogoChip name={company.name} src={assetUrl(company.logo)} />
           <div className="min-w-0 leading-tight">
@@ -272,10 +304,20 @@ export default function App({ designId, slug }) {
         )}
       </nav>
 
+      {designMeta.data && (
+        <ClientChangeRequestPanel
+          design={designMeta.data}
+          className="mx-4 mt-3 shrink-0"
+          onSent={(updated) => designMeta.setData((prev) => (prev ? { ...prev, clientResponse: updated.clientResponse, clientReviewInvite: updated.clientReviewInvite, updatedAt: updated.updatedAt } : prev))}
+        />
+      )}
+
       <main className="relative min-h-0 flex-1">
         <Screen design={design} />
       </main>
 
+      {shareOpen && <ShareModal designId={designId} onClose={() => setShareOpen(false)} />}
+      <CoverPicker open={Boolean(coverFor)} onClose={() => setCoverFor(null)} onDownload={downloadPdf} company={company} snapshot={state.snapshot} submitLabel={coverFor === 'combined' ? 'Continue' : 'Download PDF'} />
       <Toaster />
     </div>
   );

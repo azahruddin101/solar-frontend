@@ -70,6 +70,8 @@ export async function api(path, { method = 'GET', body, form, signal, keepalive 
     throw new ApiError(0, 'Cannot reach the server. Check your connection and try again.');
   }
   const data = await res.json().catch(() => null);
+  // anything that changed data may have changed a sidebar count: tell the counts to refresh
+  if (res.ok && method !== 'GET' && typeof window !== 'undefined') window.dispatchEvent(new Event('sp:changed'));
   if (!res.ok) {
     if (res.status === 401 && path !== '/api/auth/login' && path !== '/api/auth/logout') onUnauthorized?.();
     throw new ApiError(res.status, data?.error || `Request failed (${res.status})`, data?.code, data?.details);

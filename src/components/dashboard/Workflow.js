@@ -7,13 +7,14 @@ import { useEffect, useState } from 'react';
 import { agentRolesFor } from '@/lib/agents';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { DEFAULT_STEP_PRIORITY, STEP_PRIORITIES, stepColor } from '@/lib/steps';
 import { useResource } from '@/lib/useResource';
 import { Alert, Button, Card, CardHeader, EmptyState, IconButton, Input, LoadingBlock, PageHeader, Select, showError, toast } from '../kit';
 
 const SUGGESTED = ['Site inspection', 'Material procurement', 'Structure installation', 'Panel & electrical installation', 'Testing & handover'];
 const MAX = 30;
 let seq = 0;
-const blank = (name = '') => ({ key: `new-${++seq}`, name, description: '', role: '' });
+const blank = (name = '') => ({ key: `new-${++seq}`, name, description: '', role: '', priority: DEFAULT_STEP_PRIORITY });
 
 export default function Workflow() {
   const { company } = useSession();
@@ -23,7 +24,7 @@ export default function Workflow() {
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const load = (list) => setSteps(list.map((s) => ({ key: s.id, name: s.name, description: s.description, role: s.role || '' })));
+  const load = (list) => setSteps(list.map((s) => ({ key: s.id, name: s.name, description: s.description, role: s.role || '', priority: s.priority || DEFAULT_STEP_PRIORITY })));
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (saved.data && !steps) load(saved.data);
@@ -41,7 +42,7 @@ export default function Workflow() {
     e.preventDefault();
     setBusy(true);
     try {
-      load(await api('/api/projects/steps', { method: 'PUT', body: { steps: steps.map((s) => ({ name: s.name, description: s.description, role: s.role || null })) } }));
+      load(await api('/api/projects/steps', { method: 'PUT', body: { steps: steps.map((s) => ({ name: s.name, description: s.description, role: s.role || null, priority: s.priority })) } }));
       setDirty(false);
       toast.success('Installation steps saved');
     } catch (err) {
@@ -52,7 +53,7 @@ export default function Workflow() {
 
   return (
     <form onSubmit={save}>
-      <PageHeader title="Installation steps" description="The steps your company follows from an accepted design to a working system. Every new installation starts with a copy of this list.">
+      <PageHeader title="Installation steps" description="The steps your company follows from an accepted proposal to a working system. Every new installation starts with a copy of this list.">
         <Button type="submit" variant="primary" loading={busy} disabled={!dirty}>Save steps</Button>
       </PageHeader>
       {saved.error && <Alert className="mb-6">{saved.error}</Alert>}
@@ -61,21 +62,24 @@ export default function Workflow() {
         <CardHeader title="Your steps" description="Order matters: step 1 comes first. Changes apply to installations you start from now on." action={steps?.length > 0 && <Button size="sm" icon={Plus} disabled={steps.length >= MAX} onClick={() => change((l) => [...l, blank()])}>Add step</Button>} />
         {!steps ? <LoadingBlock /> : !steps.length ? (
           <EmptyState icon={ListChecks} title="No steps yet" description="Start from the usual rooftop solar steps and adjust them, or build your own list.">
-            <Button variant="primary" onClick={() => change(() => SUGGESTED.map(blank))}>Use suggested steps</Button>
+            <Button variant="primary" onClick={() => change(() => SUGGESTED.map((name) => blank(name)))}>Use suggested steps</Button>
             <Button icon={Plus} onClick={() => change(() => [blank()])}>Start from scratch</Button>
           </EmptyState>
         ) : (
           <ol>
             {steps.map((s, i) => (
-              <li key={s.key} className="flex gap-4 border-b border-slate-100 px-6 py-4 last:border-0">
+              <li key={s.key} className="flex gap-4 border-b border-l-4 border-slate-100 px-6 py-4 last:border-b-0" style={{ borderLeftColor: stepColor(s) }}>
                 <span className="mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand-ink">{i + 1}</span>
-                <div className="grid min-w-0 flex-1 gap-2 md:grid-cols-[1fr_220px]">
+                <div className="grid min-w-0 flex-1 gap-2 md:grid-cols-[1fr_200px_150px]">
                   <Input aria-label={`Step ${i + 1} name`} required maxLength={80} value={s.name} onValue={(v) => patch(s.key, { name: v })} placeholder="Step name, e.g. Site inspection" />
                   <Select aria-label={`Step ${i + 1} role`} value={s.role} onValue={(v) => patch(s.key, { role: v })}>
                     <option value="">Any role / assign later</option>
                     {roleOptions.map((r) => <option key={r} value={r}>{r}</option>)}
                   </Select>
-                  <Input aria-label={`Step ${i + 1} description`} maxLength={400} value={s.description} onValue={(v) => patch(s.key, { description: v })} placeholder="What needs doing (optional)" className="md:col-span-2" />
+                  <Select aria-label={`Step ${i + 1} priority`} value={s.priority} onValue={(v) => patch(s.key, { priority: v })} style={{ color: stepColor(s) }} className="font-medium">
+                    {STEP_PRIORITIES.map((p) => <option key={p.id} value={p.id} style={{ color: p.color }}>{p.label} priority</option>)}
+                  </Select>
+                  <Input aria-label={`Step ${i + 1} description`} maxLength={400} value={s.description} onValue={(v) => patch(s.key, { description: v })} placeholder="What needs doing (optional)" className="md:col-span-3" />
                 </div>
                 <div className="flex shrink-0 items-start pt-1">
                   <IconButton icon={ArrowUp} label="Move up" disabled={i === 0} className="disabled:opacity-30" onClick={() => move(i, -1)} />

@@ -10,8 +10,12 @@ import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
 import { loadBranding } from './branding.js';
 import { capFirst } from './catalog.js';
-import { drawCover } from './pdfCover.js';
+import { drawCoverStyle } from './pdfCoverVariants.js';
+import { QUOTE_FINANCE, computeQuoteSystem, monthlyOutlook } from './quoteModel.js';
+import { shareForPdf } from './share.js';
+import { validUntilText } from './validity.js';
 import { formatMoney, formatNumber } from './energy.js';
+import { pricingFromQuote } from './pricing.js';
 import { compassLabel } from './geo.js';
 import { rectPoly } from './geometry.js';
 import { ridgeSegment } from './model.js';
@@ -29,8 +33,8 @@ const TOP = 30; // first content line on inner pages
 const BOTTOM = H - 20; // content must end above the footer
 
 const INK = [15, 23, 42];
-const BODY = [51, 65, 85];
-const MUTED = [100, 116, 139];
+const BODY = [0, 0, 0];
+const MUTED = [0, 0, 0];
 const LINE = [226, 232, 240];
 const SOFT = [248, 250, 252];
 const WHITE = [255, 255, 255];
@@ -38,9 +42,13 @@ const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 
 /* ───────────── primitives ───────────── */
 
+/** Small text is drawn one point larger (5–9 pt): easier to read on paper and on screen. */
+const S = (n) => (n >= 5 && n < 9 ? n + 1 : n);
+
+
 function text(doc, str, x, y, { size = 9, style = 'normal', color = BODY, align, maxWidth, lineHeight } = {}) {
   doc.setFont('helvetica', style);
-  doc.setFontSize(size);
+  doc.setFontSize(S(size));
   doc.setTextColor(...color);
   if (lineHeight) doc.setLineHeightFactor(lineHeight);
   doc.text(str, x, y, { align, maxWidth });
@@ -50,14 +58,14 @@ function text(doc, str, x, y, { size = 9, style = 'normal', color = BODY, align,
 /** First line of `str` that fits `width` at the given size (adds … when cut). */
 function clip(doc, str, width, size, style = 'normal') {
   doc.setFont('helvetica', style);
-  doc.setFontSize(size);
+  doc.setFontSize(S(size));
   const lines = doc.splitTextToSize(String(str ?? ''), width);
   return lines.length > 1 ? `${lines[0].replace(/[\s,.;:-]+$/, '')}...` : lines[0] || '';
 }
 
 function wrap(doc, str, width, size, style = 'normal') {
   doc.setFont('helvetica', style);
-  doc.setFontSize(size);
+  doc.setFontSize(S(size));
   return doc.splitTextToSize(String(str ?? ''), width);
 }
 
@@ -102,10 +110,10 @@ function newPage(doc, r, title) {
 }
 
 /** Footer on proposal pages 2…`last`: contact line, page numbers out of the whole document. */
-function footers(doc, r, last = doc.getNumberOfPages()) {
+function footers(doc, r, last = doc.getNumberOfPages(), first = 2) {
   const pages = doc.getNumberOfPages();
   const contact = [r.company.name, r.company.phone, r.company.email, r.company.website].filter(Boolean).join('   |   ');
-  for (let i = 2; i <= last; i++) {
+  for (let i = first; i <= last; i++) {
     doc.setPage(i);
     doc.setDrawColor(...LINE);
     doc.setLineWidth(0.3);
@@ -140,8 +148,8 @@ function tableStyle(doc, r) {
   return {
     theme: 'plain',
     margin: { left: M, right: M, top: TOP + 4, bottom: H - BOTTOM },
-    styles: { font: 'helvetica', fontSize: 8.5, cellPadding: { top: 2.3, bottom: 2.3, left: 3, right: 3 }, textColor: BODY, lineColor: LINE, lineWidth: { bottom: 0.2 } },
-    headStyles: { fillColor: r.brand.primary, textColor: r.brand.primaryFg, fontStyle: 'bold', fontSize: 8, lineWidth: 0 },
+    styles: { font: 'helvetica', fontSize: 9.5, cellPadding: { top: 2.3, bottom: 2.3, left: 3, right: 3 }, textColor: BODY, lineColor: LINE, lineWidth: { bottom: 0.2 } },
+    headStyles: { fillColor: r.brand.primary, textColor: r.brand.primaryFg, fontStyle: 'bold', fontSize: 9, lineWidth: 0 },
     alternateRowStyles: { fillColor: SOFT },
     // long tables continue on a new page: give that page the same header
     didDrawPage: () => {
@@ -248,6 +256,15 @@ function drawLayout(doc, r, design, x, y, w, h, colorStrings) {
       doc.text(label, m.x - Math.cos(rad) * half + Math.sin(rad) * 0.9, m.y + Math.sin(rad) * half + Math.cos(rad) * 0.9, { angle: deg });
     });
   }
+  // a campus: each building's name above its main roof
+  if (design.buildings.length > 1) {
+    for (const s of design.sections.filter((x) => x.main)) {
+      const mapped = s.poly.map(map);
+      const top = Math.min(...mapped.map((p) => p.y));
+      const cx = mapped.reduce((a, p) => a + p.x, 0) / mapped.length;
+      text(doc, design.buildings.find((b) => b.id === s.building)?.name || '', cx, top - 6.5, { size: 8.5, style: 'bold', color: r.brand.primary, align: 'center' });
+    }
+  }
   doc.setLineWidth(0.2);
   doc.setLineDashPattern([1, 1], 0);
   doc.setDrawColor(...MUTED);
@@ -345,7 +362,7 @@ function monthlyChart(doc, r, monthly, y) {
   const bw = w / 12;
   monthly.forEach((v, i) => {
     const bh = (v / max) * h;
-    doc.setFillColor(...r.brand.accent);
+    doc.setFillColor(...(r.calm ? r.brand.primary : r.brand.accent));
     doc.rect(x + i * bw + bw * 0.2, y + h - bh, bw * 0.6, bh, 'F');
     text(doc, formatNumber(v), x + i * bw + bw / 2, y + h - bh - 1.5, { size: 6.5, style: 'bold', color: INK, align: 'center' });
     text(doc, MONTHS[i], x + i * bw + bw / 2, y + h + 4.5, { size: 7, color: MUTED, align: 'center' });
@@ -378,7 +395,7 @@ function paybackChart(doc, r, fin, y, compact) {
   doc.line(x, zero, x + w, zero);
   if (fin.payback) {
     const px = x + Math.min(fin.payback, fin.rows.length) * bw;
-    doc.setDrawColor(...r.brand.accent);
+    doc.setDrawColor(...(r.calm ? INK : r.brand.accent));
     doc.setLineWidth(0.5);
     doc.setLineDashPattern([1.2, 1], 0);
     doc.line(px, y, px, y + h);
@@ -435,15 +452,19 @@ function signOff(doc, r, y) {
  * `company` is the signed-in company (profile, theme, logo, e-signature, QR, terms) and `client`
  * the person the design was made for — together they personalise every page.
  */
-export async function generatePdf({ design, project, place, finance, snapshot, company = {}, client = {}, designId = '', shadow = null }) {
+export async function generatePdf({ design, project, place, finance, snapshot, company = {}, client = {}, designId = '', shadow = null, validUntil = null, cover }) {
   company = { name: project.preparedBy || 'Solar proposal', ...company };
   client = { name: project.customer || '', ...(client || {}) };
   const brand = await loadBranding(company);
+  const share = await shareForPdf(designId); // the proposal's public link and its QR code (null if unavailable)
   const now = new Date();
   const r = {
     title: project.name || 'Rooftop Solar Plan',
     address: place?.address || `${design.origin.lat.toFixed(5)}, ${design.origin.lng.toFixed(5)}`,
     date: now.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+    validUntil: validUntilText(validUntil),
+    shareUrl: share?.url || '',
+    shareQr: share?.qr || '',
     dateShort: now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
     ref: `Ref. SP-${now.toISOString().slice(0, 10).replace(/-/g, '')}${designId ? `-${String(designId).slice(-5).toUpperCase()}` : ''}`,
     totals: design.totals,
@@ -457,14 +478,21 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
     return `${v < 0 ? '-' : ''}${a >= 1e7 ? `${(a / 1e6).toFixed(0)}M` : a >= 1e6 ? `${(a / 1e6).toFixed(1)}M` : a >= 1e3 ? `${(a / 1e3).toFixed(0)}k` : a.toFixed(0)}`;
   };
   const { totals, fin, electrical: el, spec, cost } = design;
+  const years = fin.rows.length; // the outlook period chosen for this design
   const moduleName = [spec.brand, spec.model].filter(Boolean).join(' ') || `${spec.watts} W module`;
+  const campus = (cost.buildings?.length || 0) > 1; // several buildings: one price, with a breakdown per building
+  const buildingName = (id) => design.buildings.find((b) => b.id === id)?.name || '';
+  const inverterOf = (id) => {
+    const b = el.buildings?.find((x) => x.id === id);
+    return b ? `${b.inverterCount} x ${b.inverter.kw} kW` : '-';
+  };
   const roofArea = design.sections.reduce((a, s) => a + Math.abs(s.poly.reduce((acc, p, i) => acc + p.x * s.poly[(i + 1) % s.poly.length].y - s.poly[(i + 1) % s.poly.length].x * p.y, 0)) / 2, 0);
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
   doc.setProperties({ title: `${r.title} - Solar proposal`, author: company.name, subject: `Solar proposal for ${client.name || 'client'}`, creator: company.name });
   const table = () => tableStyle(doc, r);
 
-  // 1 — cover
-  await drawCover(doc, r, design, finance, snapshot);
+  // 1 — cover, in the style picked at download
+  await drawCoverStyle(doc, r, design, finance, snapshot, cover);
 
   // 2 — summary
   let y = newPage(doc, r, 'Proposal summary');
@@ -480,9 +508,9 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
     ['Annual energy', `${formatNumber(totals.acKwh)} kWh`, `${formatNumber(totals.specificYield)} kWh per kWp`],
     ['Investment', money(fin.cost), totals.kwp ? `${money(fin.cost / totals.kwp)} per kWp` : ''],
     ['Year-1 savings', money(fin.firstYearSavings), `at ${money(design.catalog.tariff, 2)} per kWh`],
-    ['Payback', fin.payback ? `${fin.payback.toFixed(1)} years` : '> 25 years', 'simple payback'],
-    ['25-year savings', money(fin.lifetimeSavings), `net gain ${money(fin.netGain)}`],
-    ['Return on investment', `${formatNumber(fin.roi)} %`, 'over 25 years'],
+    ['Payback', fin.payback ? `${fin.payback.toFixed(1)} years` : `> ${years} years`, 'simple payback'],
+    [`${years}-year savings`, money(fin.lifetimeSavings), `net gain ${money(fin.netGain)}`],
+    ['Return on investment', `${formatNumber(fin.roi)} %`, `over ${years} years`],
     ['Shading loss', `${totals.shadeLossPct.toFixed(1)} %`, 'hour-by-hour analysis'],
   ], y) + 10;
 
@@ -492,7 +520,8 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
     ['Number of modules', String(totals.count)],
     ['Module warranty', spec.warrantyYears != null ? `${spec.warrantyYears} years` : '-'],
     ['Manufacture year', spec.manufactureYear ? String(spec.manufactureYear) : '-'],
-    ['Inverter', `${el.inverterCount || 0} x ${el.inverter?.kw ?? '-'} kW`],
+    ...(campus ? [['Buildings', String(cost.buildings.length)]] : []),
+    ['Inverter', campus ? `${el.inverterCount} inverters, sized per building` : `${el.inverterCount || 0} x ${el.inverter?.kw ?? '-'} kW`],
     ['Strings', String(el.strings.length)],
     ['Mounting structure', design.structure.columns ? design.pillar?.name || '-' : 'Flush on roof hooks'],
     ['Roof area', `${roofArea.toFixed(0)} m²`],
@@ -501,22 +530,27 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
   y = section(doc, r, 'Environmental benefit', ensure(doc, r, y, 36));
   const co2 = (totals.acKwh * 0.7) / 1000; // tonnes / year
   statTiles(doc, r, [
-    ['CO2 avoided', `${co2.toFixed(1)} t / year`, `${formatNumber(co2 * 25)} t over 25 years`],
+    ['CO2 avoided', `${co2.toFixed(1)} t / year`, `${formatNumber(co2 * years)} t over ${years} years`],
     ['Equivalent trees', formatNumber((co2 * 1000) / 21), 'planted and grown'],
-    ['Clean energy', `${formatNumber(fin.lifetimeEnergy / 1000)} MWh`, 'over 25 years'],
+    ['Clean energy', `${formatNumber(fin.lifetimeEnergy / 1000)} MWh`, `over ${years} years`],
   ], y, { cols: 3 });
   text(doc, 'Estimated with a grid emission factor of 0.7 kg CO2 per kWh and 21 kg CO2 absorbed per tree per year.', M, y + 21 + 5, { size: 7, color: MUTED });
 
   // 3 — system details
   y = newPage(doc, r, 'System details');
+  if (campus) {
+    y = section(doc, r, 'Buildings on this site', y);
+    autoTable(doc, { ...table(), startY: y, head: [['Building', 'Modules', 'Capacity', 'Energy per year', 'Shading loss', 'Inverter']], body: totals.buildings.map((b) => [b.name, b.count, `${b.kwp.toFixed(2)} kWp`, `${formatNumber(b.acKwh)} kWh`, `${b.shadeLossPct.toFixed(1)} %`, inverterOf(b.id)]), foot: [['All buildings', totals.count, `${totals.kwp.toFixed(2)} kWp`, `${formatNumber(totals.acKwh)} kWh`, `${totals.shadeLossPct.toFixed(1)} %`, `${el.inverterCount} inverters`]], footStyles: { fillColor: SOFT, textColor: INK, fontStyle: 'bold' }, columnStyles: { 0: { fontStyle: 'bold', textColor: INK } } });
+    y = doc.lastAutoTable.finalY + 10;
+  }
   y = section(doc, r, 'Solar module', y);
   autoTable(doc, { ...table(), startY: y, head: [['Brand', 'Model', 'Power', 'Size', 'Mfg. year', 'Warranty', 'Qty']], body: [[spec.brand || '-', spec.model || '-', `${spec.watts} W`, `${spec.length} x ${spec.width} m`, spec.manufactureYear || '-', spec.warrantyYears != null ? `${spec.warrantyYears} years` : '-', totals.count]] });
   y = section(doc, r, 'Roof', doc.lastAutoTable.finalY + 10);
-  autoTable(doc, { ...table(), startY: y, head: [['Roof section', 'Shape', 'Plan area', 'Wall height', 'Parapet (h x t)']], body: design.sections.map((s) => [s.name, s.frame ? (s.roofType === 'gable' ? `Two slopes (gable), ${Math.round(s.pitch)}°${Math.abs(s.frame.pitch2 - s.pitch) > 0.5 ? ` and ${Math.round(s.frame.pitch2)}°` : ''} pitch` : `Single slope, ${Math.round(s.pitch)}° pitch`) : 'Flat', `${(Math.abs(s.poly.reduce((a, p, i) => a + p.x * s.poly[(i + 1) % s.poly.length].y - s.poly[(i + 1) % s.poly.length].x * p.y, 0)) / 2).toFixed(1)} m²`, `${s.height} m`, s.frame ? 'none (pitched roof)' : `${s.parapetH} m x ${s.parapetT} m`]) });
+  autoTable(doc, { ...table(), startY: y, head: [['Roof section', 'Shape', 'Plan area', 'Wall height', 'Parapet (h x t)']], body: design.sections.map((s) => [campus ? `${buildingName(s.building)} - ${s.name}` : s.name, s.frame ? (s.roofType === 'gable' ? `Two slopes (gable), ${Math.round(s.pitch)}°${Math.abs(s.frame.pitch2 - s.pitch) > 0.5 ? ` and ${Math.round(s.frame.pitch2)}°` : ''} pitch` : `Single slope, ${Math.round(s.pitch)}° pitch`) : 'Flat', `${(Math.abs(s.poly.reduce((a, p, i) => a + p.x * s.poly[(i + 1) % s.poly.length].y - s.poly[(i + 1) % s.poly.length].x * p.y, 0)) / 2).toFixed(1)} m²`, `${s.height} m`, s.frame ? 'none (pitched roof)' : `${s.parapetH} m x ${s.parapetT} m`]) });
   y = section(doc, r, 'Array orientation', ensure(doc, r, doc.lastAutoTable.finalY + 10, 30));
   autoTable(doc, { ...table(), startY: y, head: [['Modules', 'Tilt', 'Facing', 'Energy per year', 'Share']], body: totals.groups.map((g) => [g.count, `${g.tilt}°`, `${g.azimuth}° ${compassLabel(g.azimuth)}`, `${formatNumber((g.dc * finance.efficiency) / 100)} kWh`, `${totals.count ? ((g.count / totals.count) * 100).toFixed(0) : 0} %`]) });
   y = section(doc, r, 'Mounting structure schedule', ensure(doc, r, doc.lastAutoTable.finalY + 10, 30));
-  autoTable(doc, { ...table(), startY: y, head: [['Table', 'Type', 'Modules', 'Tilt', 'Front leg', 'Back leg', 'Legs / hooks']], body: design.tables.filter((t) => t.valid).map((t, i) => [`T${i + 1}`, t.flush ? 'Flush on roof' : t.kind === 'elevated' ? 'Elevated' : 'Standard', `${t.rows} x ${t.cols}`, `${Math.round(t.tilt * 10) / 10}°`, t.flush ? '-' : `${t.frontLeg.toFixed(2)} m`, t.flush ? '-' : `${t.backLeg.toFixed(2)} m`, t.flush ? `${t.legs.length} hooks` : t.legs.length]) });
+  autoTable(doc, { ...table(), startY: y, head: [['Table', ...(campus ? ['Building'] : []), 'Type', 'Modules', 'Tilt', 'Front leg', 'Back leg', 'Legs / hooks']], body: design.tables.filter((t) => t.valid).map((t, i) => [`T${i + 1}`, ...(campus ? [buildingName(t.building)] : []), t.flush ? 'Flush on roof' : t.kind === 'elevated' ? 'Elevated' : 'Standard', `${t.rows} x ${t.cols}`, `${Math.round(t.tilt * 10) / 10}°`, t.flush ? '-' : `${t.frontLeg.toFixed(2)} m`, t.flush ? '-' : `${t.backLeg.toFixed(2)} m`, t.flush ? `${t.legs.length} hooks` : t.legs.length]) });
 
   // 4, 5 — drawings
   for (const [sheet, title, colored] of [['E-01', 'PV array layout', false], ['E-02', 'String layout', true]]) {
@@ -528,29 +562,35 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
   }
 
   // 6 — single line diagram
-  y = newPage(doc, r, 'Single line diagram');
-  y = section(doc, r, 'Single line diagram', y);
-  const sldH = BOTTOM - y - 19 - 4;
-  drawSld(doc, el, spec, M, y, CW, sldH);
-  titleBlock(doc, r, 'E-03', 'Single line diagram', y + sldH + 4);
+  // a campus has one diagram per building: each building has its own inverters and strings
+  const systems = campus ? el.buildings.map((b, i) => ({ el: b, sheet: `E-03.${i + 1}`, name: b.name, count: b.strings.reduce((n, st) => n + st.count, 0) })) : [{ el, sheet: 'E-03', name: '', count: totals.count }];
+  for (const sys of systems) {
+    const title = sys.name ? `Single line diagram - ${sys.name}` : 'Single line diagram';
+    y = newPage(doc, r, 'Single line diagram');
+    y = section(doc, r, title, y);
+    const sldH = BOTTOM - y - 19 - 4;
+    drawSld(doc, sys.el, spec, M, y, CW, sldH);
+    titleBlock(doc, r, sys.sheet, sys.name ? `SLD - ${sys.name}` : title, y + sldH + 4);
+  }
 
   // 7 — electrical
   y = newPage(doc, r, 'Electrical design');
-  if (el.strings.length) {
-    y = section(doc, r, 'Equipment schedule (sheet E-03)', y);
-    autoTable(doc, { ...table(), startY: y, styles: { ...table().styles, fontSize: 7.5, cellPadding: { top: 1.6, bottom: 1.6, left: 2.5, right: 2.5 } }, head: [['Tag', 'Item', 'Specification', 'Qty']], body: sldSchedule(el, spec, moduleName, totals.count), ...numeric(3), columnStyles: { 0: { cellWidth: 20, fontStyle: 'bold', textColor: INK }, 1: { cellWidth: 42 }, 3: { halign: 'right', cellWidth: 20 } } });
+  for (const sys of el.strings.length ? systems : []) {
+    y = section(doc, r, sys.name ? `Equipment schedule - ${sys.name} (sheet ${sys.sheet})` : 'Equipment schedule (sheet E-03)', ensure(doc, r, y, 40));
+    autoTable(doc, { ...table(), startY: y, styles: { ...table().styles, fontSize: 8.5, cellPadding: { top: 1.6, bottom: 1.6, left: 2.5, right: 2.5 } }, head: [['Tag', 'Item', 'Specification', 'Qty']], body: sldSchedule(sys.el, spec, moduleName, sys.count), ...numeric(3), columnStyles: { 0: { cellWidth: 20, fontStyle: 'bold', textColor: INK }, 1: { cellWidth: 42 }, 3: { halign: 'right', cellWidth: 20 } } });
     y = ensure(doc, r, doc.lastAutoTable.finalY + 4, 12);
     text(doc, wrap(doc, 'Protection ratings are sized from the design currents (string fuse 1.56 x Isc, DC isolator 1.25 x Isc per MPPT, AC breakers 1.25 x inverter output current); cable sizes assume copper conductors derated for rooftop runs. Final selection to be verified against equipment datasheets, IS / IEC 60364-7-712 and DISCOM net-metering requirements.', CW, 7), M, y, { size: 7, color: MUTED, lineHeight: 1.35 });
     y += 13;
   }
   y = section(doc, r, 'Inverter & strings', ensure(doc, r, y, 40));
-  y = specGrid(doc, [['Inverter', `${el.inverterCount || 0} x ${el.inverter?.kw ?? '-'} kW ${el.inverter?.kw <= 6 ? 'single-phase' : 'three-phase'}`], ['DC / AC ratio', el.dcAc ? el.dcAc.toFixed(2) : '-'], ['AC capacity', `${el.acKw ?? '-'} kW`], ['Modules per string', [...new Set(el.strings.map((st) => st.count))].sort((a, c) => a - c).join(' / ') || '-'], ['Allowed string length', `${el.minLen ?? '-'} to ${el.maxLen ?? '-'} modules`]], y) + 6;
-  autoTable(doc, { ...table(), startY: y, head: [['String', 'Modules', 'Power', 'Voc STC', 'Voc cold', 'Isc', 'Inverter']], body: el.strings.map((s) => [s.name, s.count, `${s.kwp.toFixed(2)} kWp`, `${s.voc.toFixed(0)} V`, `${s.vocCold.toFixed(0)} V`, `${s.isc} A`, `INV-${s.inverter}`]) });
+  y = specGrid(doc, [['Inverter', campus ? `${el.inverterCount} inverters, sized per building` : `${el.inverterCount || 0} x ${el.inverter?.kw ?? '-'} kW ${el.inverter?.kw <= 6 ? 'single-phase' : 'three-phase'}`], ['DC / AC ratio', el.dcAc ? el.dcAc.toFixed(2) : '-'], ['AC capacity', `${el.acKw ?? '-'} kW`], ['Modules per string', [...new Set(el.strings.map((st) => st.count))].sort((a, c) => a - c).join(' / ') || '-'], ['Allowed string length', `${el.minLen ?? '-'} to ${el.maxLen ?? '-'} modules`]], y) + 6;
+  autoTable(doc, { ...table(), startY: y, head: [['String', ...(campus ? ['Building'] : []), 'Modules', 'Power', 'Voc STC', 'Voc cold', 'Isc', 'Inverter']], body: el.strings.map((s) => [s.name, ...(campus ? [s.buildingName] : []), s.count, `${s.kwp.toFixed(2)} kWp`, `${s.voc.toFixed(0)} V`, `${s.vocCold.toFixed(0)} V`, `${s.isc} A`, `INV-${s.inverter}`]) });
 
   // 8 — bill of materials
   y = newPage(doc, r, 'Bill of materials');
   y = section(doc, r, 'Bill of materials', y);
 
+  // every row carries its parent category (`group`), which the table is printed in
   let bomRows = [];
   if (cost.isPackage) {
     if (cost.package?.items?.length) {
@@ -560,63 +600,65 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
           it.model && `Model: ${it.model}`,
           it.spec,
         ].filter(Boolean).join(' · ');
-        return [it.name, specParts || '-', it.qty || 1, capFirst(it.unit) || 'Nos'];
+        return { group: it.parentName, order: it.parentOrder, cells: [it.name, specParts || '-', it.qty || 1, capFirst(it.unit) || 'Nos'] };
       });
     }
   } else {
     // Custom mode: only include the items selected and configured during design creation:
     // 1. Solar modules
-    bomRows.push([
+    bomRows.push({ group: spec.parentName, order: spec.parentOrder, cells: [
       'Solar modules',
       [spec.brand, spec.model, `${spec.watts} W`, `(${spec.length} x ${spec.width} m)`].filter(Boolean).join(' '),
       totals.count,
       'nos',
-    ]);
+    ] });
 
     // 2. Mounting structure / poles (if elevated/poles used)
     if (design.structure.columns > 0) {
-      bomRows.push([
+      bomRows.push({ group: design.pillar?.parentName, order: design.pillar?.parentOrder, cells: [
         `Pillars / Mounting structure (${design.pillar?.name || 'Poles'})`,
         `${Math.ceil(cost.pillarFt)} ft total length (${design.pillar?.shape || 'iron column'})`,
         design.structure.columns,
         'nos',
-      ]);
+      ] });
     } else if (design.structure.hooks > 0) {
-      bomRows.push([
+      // no product of its own: it goes with the modules it carries
+      bomRows.push({ group: spec.parentName, order: spec.parentOrder, cells: [
         'Mounting structure (Roof hooks / rails)',
         'Flush-mounted roof rails & hooks',
         design.structure.hooks,
         'nos',
-      ]);
+      ] });
     }
 
     // 3. Category materials actually chosen by the user
     if (cost.categoryMaterials?.length) {
       for (const m of cost.categoryMaterials) {
-        bomRows.push([
+        bomRows.push({ group: m.parentName, order: m.parentOrder, cells: [
           m.categoryName,
           m.productName,
           m.qty,
           m.unit || 'nos',
-        ]);
+        ] });
       }
     }
   }
 
-  autoTable(doc, { ...table(), startY: y, head: [['#', 'Item', 'Specification', 'Qty', 'Unit']], body: bomRows.map((row, i) => [i + 1, ...row]), ...numeric(3), columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 2: { cellWidth: 78 }, 3: { halign: 'right', cellWidth: 16 }, 4: { cellWidth: 18 } } });
+  autoTable(doc, { ...table(), startY: y, head: [['#', 'Item', 'Specification', 'Qty', 'Unit']], body: groupedBom(bomRows, brand), ...numeric(3), columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 2: { cellWidth: 78 }, 3: { halign: 'right', cellWidth: 16 }, 4: { cellWidth: 18 } } });
 
 
   // 9 — energy & financials
   y = newPage(doc, r, 'Energy & financials');
   y = section(doc, r, 'Monthly energy production (kWh)', y);
   y = monthlyChart(doc, r, totals.monthly, y + 3) + 4;
-  y = section(doc, r, `Net position over 25 years (${finance.currency})`, y);
+  y = section(doc, r, `Net position over ${years} years (${finance.currency})`, y);
   y = paybackChart(doc, r, fin, y + 1, compactMoney) + 4;
-  y = section(doc, r, `Financial outlook (${finance.currency})`, y);
-  const years = fin.rows.filter((row) => [1, 2, 3, 5, 10, 15, 20, 25].includes(row.year));
-  autoTable(doc, { ...table(), startY: y, styles: { ...table().styles, fontSize: 8, cellPadding: { top: 1.7, bottom: 1.7, left: 3, right: 3 } }, head: [['Year', 'Energy', 'Tariff', 'Savings', 'Cumulative', 'Net position']], body: years.map((row) => [row.year, `${formatNumber(row.energy)} kWh`, money(row.rate, 2), money(row.savings), money(row.cumulative), money(row.net)]), ...numeric(1, 2, 3, 4, 5) });
+  y = outlookSummary(doc, r, y, fin, years, money);
+  doc.lastAutoTable = { finalY: y };
   y = ensure(doc, r, doc.lastAutoTable.finalY + 6, 12);
-  text(doc, wrap(doc, `Assumptions: performance ratio ${finance.efficiency}%, module degradation ${finance.degradation}% per year, tariff escalation ${finance.escalation}% per year. Yield ${design.yieldModel.source === 'google' ? 'calibrated with Google Solar API sunshine data' : 'from a clear-sky model with a regional cloudiness factor'}; shading from parapets, raised roofs, obstructions, trees and adjacent tables computed hourly for 12 representative days. Figures are indicative and should be verified on site.`, CW, 7.5), M, y, { size: 7.5, color: MUTED, lineHeight: 1.35 });
+  text(doc, wrap(doc, `Assumptions: performance ratio ${finance.efficiency}%, module degradation ${finance.degradation}% per year, electricity tariff held at the current rate of ${money(design.catalog.tariff, 2)} per kWh. Yield ${design.yieldModel.source === 'google' ? 'calibrated with Google Solar API sunshine data' : 'from a clear-sky model with a regional cloudiness factor'}; shading from parapets, raised roofs, obstructions, trees and adjacent tables computed hourly for 12 representative days. Figures are indicative and should be verified on site.`, CW, 7.5), M, y, { size: 7.5, color: MUTED, lineHeight: 1.35 });
+
+  monthlyOutlookPages(doc, r, { monthly: totals.monthly, fin, tariff: design.catalog.tariff, years, finance, money });
 
   // 10 — price & acceptance
   y = newPage(doc, r, 'Price & acceptance');
@@ -683,6 +725,8 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
 
 
 
+  for (const c of cost.installationCharges || []) priceRows.push([c.name, 'Installation charge', money(c.price)]);
+
   autoTable(doc, {
     ...table(),
     startY: y,
@@ -694,18 +738,18 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
   y = doc.lastAutoTable.finalY + 3;
 
   const subtotal = cost.subtotal ?? cost.total;
-  const gstExtra = cost.gstIncluded === false && (cost.gstAmount || 0) > 0;
+  const gstExtra = cost.withGst !== false && (cost.gstAmount || 0) > 0;
   if (gstExtra) {
     autoTable(doc, {
       ...table(),
       startY: y,
       body: [
-        ['Subtotal (excl. GST)', money(subtotal)],
-        [`SGST (${(cost.gstPercent / 2).toFixed(2)}%)`, money(cost.sgst)],
-        [`CGST (${(cost.gstPercent / 2).toFixed(2)}%)`, money(cost.cgst)],
+        ['Taxable value', money(subtotal)],
+        ['SGST', money(cost.sgst)],
+        ['CGST', money(cost.cgst)],
       ],
       theme: 'plain',
-      styles: { fontSize: 8.5, textColor: BODY },
+      styles: { fontSize: 9.5, textColor: BODY },
       columnStyles: { 0: { cellWidth: CW - 42 }, 1: { halign: 'right', cellWidth: 42 } },
     });
     y = doc.lastAutoTable.finalY + 3;
@@ -714,13 +758,300 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
   doc.setFillColor(...brand.primary);
   doc.rect(M, y, CW, 13, 'F');
   text(doc, gstExtra ? 'GRAND TOTAL (INCL. GST)' : 'TOTAL INVESTMENT', M + 4, y + 8.2, { size: 8.5, style: 'bold', color: brand.primaryFg });
-  text(doc, `${totals.kwp.toFixed(2)} kWp system`, M + 46, y + 8.2, { size: 8.5, color: brand.primaryFg });
+  text(doc, `${totals.kwp.toFixed(2)} kWp system`, M + 68, y + 8.2, { size: 8.5, color: brand.primaryFg });
   text(doc, money(cost.total), W - M - 4, y + 8.8, { size: 13, style: 'bold', color: brand.primaryFg, align: 'right' });
-  signOff(doc, r, y + 13 + 12);
+  y += 13 + 8;
+  if (campus) {
+    y = section(doc, r, 'Price breakdown by building', ensure(doc, r, y + 2, 30 + cost.buildings.length * 8));
+    autoTable(doc, {
+      ...table(),
+      startY: y,
+      head: [['Building', 'Modules', 'Capacity', ...(cost.isPackage ? [] : ['Modules & structure', 'Share of common items']), 'Amount']],
+      body: cost.buildings.map((b) => [b.name, b.count, `${b.kwp.toFixed(2)} kWp`, ...(cost.isPackage ? [] : [money(b.modulesCost + b.structureCost), money(b.shared)]), money(b.total)]),
+      foot: [['All buildings', totals.count, `${totals.kwp.toFixed(2)} kWp`, ...(cost.isPackage ? [] : [money(cost.buildings.reduce((a, b) => a + b.modulesCost + b.structureCost, 0)), money(cost.buildings.reduce((a, b) => a + b.shared, 0))]), money(cost.total)]],
+      footStyles: { fillColor: SOFT, textColor: INK, fontStyle: 'bold' },
+      columnStyles: { 0: { fontStyle: 'bold', textColor: INK } },
+      didParseCell: (d) => {
+        if (d.column.index > 0) d.cell.styles.halign = 'right';
+      },
+    });
+    y = ensure(doc, r, doc.lastAutoTable.finalY + 4, 12);
+    text(doc, wrap(doc, cost.isPackage ? 'The package price is shared between the buildings in proportion to their capacity. The amounts add up to the total above.' : 'Each building carries its own modules and mounting structure, plus its share (by capacity) of what the buildings have in common: inverters and other materials, installation charges and tax. The amounts add up to the total above.', CW, 7), M, y, { size: 7, color: MUTED, lineHeight: 1.3 });
+    y += 10;
+  }
+  signOff(doc, r, onlineBlock(doc, r, y) + 4);
 
   const proposalEnd = doc.getNumberOfPages();
   if (shadow) await appendShadowReport(doc, shadow);
   footers(doc, r, proposalEnd);
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  doc.save(`${[slug(client.name), slug(r.title)].filter(Boolean).join('_') || 'solar-proposal'}${shadow ? '_with-shadow-analysis' : ''}.pdf`);
+  const filename = `${[slug(client.name), slug(r.title)].filter(Boolean).join('_') || 'solar-proposal'}${shadow ? '_with-shadow-analysis' : ''}.pdf`;
+  doc.save(filename);
+  return { blob: doc.output('blob'), filename };
 }
+
+/**
+ * The bill of materials in its parent categories ("Structures", "Electricals", …): a heading row, then the
+ * items under it, numbered through. Items without a parent category come last under "Other items"; when
+ * nothing has a parent category the table is a plain list.
+ */
+export function groupedBom(rows, brand) {
+  const groups = new Map();
+  for (const row of rows) {
+    const name = String(row.group || '').trim();
+    if (!groups.has(name)) groups.set(name, { name, order: name ? Number(row.order) || 0 : Infinity, rows: [] });
+    groups.get(name).rows.push(row.cells);
+  }
+  const ordered = [...groups.values()].sort((a, b) => a.order - b.order); // stable: equal orders keep their first appearance
+  const grouped = ordered.some((g) => g.name);
+  const body = [];
+  let n = 0;
+  for (const g of ordered) {
+    if (grouped) body.push([{ content: `${(g.name || 'Other items').toUpperCase()}  (${g.rows.length})`, colSpan: 5, styles: { fontStyle: 'bold', fontSize: 8.5, textColor: brand.primary, fillColor: brand.primary.map((c) => Math.round(c + (255 - c) * 0.88)), halign: 'left', cellPadding: { top: 2.4, bottom: 2.4, left: 3, right: 3 } } }]);
+    for (const cells of g.rows) body.push([++n, ...cells]);
+  }
+  return body;
+}
+
+/** Totals over the outlook period. */
+function outlookSummary(doc, r, y, fin, years, money) {
+  y = section(doc, r, `Summary over ${years} years`, y);
+  return specGrid(doc, [
+    ['Total energy', `${formatNumber(fin.lifetimeEnergy)} kWh`],
+    ['Total savings', money(fin.lifetimeSavings)],
+    ['Investment', money(fin.cost)],
+    ['Net gain', money(fin.netGain)],
+    ['Payback', fin.payback ? `${fin.payback.toFixed(1)} years` : `> ${years} years`],
+    ['Return on investment', `${formatNumber(fin.roi)} %`],
+  ], y);
+}
+
+/** Monthly financial outlook: one row per month for the chosen number of years (own pages, header repeated). */
+function monthlyOutlookPages(doc, r, { monthly, fin, tariff, years, finance, money }) {
+  let y = newPage(doc, r, 'Monthly financial outlook');
+  y = section(doc, r, `Month-by-month outlook, ${years} years / ${years * 12} months`, y);
+  const outlook = monthlyOutlook({ monthly, cost: fin.cost, tariff, years, finance });
+  const base = tableStyle(doc, r);
+  autoTable(doc, {
+    ...base,
+    startY: y,
+    styles: { ...base.styles, fontSize: 8.5, cellPadding: { top: 1.1, bottom: 1.1, left: 2.5, right: 2.5 } },
+    head: [['#', 'Month', 'Energy', 'Tariff', 'Savings', 'Cumulative', 'Net position']],
+    body: outlook.map((o) => [o.n, o.when.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }), `${formatNumber(o.energy)} kWh`, money(o.rate, 2), money(o.savings), money(o.cumulative), money(o.net)]),
+    columnStyles: { 0: { cellWidth: 12, halign: 'right' }, 1: { cellWidth: 26 } },
+    // a light rule closes each year
+    didParseCell: (d) => {
+      if (d.section === 'head' && [0, 2, 3, 4, 5, 6].includes(d.column.index)) d.cell.styles.halign = 'right';
+      if (d.section === 'body' && [0, 2, 3, 4, 5, 6].includes(d.column.index)) d.cell.styles.halign = 'right';
+      if (d.section === 'body' && (d.row.index + 1) % 12 === 0) d.cell.styles.lineWidth = { bottom: 0.5 };
+    },
+  });
+}
+
+/**
+ * Proposal without a 3D design. Same look as the full proposal — cover, summary, system details, single line
+ * diagram, electrical design, bill of materials, energy & financials, price & acceptance — but without the roof,
+ * layout, string-layout and mounting pages, and with no render on the cover.
+ * `spec` and `count` are the solar module and how many of them the chosen package / panel product gives; the
+ * location and orientation use the defaults in `quote.system`.
+ */
+export async function generateQuotePdf({ quote, name = '', company = {}, client = {}, designId = '', currency = 'INR', spec, count, tariff = 8, validUntil = null, cover }) {
+  company = { name: 'Solar proposal', ...company };
+  client = { name: '', ...(client || {}) };
+  const brand = await loadBranding(company);
+  const share = await shareForPdf(designId); // the proposal's public link and its QR code (null if unavailable)
+  const now = new Date();
+  const money = (v, d = 0) => formatMoney(v, currency, { pdf: true, decimals: d });
+  const compactMoney = (v) => {
+    const a = Math.abs(v);
+    return `${v < 0 ? '-' : ''}${a >= 1e7 ? `${(a / 1e6).toFixed(0)}M` : a >= 1e6 ? `${(a / 1e6).toFixed(1)}M` : a >= 1e3 ? `${(a / 1e3).toFixed(0)}k` : a.toFixed(0)}`;
+  };
+
+  // price
+  const items = quote.items || [];
+  const floorCost = Number(quote.floorCost) || 0;
+  const charges = (quote.installationCharges || []).filter((c) => c.name);
+  const pricing = pricingFromQuote(quote);
+
+  // system, energy, electrical, financials
+  const years = Math.max(1, Math.min(30, Math.round(Number(quote.outlookYears) || 10)));
+  const m = computeQuoteSystem(quote, spec, { count, years, tariff, cost: pricing.total });
+  if (!m.ready) throw new Error('Choose a solar panel first');
+  const { totals, fin, el, sys } = m;
+  const finance = { ...QUOTE_FINANCE, currency };
+  const moduleName = [spec.brand, spec.model].filter(Boolean).join(' ') || `${spec.watts} W module`;
+
+  const r = {
+    title: name || 'Solar price proposal',
+    address: client.address || '',
+    date: now.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+    validUntil: validUntilText(validUntil),
+    shareUrl: share?.url || '',
+    shareQr: share?.qr || '',
+    dateShort: now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+    ref: `Ref. SP-${now.toISOString().slice(0, 10).replace(/-/g, '')}${designId ? `-${String(designId).slice(-5).toUpperCase()}` : ''}`,
+    totals,
+    brand,
+    company,
+    client,
+    calm: true,
+  };
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
+  doc.setProperties({ title: `${r.title} - Solar proposal`, author: company.name, subject: `Solar proposal for ${client.name || 'client'}`, creator: company.name });
+  const table = () => tableStyle(doc, r);
+
+  // 1 — cover (the same designed cover as the full proposal; without a render it shows the brand artwork)
+  await drawCoverStyle(doc, r, { totals, fin }, finance, null, cover);
+
+  // 2 — summary
+  let y = newPage(doc, r, 'Proposal summary');
+  text(doc, client.name ? `Dear ${client.name},` : 'Dear Customer,', M, y + 2, { size: 11, style: 'bold', color: INK });
+  const letter = `Thank you for the opportunity to propose a rooftop solar power system${client.address ? ` for ${client.address}` : ''}. We recommend a ${totals.kwp.toFixed(2)} kWp system built with ${totals.count} ${moduleName} modules of ${spec.watts} W. It is expected to generate about ${formatNumber(totals.acKwh)} kWh of clean electricity every year, saving approximately ${money(fin.firstYearSavings)} in the first year${fin.payback ? ` and paying for itself in about ${fin.payback.toFixed(1)} years` : ''}. The pages that follow describe the system, the equipment, the expected energy and the price in detail.`;
+  const letterLines = wrap(doc, letter, CW, 9.5);
+  text(doc, letterLines, M, y + 9.5, { size: 9.5, color: BODY, lineHeight: 1.5 });
+  y += 9.5 + letterLines.length * 5.05 + 5;
+
+  y = section(doc, r, 'Key figures', y);
+  y = statTiles(doc, r, [
+    ['System size', `${totals.kwp.toFixed(2)} kWp`, `${totals.count} x ${spec.watts} W modules`],
+    ['Annual energy', `${formatNumber(totals.acKwh)} kWh`, `${formatNumber(totals.specificYield)} kWh per kWp`],
+    ['Investment', money(fin.cost), totals.kwp ? `${money(fin.cost / totals.kwp)} per kWp` : ''],
+    ['Year-1 savings', money(fin.firstYearSavings), `at ${money(tariff, 2)} per kWh`],
+    ['Payback', fin.payback ? `${fin.payback.toFixed(1)} years` : `> ${years} years`, 'simple payback'],
+    [`${years}-year savings`, money(fin.lifetimeSavings), `net gain ${money(fin.netGain)}`],
+    ['Return on investment', `${formatNumber(fin.roi)} %`, `over ${years} years`],
+    ['Performance ratio', `${finance.efficiency} %`, 'system efficiency'],
+  ], y) + 10;
+
+  y = section(doc, r, 'Your system at a glance', y);
+  y = specGrid(doc, [
+    ['Solar module', `${moduleName} ${spec.watts} W`],
+    ['Number of modules', String(totals.count)],
+    ['Module warranty', spec.warrantyYears != null ? `${spec.warrantyYears} years` : '-'],
+    ['Manufacture year', spec.manufactureYear ? String(spec.manufactureYear) : '-'],
+    ['Inverter', `${el.inverterCount || 0} x ${el.inverter?.kw ?? '-'} kW`],
+    ['Strings', String(el.strings.length)],
+    ['Module tilt', `${sys.tilt}°`],
+    ['Facing', `${sys.azimuth}° ${compassLabel(Number(sys.azimuth))}`],
+  ], y) + 10;
+
+  y = section(doc, r, 'Environmental benefit', ensure(doc, r, y, 36));
+  const co2 = (totals.acKwh * 0.7) / 1000;
+  statTiles(doc, r, [
+    ['CO2 avoided', `${co2.toFixed(1)} t / year`, `${formatNumber(co2 * years)} t over ${years} years`],
+    ['Equivalent trees', formatNumber((co2 * 1000) / 21), 'planted and grown'],
+    ['Clean energy', `${formatNumber(fin.lifetimeEnergy / 1000)} MWh`, `over ${years} years`],
+  ], y, { cols: 3 });
+  text(doc, 'Estimated with a grid emission factor of 0.7 kg CO2 per kWh and 21 kg CO2 absorbed per tree per year.', M, y + 21 + 5, { size: 7, color: MUTED });
+
+  // 3 — system & electrical design
+  y = newPage(doc, r, 'System & electrical design');
+  y = section(doc, r, 'Solar module', y);
+  autoTable(doc, { ...table(), startY: y, head: [['Brand', 'Model', 'Power', 'Size', 'Mfg. year', 'Warranty', 'Qty']], body: [[spec.brand || '-', spec.model || '-', `${spec.watts} W`, `${spec.length} x ${spec.width} m`, spec.manufactureYear || '-', spec.warrantyYears != null ? `${spec.warrantyYears} years` : '-', totals.count]] });
+  y = section(doc, r, 'Inverter & strings', doc.lastAutoTable.finalY + 8);
+  y = specGrid(doc, [['Inverter', `${el.inverterCount || 0} x ${el.inverter?.kw ?? '-'} kW ${el.inverter?.kw <= 6 ? 'single-phase' : 'three-phase'}`], ['DC / AC ratio', el.dcAc ? el.dcAc.toFixed(2) : '-'], ['AC capacity', `${el.acKw ?? '-'} kW`], ['Modules per string', [...new Set(el.strings.map((st) => st.count))].sort((a, c) => a - c).join(' / ') || '-'], ['Allowed string length', `${el.minLen ?? '-'} to ${el.maxLen ?? '-'} modules`], ['Array orientation', `${sys.tilt}° tilt, facing ${compassLabel(Number(sys.azimuth))}`]], y) + 5;
+  autoTable(doc, { ...table(), startY: y, head: [['String', 'Modules', 'Power', 'Voc STC', 'Voc cold', 'Isc', 'Inverter']], body: el.strings.map((st) => [st.name, st.count, `${st.kwp.toFixed(2)} kWp`, `${st.voc.toFixed(0)} V`, `${st.vocCold.toFixed(0)} V`, `${st.isc} A`, `INV-${st.inverter}`]) });
+  y = section(doc, r, 'Equipment schedule (sheet E-01)', ensure(doc, r, doc.lastAutoTable.finalY + 8, 40));
+  autoTable(doc, { ...table(), startY: y, styles: { ...table().styles, fontSize: 9, cellPadding: { top: 1.7, bottom: 1.7, left: 2.5, right: 2.5 } }, head: [['Tag', 'Item', 'Specification', 'Qty']], body: sldSchedule(el, spec, moduleName, totals.count), ...numeric(3), columnStyles: { 0: { cellWidth: 20, fontStyle: 'bold', textColor: INK }, 1: { cellWidth: 42 }, 3: { halign: 'right', cellWidth: 20 } } });
+  y = ensure(doc, r, doc.lastAutoTable.finalY + 4, 12);
+  text(doc, wrap(doc, 'Protection ratings are sized from the design currents (string fuse 1.56 x Isc, DC isolator 1.25 x Isc per MPPT, AC breakers 1.25 x inverter output current); cable sizes assume copper conductors derated for rooftop runs. Final selection to be verified against equipment datasheets, IS / IEC 60364-7-712 and DISCOM net-metering requirements.', CW, 7.5), M, y, { size: 7.5, color: MUTED, lineHeight: 1.35 });
+
+  // 4 — single line diagram
+  y = newPage(doc, r, 'Single line diagram');
+  y = section(doc, r, 'Single line diagram', y);
+  const sldH = BOTTOM - y - 19 - 4;
+  drawSld(doc, el, spec, M, y, CW, sldH);
+  titleBlock(doc, r, 'E-01', 'Single line diagram', y + sldH + 4);
+
+  // 5 — energy & financials
+  y = newPage(doc, r, 'Energy & financials');
+  y = section(doc, r, 'Monthly energy production (kWh)', y);
+  y = monthlyChart(doc, r, totals.monthly, y + 3) + 4;
+  y = section(doc, r, `Net position over ${years} years (${currency})`, y);
+  y = paybackChart(doc, r, fin, y + 1, compactMoney) + 4;
+  y = outlookSummary(doc, r, y, fin, years, money);
+  doc.lastAutoTable = { finalY: y };
+  y = ensure(doc, r, doc.lastAutoTable.finalY + 6, 12);
+  text(doc, wrap(doc, `Assumptions: performance ratio ${finance.efficiency}%, module degradation ${finance.degradation}% per year, electricity tariff held at the current rate of ${money(tariff, 2)} per kWh. Yield from a clear-sky model for latitude ${Number(sys.lat).toFixed(1)}° with a regional cloudiness factor; no site-specific shading analysis was made. Figures are indicative and should be verified on site.`, CW, 7.5), M, y, { size: 7.5, color: MUTED, lineHeight: 1.35 });
+
+  monthlyOutlookPages(doc, r, { monthly: totals.monthly, fin, tariff, years, finance, money });
+
+  // 6 — price & acceptance (its table already lists every product, so there is no separate bill of materials)
+  y = newPage(doc, r, 'Price & acceptance');
+  y = section(doc, r, `Price summary (${currency})`, y);
+  const body = [];
+  for (const it of items) {
+    // package: list what is bundled with "-" against it, then the package price (as in the 3D proposal)
+    for (const b of it.bundle || []) body.push([b.name, [b.detail, b.qty && `Qty: ${b.qty} ${b.unit || ''}`.trim()].filter(Boolean).join(' · ') || 'Included in package', '', '-', '-']);
+    body.push([it.category || it.name, it.category ? [it.name, it.detail].filter(Boolean).join(' · ') : it.detail || (it.kind === 'package' ? 'Complete package' : ''), `${formatNumber(it.qty, 2)} ${it.unit || ''}`.trim(), money(it.price), money((Number(it.qty) || 0) * (Number(it.price) || 0))]);
+  }
+  if (floorCost > 0) body.push(['Floor placement', `Floor ${quote.floorPlacement} installation surcharge`, '', '', money(floorCost)]);
+  for (const c of charges) body.push([c.name, 'Installation charge', '', '', money(c.price)]);
+  for (const it of quote.extraItems || []) {
+    if (!it?.name) continue;
+    body.push([it.name, it.detail || 'Additional item', `${formatNumber(it.qty, 2)} ${it.unit || ''}`.trim(), money(it.price), money((Number(it.qty) || 0) * (Number(it.price) || 0))]);
+  }
+
+  autoTable(doc, {
+    ...table(),
+    startY: y,
+    head: [['Item', 'Description', 'Qty', 'Rate', 'Amount']],
+    body,
+    ...numeric(2, 3, 4),
+    columnStyles: { 0: { cellWidth: 42, fontStyle: 'bold', textColor: INK }, 2: { halign: 'right', cellWidth: 22 }, 3: { halign: 'right', cellWidth: 26 }, 4: { halign: 'right', cellWidth: 28 } },
+  });
+  y = doc.lastAutoTable.finalY + 3;
+
+  const gstExtra = pricing.withGst !== false && pricing.gstTotal > 0;
+  if (pricing.discountAmount > 0) {
+    autoTable(doc, { ...table(), startY: y, body: [['Discount', money(-pricing.discountAmount)]], theme: 'plain', styles: { fontSize: 9.5, textColor: BODY }, columnStyles: { 0: { cellWidth: CW - 42 }, 1: { halign: 'right', cellWidth: 42 } } });
+    y = doc.lastAutoTable.finalY + 2;
+  }
+  if (gstExtra) {
+    autoTable(doc, {
+      ...table(),
+      startY: y,
+      body: [
+        ['Taxable value', money(pricing.taxableTotal)],
+        ['SGST', money(pricing.sgst)],
+        ['CGST', money(pricing.cgst)],
+      ],
+      theme: 'plain',
+      styles: { fontSize: 9.5, textColor: BODY },
+      columnStyles: { 0: { cellWidth: CW - 42 }, 1: { halign: 'right', cellWidth: 42 } },
+    });
+    y = doc.lastAutoTable.finalY + 3;
+  }
+  y = ensure(doc, r, y, 26);
+  doc.setFillColor(...brand.primary);
+  doc.rect(M, y, CW, 13, 'F');
+  text(doc, gstExtra ? 'GRAND TOTAL (INCL. GST)' : 'TOTAL INVESTMENT', M + 4, y + 8.2, { size: 8.5, style: 'bold', color: brand.primaryFg });
+  text(doc, `${totals.kwp.toFixed(2)} kWp system`, M + 68, y + 8.2, { size: 8.5, color: brand.primaryFg });
+  text(doc, money(pricing.total), W - M - 4, y + 8.8, { size: 13, style: 'bold', color: brand.primaryFg, align: 'right' });
+  signOff(doc, r, onlineBlock(doc, r, y + 13 + 8) + 4);
+
+  footers(doc, r);
+  const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const filename = `${[slug(client.name), slug(r.title)].filter(Boolean).join('_') || 'solar-proposal'}.pdf`;
+  doc.save(filename);
+  return { blob: doc.output('blob'), filename };
+}
+
+/** "View this proposal online": the QR code and link, shown near the price and acceptance. Returns the y below it. */
+function onlineBlock(doc, r, y) {
+  if (!r.shareQr) return y;
+  y = ensure(doc, r, y, 34);
+  const size = 26;
+  doc.setDrawColor(...LINE);
+  doc.setLineWidth(0.3);
+  doc.rect(M, y, CW, size + 6);
+  doc.addImage(r.shareQr, 'PNG', M + 3, y + 3, size, size, 'share-qr', 'FAST');
+  const x = M + size + 9;
+  text(doc, 'View this proposal online', x, y + 9, { size: 11, style: 'bold', color: INK });
+  text(doc, wrap(doc, 'Scan the QR code with your phone camera, or open the link below, to see the price, the system and the 3D design any time.', CW - size - 15, 8.5), x, y + 15, { size: 8.5, color: BODY, lineHeight: 1.35 });
+  text(doc, clip(doc, r.shareUrl, CW - size - 15, 8.5, 'bold'), x, y + size + 1, { size: 8.5, style: 'bold', color: r.brand.primary });
+  return y + size + 6 + 6;
+}
+
+/** Building blocks for the other branded documents (receipts, invoices). */
+export const pdfKit = { text, clip, wrap, tableStyle, numeric, placeImage, logoOrName, pageSize: { W, H, M, CW }, colors: { INK, BODY, MUTED, LINE, SOFT, WHITE } };

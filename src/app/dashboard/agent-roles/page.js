@@ -1,5 +1,6 @@
-import AgentRoles from '@/components/dashboard/AgentRoles';
+import { redirect } from 'next/navigation';
 
+// this list now lives on the Manage Masters page; old links keep working
 export default function Page() {
-  return <AgentRoles />;
+  redirect('/dashboard/masters?tab=agent-roles');
 }

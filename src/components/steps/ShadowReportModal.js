@@ -7,6 +7,7 @@
 
 import { CheckCircle2, Circle, Download, FileStack, Loader2, RefreshCw, Sun } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { generatePdf } from '@/lib/pdf';
 import { REPORT_SEASONS } from '@/lib/shadowReport/config';
@@ -34,7 +35,7 @@ export default function ShadowReportModal({ open, onClose, design, mode = 'repor
     setCombining(true);
     try {
       const st = useStore.getState();
-      await generatePdf({
+      const { blob, filename } = await generatePdf({
         design,
         project: st.project,
         place: st.place,
@@ -43,8 +44,15 @@ export default function ShadowReportModal({ open, onClose, design, mode = 'repor
         company: useSession.getState().company,
         client: st.client,
         designId: st.designId,
+        validUntil: st.validUntil,
+        cover: st.cover,
         shadow: { meta: res.meta, seasons: REPORT_SEASONS, results: res.results, summaries: res.summaries },
       });
+      if (st.designId && blob) {
+        const form = new FormData();
+        form.append('file', blob, filename);
+        api(`/api/designs/${st.designId}/versions`, { method: 'POST', form }).catch((e) => console.error('Could not archive quotation PDF version', e));
+      }
     } catch (e) {
       console.error(e);
       toast.error('Sorry, the combined PDF could not be created. Please try again.');
@@ -175,16 +183,19 @@ export default function ShadowReportModal({ open, onClose, design, mode = 'repor
             </div>
           </div>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-            {result.results.map((r) => (
-              <figure key={`${r.season}-${r.hour}`} className="overflow-hidden rounded-md border border-slate-200 bg-slate-950">
+            {result.results.flatMap((r) => r.images.map((im) => {
+              const label = result.meta.buildings?.length > 1 ? im.buildingName : '';
+              return (
+              <figure key={`${r.season}-${r.hour}-${im.buildingId}`} className="overflow-hidden rounded-md border border-slate-200 bg-slate-950">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <ZoomImage src={r.image.data} alt={`${r.seasonLabel} ${r.timeLabel}`} className="aspect-video w-full object-cover" />
+                <ZoomImage src={im.image.data} alt={`${r.seasonLabel} ${r.timeLabel}${label ? ` · ${label}` : ''}`} className="aspect-video w-full object-cover" />
                 <figcaption className="flex items-center justify-between bg-white px-1.5 py-1 text-[10px] text-slate-600">
-                  <span className="truncate">{r.seasonLabel} · {r.timeLabel}</span>
+                  <span className="truncate">{r.seasonLabel} · {r.timeLabel}{label ? ` · ${label}` : ''}</span>
                   <span className={cx('font-semibold', !r.sunUp ? 'text-slate-400' : r.effectiveOutputPercent >= 90 ? 'text-emerald-600' : r.effectiveOutputPercent >= 60 ? 'text-amber-600' : 'text-red-600')}>{r.sunUp ? pct(r.effectiveOutputPercent) : 'N/A'}</span>
                 </figcaption>
               </figure>
-            ))}
+              );
+            }))}
           </div>
           <div className="grid gap-2 sm:grid-cols-3">
             {result.summaries.map((s) => (

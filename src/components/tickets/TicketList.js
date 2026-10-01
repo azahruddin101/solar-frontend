@@ -6,10 +6,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import { useResource } from '@/lib/useResource';
+import { usePagedResource } from '@/lib/useResource';
 import { ticketCreateSchema, useValidation } from '@/lib/validation';
 import { useUnread } from '@/lib/unread';
-import { Alert, Badge, Button, Card, EmptyState, FormField, FormModal, Input, LoadingBlock, PageHeader, Select, Textarea, cx, timeAgo } from '../kit';
+import { Alert, Badge, Button, Card, EmptyState, FormField, FormModal, Input, LoadingBlock, LoadMoreRow, PageHeader, Select, Textarea, cx, timeAgo } from '../kit';
 import { Attachment, TICKET_CATEGORIES, TICKET_PRIORITIES, TICKET_STATUSES, TicketStatusBadge, labelOf } from './shared';
 import Composer from './Composer';
 
@@ -52,14 +52,14 @@ function NewTicket({ onClose, onCreated }) {
   );
 }
 
-export default function TicketList({ admin = false }) {
+export default function TicketList({ admin = false, basePath }) {
   const router = useRouter();
-  const base = admin ? '/admin/support' : '/dashboard/support';
+  const base = basePath || (admin ? '/admin/support' : '/dashboard/support');
   const [status, setStatus] = useState('');
   const [query, setQuery] = useState('');
   const [q, setQ] = useState(''); // the search that is applied (on Search / Enter)
   const [creating, setCreating] = useState(false);
-  const { data, loading, error, reload } = useResource(`/api/tickets?${new URLSearchParams({ ...(status && { status }), ...(q && { q }) })}`);
+  const { items: data, total, loading, error, reload, hasMore, loadingMore, loadMore } = usePagedResource(`/api/tickets?${new URLSearchParams({ ...(status && { status }), ...(q && { q }) })}`, { limit: 50 });
   const refreshBadge = useUnread((s) => s.refresh);
 
   const refresh = async () => { await reload(); refreshBadge(); };
@@ -111,6 +111,7 @@ export default function TicketList({ admin = false }) {
               </Link>
             );
           })}
+          <LoadMoreRow hasMore={hasMore} loadingMore={loadingMore} onClick={loadMore} loaded={data.length} total={total} />
         </Card>
       )}
 

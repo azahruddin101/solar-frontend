@@ -1,6 +1,6 @@
 'use client';
 
-import { Bell, Boxes, LifeBuoy, CreditCard, FolderTree, HardHat, LayoutDashboard, ListChecks, PanelsTopLeft, PenTool, Ruler, Settings, Tags, UserCog, Users } from 'lucide-react';
+import { Bell, Boxes, SlidersHorizontal, LifeBuoy, CreditCard, FolderTree, HardHat, LayoutDashboard, ListChecks, PanelsTopLeft, PenTool, Receipt, Ruler, Settings, Tags, UserCog, Wrench, Users } from 'lucide-react';
 import AppShell from '../layout/AppShell';
 import AuthGuard from '../layout/AuthGuard';
 
@@ -9,23 +9,21 @@ const NAV = [
     items: [
       { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true },
       { href: '/dashboard/clients', label: 'Clients', icon: Users },
-      { href: '/dashboard/designs', label: 'Designs', icon: PenTool },
+      { href: '/dashboard/designs', label: 'Proposals', icon: PenTool },
+      { href: '/dashboard/billing', label: 'Billing & Invoices', icon: Receipt },
       { href: '/dashboard/packages', label: 'Packages', icon: Boxes },
-      { href: '/dashboard/installations', label: 'Installations', icon: HardHat },
+      { href: '/dashboard/installations', label: 'Task Management', icon: HardHat },
       { href: '/dashboard/notifications', label: 'Notifications', icon: Bell },
-      { href: '/dashboard/support', label: 'Support', icon: LifeBuoy },
     ],
   },
   {
     title: 'Company',
     items: [
-      { href: '/dashboard/team', label: 'Team', icon: UserCog },
-      { href: '/dashboard/agent-roles', label: 'Agent roles', icon: Tags },
-      { href: '/dashboard/workflow', label: 'Installation steps', icon: ListChecks },
-      { href: '/dashboard/catalog', label: 'Product catalog', icon: PanelsTopLeft },
-      { href: '/dashboard/categories', label: 'Catalog categories', icon: FolderTree },
-      { href: '/dashboard/units', label: 'Product units', icon: Ruler },
+      { href: '/dashboard/team', label: 'Staff Management', icon: UserCog },
+      { href: '/dashboard/catalog', label: 'Inventory', icon: PanelsTopLeft },
+      { href: '/dashboard/masters', label: 'Manage Masters', icon: SlidersHorizontal },
       { href: '/dashboard/plan', label: 'Plan & billing', icon: CreditCard },
+      { href: '/dashboard/support', label: 'Support', icon: LifeBuoy },
       { href: '/dashboard/settings', label: 'Settings & branding', icon: Settings },
     ],
   },

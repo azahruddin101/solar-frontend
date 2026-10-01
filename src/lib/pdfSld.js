@@ -8,8 +8,8 @@
 // MPPT, AC breakers 1.25 x inverter current); `sldSchedule` lists every tagged item in full.
 
 const INK = [15, 23, 42];
-const BODY = [51, 65, 85];
-const MUTED = [100, 116, 139];
+const BODY = [0, 0, 0];
+const MUTED = [0, 0, 0];
 const LINE = [226, 232, 240];
 const WHITE = [255, 255, 255];
 const DC = [220, 38, 38];
@@ -32,13 +32,14 @@ const range = (prefix, a, b) => (a === b ? `${prefix}${a}` : `${prefix}${a}-${pr
 /** Strings grouped per inverter and MPPT, with protection and cable ratings. */
 export function sldPlan(el) {
   const inv = el.inverter;
+  const first = el.inverterFrom || 1; // one building of a campus: its inverters continue the campus numbering
   const single = inv.kw <= 6;
   const groups = Array.from({ length: el.inverterCount }, (_, g) => {
-    const strings = el.strings.filter((s) => s.inverter === g + 1);
+    const strings = el.strings.filter((s) => s.inverter === g + first);
     const m = Math.min(strings.length, inv.mppt);
     const mppts = Array.from({ length: m }, () => []);
     strings.forEach((s, j) => mppts[Math.floor((j * m) / strings.length)].push(s));
-    return { no: g + 1, strings, mppts };
+    return { no: g + first, strings, mppts };
   });
   const isc = Math.max(...el.strings.map((s) => s.isc));
   const vocCold = Math.max(...el.strings.map((s) => s.vocCold));
@@ -86,14 +87,14 @@ export function sldSchedule(el, spec, moduleName, moduleCount) {
   const meter = `${p.single ? '1-ph' : '3-ph'}, ${p.ct ? `CT operated ${p.ct}/5 A` : 'whole current'}`;
   return [
     ['PV', 'Solar PV module', `${moduleName}, ${spec.watts} Wp, Voc ${spec.voc} V, Isc ${spec.isc} A`, `${moduleCount} nos`],
-    [range('S', 1, n), 'PV strings', `${lens} modules in series, Voc ${p.voc.toFixed(0)} V (STC) / ${p.vocCold.toFixed(0)} V (cold)`, `${n} nos`],
+    [el.strings.length ? (n > 1 ? `${el.strings[0].name}-${el.strings[n - 1].name}` : el.strings[0].name) : range('S', 1, n), 'PV strings', `${lens} modules in series, Voc ${p.voc.toFixed(0)} V (STC) / ${p.vocCold.toFixed(0)} V (cold)`, `${n} nos`],
     ['C1', 'DC string cable', '4 sq.mm Cu, solar grade (EN 50618), red (+) / black (-)', bomQty('DC cable', '-')],
     ['F', 'String fuse', `${p.fuse} A gPV, ${volt}, in + and - poles`, `${n * 2} nos`],
     ['Q-DC', 'DC isolator', `${p.dcIso} A, ${volt}, 2-pole, lockable, one per MPPT`, `${p.mppts} nos`],
     ['SPD-DC', 'DC surge protection', `Type II, Ucpv ${volt}, In 20 kA, one per MPPT`, `${p.mppts} nos`],
-    [range('DCDB-', 1, k), 'DC distribution box', `IP65, ${n} in / ${p.mppts} out`, `${k} nos`],
+    [range('DCDB-', el.inverterFrom || 1, (el.inverterFrom || 1) + k - 1), 'DC distribution box', `IP65, ${n} in / ${p.mppts} out`, `${k} nos`],
     ['C2', 'DC cable, DCDB to inverter', `${p.dcCable} sq.mm Cu, solar grade`, `${p.mppts} pairs`],
-    [range('INV-', 1, k), 'Grid-tie string inverter', `${p.inv.kw} kW, ${p.phase}, ${p.inv.mppt} MPPT, ${p.inv.maxVdc} V DC max, anti-islanding`, `${k} nos`],
+    [range('INV-', el.inverterFrom || 1, (el.inverterFrom || 1) + k - 1), 'Grid-tie string inverter', `${p.inv.kw} kW, ${p.phase}, ${p.inv.mppt} MPPT, ${p.inv.maxVdc} V DC max, anti-islanding`, `${k} nos`],
     ['C3', 'AC cable, inverter to ACDB', `${p.cores} x ${p.acCable} sq.mm Cu, armoured`, `${k} ${k > 1 ? 'runs' : 'run'}`],
     [range('Q', 1, k), 'ACDB incomer', breakerName(p, p.incomer), `${k} nos`],
     ['SPD-AC', 'AC surge protection', `Type II, Uc 275 V AC, ${p.single ? '1+1' : '3+1'} configuration`, '1 nos'],

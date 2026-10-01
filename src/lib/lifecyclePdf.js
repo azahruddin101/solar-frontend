@@ -45,7 +45,7 @@ export async function generateLifecyclePdf({ lifecycle, company = {}, client = {
     startY: 54,
     head: [['Date & time', 'Phase', 'Event', 'Details']],
     body: rows.length ? rows : [['—', '—', 'No recorded events yet', '']],
-    styles: { fontSize: 8, cellPadding: 2.5, textColor: [51, 65, 85] },
+    styles: { fontSize: 8, cellPadding: 2.5, textColor: [0, 0, 0] },
     headStyles: { fillColor: brand.primary, textColor: brand.primaryFg || [255, 255, 255], fontStyle: 'bold' },
     columnStyles: {
       0: { cellWidth: 32 },

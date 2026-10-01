@@ -4,6 +4,8 @@ import { Wallet } from 'lucide-react';
 import { formatMoney } from '@/lib/energy';
 import { useStore } from '@/lib/store';
 import { FormPage, inputCls, Label, Num } from './common';
+import ChargePicker from '../dashboard/ChargePicker';
+import BuildingBreakdown from './BuildingBreakdown';
 import { GstSummary } from './GstSummary';
 
 export default function StepFinancials({ design }) {
@@ -14,7 +16,7 @@ export default function StepFinancials({ design }) {
   const u = (p) => patch('finance', { ...p, init: true });
   const money = (v) => formatMoney(v, f.currency);
   const fin = design.fin;
-  const kpis = [['System cost', money(fin.cost)], ['Year-1 savings', money(fin.firstYearSavings)], ['Payback', fin.payback ? `${fin.payback.toFixed(1)} yrs` : '> 25 yrs'], ['25-yr savings', money(fin.lifetimeSavings)], ['ROI', `${fin.roi.toFixed(0)}%`], ['Energy / yr', `${Math.round(design.totals.acKwh).toLocaleString()} kWh`]];
+  const kpis = [['System cost', money(fin.cost)], ['Year-1 savings', money(fin.firstYearSavings)], ['Payback', fin.payback ? `${fin.payback.toFixed(1)} yrs` : `> ${fin.rows.length} yrs`], [`${fin.rows.length}-yr savings`, money(fin.lifetimeSavings)], ['ROI', `${fin.roi.toFixed(0)}%`], ['Energy / yr', `${Math.round(design.totals.acKwh).toLocaleString()} kWh`]];
   return (
     <FormPage icon={Wallet} title="Project & Financials">
       <div className="grid grid-cols-2 gap-4">
@@ -27,7 +29,6 @@ export default function StepFinancials({ design }) {
       </div>
       <div className="grid grid-cols-2 gap-4">
         <Num label="System efficiency (PR)" value={f.efficiency} step={1} min={50} max={100} suffix="%" onChange={(efficiency) => u({ efficiency })} />
-        <Num label="Tariff escalation" value={f.escalation} step={0.5} max={20} suffix="%/yr" onChange={(escalation) => u({ escalation })} />
         <Num label="Module degradation" value={f.degradation} step={0.1} max={3} suffix="%/yr" onChange={(degradation) => u({ degradation })} />
       </div>
       <div className="rounded-lg border border-slate-200 p-4 text-sm">
@@ -70,10 +71,15 @@ export default function StepFinancials({ design }) {
           </>
         )}
 
-        <div className="mt-1 flex justify-between border-t border-slate-200 pt-2 text-base"><span className="font-semibold">Total</span><b>{money(design.cost.subtotal ?? design.cost.total)}</b></div>
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <ChargePicker value={config.installationCharges} onChange={(installationCharges) => patch('config', { installationCharges })} currency={f.currency} />
+        </div>
+
+        <div className="mt-1 flex justify-between border-t border-slate-200 pt-2 text-base"><span className="font-semibold">Total</span><b>{money(design.cost.total)}</b></div>
         <GstSummary cost={design.cost} config={config} onConfig={(p) => patch('config', p)} money={money} compact />
         <p className="mt-1 text-xs text-slate-400">Electricity price {money(design.catalog.tariff)}/unit. Prices are set by the company.</p>
       </div>
+      <BuildingBreakdown design={design} money={money} />
 
       <div className="grid grid-cols-3 gap-3">
         {kpis.map(([l, v]) => (

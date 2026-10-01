@@ -7,20 +7,36 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { assetUrl } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { useCounts } from '@/lib/counts';
 import { useUnread } from '@/lib/unread';
 import { Avatar, ImageFrame, Toaster, cx } from '../kit';
 import { BrandMark, PRODUCT_NAME } from './Brand';
 import PushNotifications from './PushNotifications';
 
-function NavLink({ item, active, onNavigate }) {
+/** Which count sits beside which sidebar link (company workspace and admin console). Zero is shown too. */
+const COUNT_FOR = {
+  '/dashboard/clients': { key: 'clients' },
+  '/dashboard/designs': { key: 'designs' },
+  '/dashboard/billing': { key: 'billing' },
+  '/dashboard/packages': { key: 'packages' },
+  '/dashboard/installations': { key: 'installations' },
+  '/dashboard/team': { key: 'team' },
+  '/dashboard/catalog': { key: 'products' },
+  // admin console
+  '/admin/companies': { key: 'companies' },
+  '/admin/plans': { key: 'plans' },
+  '/admin/plan-requests': { key: 'planRequests' },
+};
+
+function NavLink({ item, active, onNavigate, compact }) {
   return (
     <Link
       href={item.href}
       onClick={onNavigate}
       aria-current={active ? 'page' : undefined}
-      className={cx('group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors', active ? 'bg-white/10 text-white shadow-[inset_3px_0_0_#ffffff]' : 'text-white hover:bg-white/5')}
+      className={cx('group flex items-center rounded-lg font-medium transition-colors', compact ? 'gap-2.5 px-2 py-1.5 text-[13px]' : 'gap-3 px-3 py-2 text-sm', active ? 'bg-white/10 text-white shadow-[inset_3px_0_0_#ffffff]' : 'text-white hover:bg-white/5')}
     >
-      <item.icon className={cx('h-[18px] w-[18px] shrink-0', active ? 'text-white' : 'text-white')} />
+      <item.icon className={cx('shrink-0 text-white', compact ? 'h-4 w-4' : 'h-[18px] w-[18px]')} />
       <span className="flex-1 truncate">{item.label}</span>
       {item.badge !== undefined && <span className="rounded-full bg-white/10 px-2 py-px text-xs text-white/70">{item.badge}</span>}
     </Link>
@@ -35,7 +51,7 @@ export default function AppShell({ nav, workspace, children }) {
   const unread = useUnread((s) => s.count);
   const ticketsUnread = useUnread((s) => s.tickets);
   const refreshUnread = useUnread((s) => s.refresh);
-  const inboxUser = user?.role !== 'superadmin';
+  const inboxUser = user?.role === 'company' || user?.role === 'agent';
   const inboxLink = inboxUser ? nav.flatMap((g) => g.items).find((i) => i.href.endsWith('/notifications')) : null;
 
   // Badge on the Notifications link; refreshed on navigation and every minute.
@@ -51,9 +67,36 @@ export default function AppShell({ nav, workspace, children }) {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setOpen(false), [pathname]);
 
+  // the company workspace also shows how many clients, designs, products… there are
+  const counts = useCounts((s) => s.counts);
+  const refreshCounts = useCounts((s) => s.refresh);
+  const refreshCountsSoon = useCounts((s) => s.refreshSoon);
+  const countsPath = user?.role === 'company' ? '/api/dashboard/counts' : user?.role === 'superadmin' ? '/api/admin/counts' : '';
+  const showCounts = Boolean(countsPath);
+  useEffect(() => {
+    if (!showCounts) return undefined;
+    const load = () => refreshCounts(countsPath);
+    const soon = () => refreshCountsSoon(countsPath);
+    load();
+    const t = setInterval(load, 60000);
+    window.addEventListener('sp:changed', soon);
+    window.addEventListener('focus', soon);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('sp:changed', soon);
+      window.removeEventListener('focus', soon);
+    };
+  }, [showCounts, countsPath, refreshCounts, refreshCountsSoon, pathname]);
+
   const withBadge = (item) => {
-    const n = item.href.endsWith('/notifications') ? unread : item.href.endsWith('/support') ? ticketsUnread : 0;
-    return n ? { ...item, badge: n > 99 ? '99+' : n } : item;
+    if (item.href.endsWith('/notifications') || item.href.endsWith('/support')) {
+      const n = item.href.endsWith('/notifications') ? unread : ticketsUnread;
+      return n ? { ...item, badge: n > 99 ? '99+' : n } : item;
+    }
+    const spec = showCounts ? COUNT_FOR[item.href] : null;
+    const n = spec && counts ? counts[spec.key] : undefined;
+    if (n === undefined) return item;
+    return { ...item, badge: n > 999 ? '999+' : n };
   };
   const isActive = (item) => (item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`));
   const signOut = () => {

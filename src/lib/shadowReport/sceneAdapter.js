@@ -3,6 +3,7 @@
 // Nothing here depends on object names beyond the two tags Scene3D sets.
 
 import * as THREE from 'three';
+import { buildingIdOf } from '../buildings.js';
 import { ridgeHeight, roofHeightAt } from '../model.js';
 
 /** `userData` flag Scene3D puts on the instanced meshes that draw the (valid) solar panels. */
@@ -139,5 +140,27 @@ export function designBounds(design) {
     }
   }
   if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(0, 2, 0), new THREE.Vector3(12, 4, 12));
+  return box;
+}
+
+/**
+ * World bounds of one building only (its own roof sections, with their walls) — the same framing
+ * `designBounds` does for the whole site, narrowed to a single building so its report render is a
+ * close-up rather than the whole campus. Blocks/trees/tables aren't attributed to a building in the
+ * model, so they aren't included here; they still appear in the render (it's the same shared scene),
+ * just aren't fitted to.
+ */
+export function buildingBounds(design, buildingId) {
+  const box = new THREE.Box3();
+  const add = (x, y, z) => box.expandByPoint(new THREE.Vector3(x, y, -z));
+  const own = design.sections.filter((s) => buildingIdOf(s, design.buildings) === buildingId);
+  for (const s of own) {
+    const top = ridgeHeight(s) + (s.parapetH || 0);
+    for (const p of s.poly) {
+      add(p.x, Math.max(0, (s.frame ? s.frame.wallBase : s.height) - 1.5), p.y);
+      add(p.x, top, p.y);
+    }
+  }
+  if (box.isEmpty()) return designBounds(design);
   return box;
 }

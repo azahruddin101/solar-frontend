@@ -92,14 +92,14 @@ export function computeGst(subtotal, { included = true, percent = 0 } = {}) {
   return { subtotal: base, gstIncluded: false, gstPercent, gstAmount, sgst: half, cgst: half, grandTotal: base + gstAmount };
 }
 
-export function computeFinancials({ kwp, annualKwh, tariff, costPerKw, degradation = 0.5, escalation = 3, years = 25 }) {
+export function computeFinancials({ kwp, annualKwh, tariff, costPerKw, degradation = 0.5, years = 25 }) {
   const cost = kwp * costPerKw;
   const rows = [];
   let cumulative = 0;
   let payback = null;
   for (let y = 1; y <= years; y++) {
     const energy = annualKwh * Math.pow(1 - degradation / 100, y - 1);
-    const rate = tariff * Math.pow(1 + escalation / 100, y - 1);
+    const rate = tariff; // the company's current rate, held flat
     const savings = energy * rate;
     const before = cumulative;
     cumulative += savings;

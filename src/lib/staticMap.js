@@ -31,12 +31,17 @@ export function ensureMapToken() {
   return mapTokenRequest;
 }
 
+// On the public proposal page nobody is signed in: the 3D ground image is fetched with the proposal's share token instead.
+let publicToken = '';
+export const setPublicMapToken = (t) => { publicToken = t || ''; };
+
 export const clearMapToken = () => { mapToken = ''; mapTokenAt = 0; };
 
 /** True once the map token is ready; keeps it fresh while the component using it stays mounted. */
 export function useMapToken() {
-  const [ready, setReady] = useState(Boolean(mapToken));
+  const [ready, setReady] = useState(Boolean(mapToken) || Boolean(publicToken));
   useEffect(() => {
+    if (publicToken) return undefined; // no map token to fetch on the public page
     let alive = true;
     const renew = () => ensureMapToken().then(() => alive && setReady(true)).catch(() => alive && setReady(true)); // an image error is shown by the map itself
     renew();
@@ -49,6 +54,10 @@ export function useMapToken() {
 export function staticMapUrl({ lat, lng, zoom, polygon = null, maptype = 'satellite' }) {
   const params = new URLSearchParams({ lat: lat.toFixed(7), lng: lng.toFixed(7), zoom: String(zoom), maptype });
   if (polygon?.length >= 3) params.set('pts', polygon.map((p) => `${p.lat.toFixed(7)},${p.lng.toFixed(7)}`).join(';'));
+  if (publicToken) {
+    params.set('st', publicToken);
+    return apiUrl(`/api/public/staticmap?${params}`);
+  }
   params.set('mt', mapToken);
   return apiUrl(`/api/staticmap?${params}`);
 }

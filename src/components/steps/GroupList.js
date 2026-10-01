@@ -58,7 +58,7 @@ export default function GroupList({ design }) {
                 {t && <p className="-mt-1 text-xs text-slate-500">Back leg: <b>{t.backLeg.toFixed(2)} m</b> · {t.legs.length} iron columns</p>}
                 <div className="grid grid-cols-2 gap-3">
                   <Adjust label="Rows" value={g.rows} min={1} max={8} onChange={(rows) => u({ rows })} />
-                  <Adjust label="Panels per row" value={g.cols} min={1} max={40} onChange={(cols) => u({ cols })} />
+                  <Adjust label="Columns" value={g.cols} min={1} max={40} onChange={(cols) => u({ cols })} />
                 </div>
                 <Adjust label="Facing direction (180 = south)" value={g.azimuth} min={0} max={359} suffix="°" onChange={(azimuth) => u({ azimuth })} />
                 <div className="flex gap-1 rounded-lg bg-slate-200/70 p-1 text-xs font-medium">

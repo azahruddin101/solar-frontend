@@ -10,18 +10,18 @@ import { formatMoney, formatNumber } from './energy.js';
 import { loadScriptFont } from './pdfFonts.js';
 import { drawIcon, paintIcon } from './pdfIcons.js';
 
-const W = 210; // A4 portrait, millimetres
-const PX = 10; // canvas pixels per millimetre
+export const W = 210; // A4 portrait, millimetres
+export const PX = 10; // canvas pixels per millimetre
 
-const WHITE = [255, 255, 255];
-const MUTED = [100, 116, 139];
-const BODY = [51, 65, 85];
-const LINE = [226, 232, 240];
+export const WHITE = [255, 255, 255];
+export const MUTED = [0, 0, 0];
+export const BODY = [0, 0, 0];
+export const LINE = [226, 232, 240];
 
-const mix = (a, b, t) => a.map((c, i) => Math.round(c + (b[i] - c) * t));
-const css = (rgb, alpha = 1) => `rgba(${rgb.join(',')},${alpha})`;
+export const mix = (a, b, t) => a.map((c, i) => Math.round(c + (b[i] - c) * t));
+export const css = (rgb, alpha = 1) => `rgba(${rgb.join(',')},${alpha})`;
 
-function palette(brand) {
+export function palette(brand) {
   const { primary, accent } = brand;
   return {
     primary,
@@ -34,20 +34,23 @@ function palette(brand) {
   };
 }
 
-function setText(doc, size, style, color) {
+/** Small text is drawn one point larger (5–9 pt). */
+const S = (n) => (n >= 5 && n < 9 ? n + 1 : n);
+
+export function setText(doc, size, style, color) {
   doc.setFont('helvetica', style);
-  doc.setFontSize(size);
+  doc.setFontSize(S(size));
   doc.setTextColor(...color);
 }
 
-const lines = (doc, str, width, size, style = 'normal') => {
+export const lines = (doc, str, width, size, style = 'normal') => {
   doc.setFont('helvetica', style);
-  doc.setFontSize(size);
+  doc.setFontSize(S(size));
   return doc.splitTextToSize(String(str ?? ''), width);
 };
 
 /** Largest size (≤ max) at which every line of `str` fits `width` in at most `maxLines` lines. */
-function fitText(doc, str, width, max, min, maxLines, style = 'bold') {
+export function fitText(doc, str, width, max, min, maxLines, style = 'bold') {
   for (let size = max; size >= min; size -= 1) {
     const l = lines(doc, str, width, size, style);
     if (l.length <= maxLines) return { size, lines: l };
@@ -55,7 +58,7 @@ function fitText(doc, str, width, max, min, maxLines, style = 'bold') {
   return { size: min, lines: lines(doc, str, width, min, style).slice(0, maxLines) };
 }
 
-const loadImage = (src) => new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
+export const loadImage = (src) => new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
 
 /** Split a tagline into two balanced lines for the script lettering. */
 function twoLines(str) {
@@ -218,7 +221,7 @@ function footerLayer(p) {
 
 /* ───────────── sections ───────────── */
 
-function header(doc, r, p) {
+export function header(doc, r, p) {
   if (r.brand.logo) {
     const s = Math.min(82 / r.brand.logo.width, 19 / r.brand.logo.height);
     doc.addImage(r.brand.logo.data, 'PNG', 8, 6.5 + (19 - r.brand.logo.height * s) / 2, r.brand.logo.width * s, r.brand.logo.height * s, 'cover-logo', 'FAST');
@@ -227,10 +230,11 @@ function header(doc, r, p) {
     doc.text(lines(doc, r.company.name, 105, 18, 'bold')[0], 9, 18);
   }
   setText(doc, 11, 'bold', p.ink);
-  doc.text('SOLAR PROPOSAL', 118, 12.8, { charSpace: 0.75 });
+  doc.text('SOLAR PROPOSAL', 118, 12.2, { charSpace: 0.75 });
   setText(doc, 8.5, 'normal', MUTED);
-  doc.text(r.ref, 118, 18.8);
-  doc.text(r.date, 118, 23.4);
+  doc.text(r.ref, 118, 17.8);
+  doc.text(`Created on ${r.date}`, 118, 22.2);
+  if (r.validUntil) doc.text(`Valid until ${r.validUntil}`, 118, 26.6); // the proposal's expiry, right under its date
   doc.setFillColor(...p.accent);
   doc.rect(171.5, 8.2, 0.45, 15.6, 'F');
   setText(doc, 6.3, 'normal', MUTED);
@@ -285,20 +289,21 @@ function heroText(doc, r, p, totals, layout) {
   });
 }
 
-function stats(doc, p, design, finance) {
+/** The four headline figures. `place` moves or narrows the strip; `pick` chooses which of the four it shows. */
+export function stats(doc, p, design, finance, place = {}, pick = [0, 1, 2, 3]) {
   const { totals, fin } = design;
-  const box = { x: 6.5, y: 160.5, w: 197, h: 44 };
+  const box = { x: 6.5, y: 160.5, w: 197, h: 44, ...place };
   doc.setFillColor(...p.panel);
   doc.roundedRect(box.x, box.y, box.w, box.h, 4.5, 4.5, 'F');
-  const col = box.w / 4;
+  const col = box.w / pick.length;
   const inr = finance.currency === 'INR';
   const items = [
     ['bolt', p.primary, 'SYSTEM SIZE', `${Number(totals.kwp.toFixed(2))} kWp`, 'Solar power system'],
     ['sun', p.accent, 'EST. ANNUAL GENERATION', `${formatNumber(totals.acKwh)} kWh`, 'Clean energy per year'],
     ['coins', p.primary, 'YEAR-1 SAVINGS', formatMoney(fin.firstYearSavings, finance.currency, { pdf: true }).replace(inr ? /^INR\s*/ : /^$/, ''), 'On electricity bills', inr],
-    ['chart', p.primary, 'PAYBACK PERIOD', fin.payback ? `${fin.payback.toFixed(1)} years` : '> 25 years', 'Estimated'],
+    ['chart', p.primary, 'PAYBACK PERIOD', fin.payback ? `${fin.payback.toFixed(1)} years` : `> ${fin.rows.length} years`, 'Estimated'],
   ];
-  items.forEach(([icon, color, label, value, sub, rupee], i) => {
+  pick.map((i) => items[i]).forEach(([icon, color, label, value, sub, rupee], i) => {
     const x = box.x + i * col + 9;
     if (i) {
       doc.setDrawColor(...mix(p.panel, [148, 163, 184], 0.35));
@@ -320,7 +325,7 @@ function stats(doc, p, design, finance) {
   });
 }
 
-function contactCard(doc, p, x, y, w, h, { icon, label, name, rows, note }) {
+export function contactCard(doc, p, x, y, w, h, { icon, label, name, rows, note }) {
   doc.setFillColor(...WHITE);
   doc.setDrawColor(...LINE);
   doc.setLineWidth(0.25);
@@ -347,8 +352,7 @@ function contactCard(doc, p, x, y, w, h, { icon, label, name, rows, note }) {
   }
 }
 
-function cards(doc, r, p) {
-  const y = 208;
+export function cards(doc, r, p, y = 208) {
   const h = 50;
   contactCard(doc, p, 7, y, 75.5, h, { icon: 'user', label: 'PREPARED FOR', name: r.client.name || 'Client', rows: [['pin', r.client.address], ['phone', r.client.phone], ['mail', r.client.email]] });
   contactCard(doc, p, 85.5, y, 72.5, h, {
@@ -358,8 +362,19 @@ function cards(doc, r, p) {
     rows: [['pin', r.company.address], ['phone', r.company.phone], ['mail', r.company.email], ['globe', r.company.website]],
     note: r.company.taxId && `GSTIN / Tax ID: ${r.company.taxId}`,
   });
-  // closing note
+  // closing note — or, when the proposal has a public link, the QR code that opens it
   const x = 161;
+  if (r.shareQr) {
+    doc.setFillColor(...WHITE);
+    doc.setDrawColor(...LINE);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(x, y, 42.5, h, 3, 3, 'FD');
+    doc.addImage(r.shareQr, 'PNG', x + 5.75, y + 4.5, 31, 31, 'share-qr', 'FAST');
+    setText(doc, 7.5, 'bold', p.ink);
+    doc.text('SCAN TO VIEW', x + 21.25, y + 40.5, { align: 'center', charSpace: 0.2 });
+    doc.text('THIS PROPOSAL ONLINE', x + 21.25, y + 45, { align: 'center', charSpace: 0.1 });
+    return;
+  }
   doc.setFillColor(...mix(p.cream, WHITE, 0.35));
   doc.roundedRect(x, y, 42.5, h, 3, 3, 'F');
   drawIcon(doc, 'sprout', x + 5.5, y + 5.5, 12.5, mix(p.primary, [101, 163, 13], 0.35), 1.8);
@@ -369,7 +384,7 @@ function cards(doc, r, p) {
   doc.roundedRect(x + 7, y + 43, 9.5, 0.9, 0.45, 0.45, 'F');
 }
 
-function footer(doc, r) {
+export function footer(doc, r) {
   setText(doc, 11.5, 'bold', WHITE);
   doc.text(lines(doc, r.company.name, 80, 11.5, 'bold')[0], 11, 283.6);
   setText(doc, 8.2, 'normal', [226, 240, 232]);
@@ -389,7 +404,7 @@ function footer(doc, r) {
   }
 }
 
-/** Draws the whole cover on the current (first) page. `r` carries brand, company, client, title, address, ref, date. */
+/** The "Magazine" cover, drawn on the current (first) page. `r` carries brand, company, client, title, address, ref, date. */
 export async function drawCover(doc, r, design, finance, snapshot) {
   const p = palette(r.brand);
   const layout = heroLayout(doc, r);

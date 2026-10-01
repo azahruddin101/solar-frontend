@@ -9,7 +9,7 @@ const App = dynamic(() => import('./App'), { ssr: false, loading: () => <FullPag
 
 export default function ClientApp({ designId, slug }) {
   return (
-    <AuthGuard role="company">
+    <AuthGuard role={['company', 'agent']} permission="designs:view">
       <App designId={designId} slug={slug} />
     </AuthGuard>
   );

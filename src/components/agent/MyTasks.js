@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { Alert, Card, EmptyState, LoadingBlock, PageHeader } from '../kit';
-import { Progress, StepStatusBadge } from '../installations/shared';
+import { Progress, StepStatusBadge, StepPriorityBadge } from '../installations/shared';
 
 export default function MyTasks() {
   const user = useSession((s) => s.user);
@@ -32,7 +32,7 @@ export default function MyTasks() {
               </div>
               {(p.design?.summary?.address || p.client?.address) && <div className="mt-2 flex items-start gap-1.5 text-[13px] text-slate-500"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="line-clamp-1">{p.design?.summary?.address || p.client?.address}</span></div>}
               <ul className="mt-3 space-y-1.5 border-t border-slate-100 pt-3">
-                {mine.map((s) => <li key={s.id} className="flex items-center justify-between gap-3 text-sm"><span className="truncate text-slate-700">{s.name}</span><StepStatusBadge status={s.status} /></li>)}
+                {mine.map((s) => <li key={s.id} className="flex items-center justify-between gap-3 text-sm"><span className="truncate text-slate-700">{s.name}</span><span className="flex shrink-0 items-center gap-1.5">{s.status !== 'done' && <StepPriorityBadge step={s} />}<StepStatusBadge status={s.status} /></span></li>)}
               </ul>
               <Progress project={p} className="mt-3" />
             </Card>

@@ -1,6 +1,6 @@
 /** Human-readable lines for the merged design + installation audit trail. */
 
-const STATUS_LABELS = { draft: 'Draft', proposed: 'Proposed', won: 'Won', lost: 'Lost' };
+const STATUS_LABELS = { draft: 'Draft', proposed: 'Proposed', won: 'Booked', lost: 'Lost' };
 
 function statusLine(msg) {
   const m = String(msg || '').match(/^(\w+)\s*→\s*(\w+)$/);
@@ -20,6 +20,10 @@ const DESIGN_ACTIONS = {
   design_renamed: (e) => ({ text: 'Design renamed', detail: e.message }),
   design_client_changed: () => ({ text: 'Client on design updated' }),
   design_duplicated: (e) => ({ text: 'Design created as copy', detail: e.message }),
+  client_proposal_accepted: (e) => ({ text: 'Client accepted the proposal', detail: e.message }),
+  client_proposal_rejected: (e) => ({ text: 'Client declined the proposal', detail: e.message }),
+  client_proposal_changes_requested: (e) => ({ text: 'Client requested changes', detail: e.message }),
+  design_sent_for_client_review: (e) => ({ text: 'Sent to client for review', detail: e.message }),
   installation_started: (e) => ({ text: 'Installation process started', detail: e.message }),
   installation_completed: () => ({ text: 'Installation completed' }),
 };

@@ -8,7 +8,7 @@ import { api, assetUrl } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { adminCompanyCreateSchema, adminCompanyUpdateSchema, newPassword, useValidation } from '@/lib/validation';
-import { Alert, Button, Card, ConfirmDialog, EmptyState, FormField, FormModal, IconButton, Input, NameInput, PhoneInput, LoadingBlock, LogoChip, PageHeader, PasswordInput, Select, Table, Tabs, Td, Textarea, Th, Toggle, Tr, formatDate, timeAgo, toast } from '../kit';
+import { Alert, Button, Card, ConfirmDialog, EmptyState, FormField, FormModal, Input, NameInput, PhoneInput, LoadingBlock, LogoChip, PageHeader, PasswordInput, RowMenu, Select, Table, Tabs, Td, Textarea, Th, Toggle, Tr, formatDate, timeAgo, toast } from '../kit';
 import { PlanBadge, StatusBadge } from './shared';
 
 const BLANK = { name: '', contactName: '', loginEmail: '', password: '', phone: '', address: '', website: '', taxId: '', pan: '', planId: '', status: 'active', notes: '', limits: { maxClients: 25, maxDesigns: 50, maxConcurrentLogins: 2 }, features: { pdfBranding: true, excelImport: true } };
@@ -99,7 +99,7 @@ function CompanyForm({ company, onClose, onSaved }) {
         <FormField label="Maximum clients" hint={customPlan ? 'Set limits for this custom plan.' : 'Copied from the plan.'}>
           <Input type="number" min={1} step="1" disabled={!customPlan && Boolean(selectedPlan)} value={form.limits.maxClients} onValue={(x) => set({ limits: { ...form.limits, maxClients: x } })} />
         </FormField>
-        <FormField label="Maximum designs">
+        <FormField label="Maximum proposals">
           <Input type="number" min={1} step="1" disabled={!customPlan && Boolean(selectedPlan)} value={form.limits.maxDesigns} onValue={(x) => set({ limits: { ...form.limits, maxDesigns: x } })} />
         </FormField>
         <FormField label="Concurrent sign-ins" hint="Active devices (company + agents).">
@@ -237,21 +237,28 @@ export default function AdminCompanies() {
                       <div className="min-w-0"><div className="max-w-[220px] truncate font-medium text-slate-900">{c.name}</div><div className="max-w-[220px] truncate text-xs text-slate-500">{c.loginEmail}</div></div>
                     </div>
                   </Td>
-                  <Td><PlanBadge plan={c.plan} planDetail={c.planDetail} /></Td>
+                  <Td><PlanBadge plan={c.plan} planDetail={c.planDetail} max={14} /></Td>
                   <Td><StatusBadge status={c.status} /></Td>
                   <Td className="text-[13px] leading-snug whitespace-nowrap text-slate-500">
                     <div><span className="text-slate-800 tabular-nums">{c.counts.clients}</span>{` / ${c.limits.maxClients}`} {c.counts.clients === 1 ? 'client' : 'clients'}</div>
-                    <div><span className="text-slate-800 tabular-nums">{c.counts.designs}</span>{` / ${c.limits.maxDesigns}`} {c.counts.designs === 1 ? 'design' : 'designs'}</div>
+                    <div><span className="text-slate-800 tabular-nums">{c.counts.designs}</span>{` / ${c.limits.maxDesigns}`} {c.counts.designs === 1 ? 'proposal' : 'proposals'}</div>
                   </Td>
                   <Td className="whitespace-nowrap text-slate-500">{timeAgo(c.lastLoginAt)}</Td>
                   <Td className="whitespace-nowrap text-slate-500">{formatDate(c.createdAt)}</Td>
                   <Td>
-                    <div className="flex justify-end gap-0.5">
-                      <IconButton icon={LogIn} label="Open workspace as this company" onClick={() => openWorkspace(c)} disabled={c.status !== 'active'} className="disabled:opacity-30" />
-                      <IconButton icon={Pencil} label="Edit" onClick={() => setModal({ type: 'form', company: c })} />
-                      <IconButton icon={KeyRound} label="Reset password" onClick={() => setModal({ type: 'password', company: c })} />
-                      {c.status === 'active' ? <IconButton icon={Ban} label="Suspend" tone="danger" onClick={() => setCompanyStatus(c, 'suspended')} /> : <IconButton icon={CheckCircle2} label="Activate" onClick={() => setCompanyStatus(c, 'active')} />}
-                      <IconButton icon={Trash2} label="Delete" tone="danger" onClick={() => setModal({ type: 'delete', company: c })} />
+                    <div className="flex justify-end">
+                      <RowMenu
+                        label={`Actions for ${c.name}`}
+                        items={[
+                          { key: 'open', icon: LogIn, label: 'Open workspace', disabled: c.status !== 'active', onClick: () => openWorkspace(c) },
+                          { key: 'edit', icon: Pencil, label: 'Edit company', onClick: () => setModal({ type: 'form', company: c }) },
+                          { key: 'password', icon: KeyRound, label: 'Reset password', onClick: () => setModal({ type: 'password', company: c }) },
+                          c.status === 'active'
+                            ? { key: 'suspend', icon: Ban, label: 'Suspend company', tone: 'danger', onClick: () => setCompanyStatus(c, 'suspended') }
+                            : { key: 'activate', icon: CheckCircle2, label: 'Activate company', onClick: () => setCompanyStatus(c, 'active') },
+                          { key: 'delete', icon: Trash2, label: 'Delete company', tone: 'danger', onClick: () => setModal({ type: 'delete', company: c }) },
+                        ]}
+                      />
                     </div>
                   </Td>
                 </Tr>

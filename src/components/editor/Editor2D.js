@@ -2,15 +2,24 @@
 
 // Full-bleed 2D editor drawn in SVG over satellite imagery (local metres, north up).
 
+import { buildingIdOf, buildingList, isMainSection, mainSection, sectionsOf } from '@/lib/buildings';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DEG } from '@/lib/geo';
-import { dist, edges, polygonCentroid, rectPoly } from '@/lib/geometry';
+import { dist, edges, pointInPolygon, polygonArea, polygonCentroid, rectPoly } from '@/lib/geometry';
 import { magnetize, newId, normSection, PANEL_GAP, ridgeSegment, roofPlanes, tableSize } from '@/lib/model';
 import { staticMapSize, staticMapUrl } from '@/lib/staticMap';
 import { useStore } from '@/lib/store';
 
 const BLUE = '#2f5bea';
 const ORANGE = '#f5a524';
+
+/** The building a new raised roof belongs to: the one whose roof lies under `point`, else the one being edited. */
+function roofUnder(state, point) {
+  const hit = state.sections.find((s) => s.points.length >= 3 && pointInPolygon(point, s.points));
+  const active = buildingList(state.buildings).find((b) => b.id === state.buildingId) || buildingList(state.buildings)[0];
+  const building = hit ? buildingIdOf(hit, state.buildings) : active.id;
+  return { building, main: mainSection(state.sections, state.buildings, building) };
+}
 
 function snapPoint(raw, pts, scale) {
   const tol = 12 / scale;
@@ -144,6 +153,9 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
   const tool = useStore((s) => s.tool);
   const selectedId = useStore((s) => s.selectedId);
   const sections = useStore((s) => s.sections);
+  const buildings = useStore((s) => s.buildings);
+  const activeBuilding = useStore((s) => s.buildingId);
+  const currentBuilding = buildingList(buildings).some((b) => b.id === activeBuilding) ? activeBuilding : buildingList(buildings)[0].id;
   const objects = useStore((s) => s.objects);
   const config = useStore((s) => s.config);
   const st = useStore.getState;
@@ -199,9 +211,16 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
     if (points.length < 3) return;
     const s = st();
     if (tool === 'draw-section') {
-      const first = s.sections.length === 0;
-      s.addSection({ id: newId('r'), name: first ? 'Main roof' : `Roof on roof ${s.sections.length}`, points, height: first ? 6 : (s.sections[0]?.height || 6) + 2.7, parapetH: first ? 1 : 0.3, parapetT: 0.23 });
-      s.set({ pendingKey: null });
+      if (s.pendingKey === 'building' || !s.sections.length) {
+        // the main roof of a building: the design's first one, or a new building on the campus
+        const building = s.sections.length ? s.addBuilding() : buildingList(s.buildings)[0].id;
+        s.addSection({ id: newId('r'), name: 'Main roof', building, points, height: 6, parapetH: 1, parapetT: 0.23 });
+        s.set({ pendingKey: null, buildingId: building });
+      } else {
+        const under = roofUnder(s, polygonCentroid(points));
+        s.addSection({ id: newId('r'), name: `Roof on roof ${sectionsOf(s.sections, s.buildings, under.building).length}`, building: under.building, points, height: (under.main?.height || 6) + 2.7, parapetH: 0.3, parapetT: 0.23 });
+        s.set({ pendingKey: null });
+      }
     } else {
       s.addObject({ id: newId('z'), type: 'zone', points, tilt: config.tilt, azimuth: design.defaultAzimuth, frontLeg: config.frontLeg, rowsPerTable: config.rowsPerTable, orientation: config.orientation, rowGap: config.rowGap });
     }
@@ -343,7 +362,6 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
       const kind = s.pendingKey;
       const preset = s.pendingBlock || {};
       const r = area && (area.w > 0.5 || area.d > 0.5) ? area : null;
-      const main = s.sections[0];
       setArea(null);
       if (kind === 'tree') {
         const rad = r ? Math.max(1, Math.hypot(r.end.x - r.start.x, r.end.y - r.start.y) / 2) : 2.5;
@@ -351,7 +369,8 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
         s.addObject({ id: newId('t'), type: 'tree', x: c.x, y: c.y, r: rad, h: Math.max(5, rad * 3) });
       } else if (kind === 'floor') {
         const q = r || areaRect({ x: d.start.x - 2, y: d.start.y - 2 }, { x: d.start.x + 2, y: d.start.y + 2 });
-        s.addSection({ id: newId('r'), name: 'Roof on roof', points: rectPoly(q.center.x, q.center.y, Math.max(q.w, 1), Math.max(q.d, 1), q.az), height: (main?.height || 3) + 2.7, parapetH: 0.3, parapetT: 0.2 });
+        const under = roofUnder(s, q.center);
+        s.addSection({ id: newId('r'), name: 'Roof on roof', building: under.building, points: rectPoly(q.center.x, q.center.y, Math.max(q.w, 1), Math.max(q.d, 1), q.az), height: (under.main?.height || 3) + 2.7, parapetH: 0.3, parapetT: 0.2 });
       } else {
         const c = r ? r.center : d.start;
         s.addObject({ id: newId('b'), type: 'block', name: 'Object', h: 1.8, ...preset, x: c.x, y: c.y, w: r ? Math.max(r.w, 0.4) : preset.w || 1.5, d: r ? Math.max(r.d, 0.4) : preset.d || 1.5, rot: design.defaultAzimuth });
@@ -414,7 +433,7 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
               <SlopeMarks
                 section={s}
                 toS={toS}
-                edit={slopeEdit && s.id === sections[0]?.id && tool === 'select' && !drawing}
+                edit={slopeEdit && s.id === mainSection(sections, buildings, currentBuilding)?.id && tool === 'select' && !drawing}
                 onLowEdge={(slopeAz) => st().updateSection(s.id, { slopeAz })}
                 onRidgeDown={(e) => startDrag(e, { kind: 'ridge', sectionId: s.id })}
               />
@@ -532,11 +551,18 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
             {snap && <circle cx={toS(snap.p).x} cy={toS(snap.p).y} r={7} fill={ORANGE} />}
           </g>
         )}
-        {sections.length > 0 && editSections && !drawing && (
-          <text {...toS(polygonCentroid(sections[0].points))} textAnchor="middle" fontSize="13" fontWeight="700" fill="#fff" pointerEvents="none" style={{ paintOrder: 'stroke', stroke: '#1e293b', strokeWidth: 3 }}>
-            {design.roofArea.toFixed(1)} m²
-          </text>
-        )}
+        {/* every building's main roof: its name (on a campus) and area */}
+        {!drawing && sections.filter((s) => isMainSection(sections, buildings, s)).map((s) => {
+          const c = toS(polygonCentroid(s.points));
+          const campus = buildingList(buildings).length > 1;
+          if (!campus && !editSections) return null;
+          return (
+            <text key={s.id} x={c.x} y={c.y} textAnchor="middle" fontSize="13" fontWeight="700" fill="#fff" pointerEvents="none" style={{ paintOrder: 'stroke', stroke: '#1e293b', strokeWidth: 3 }}>
+              {campus && <tspan x={c.x} dy={editSections ? '-0.3em' : '0.35em'}>{buildingList(buildings).find((b) => b.id === buildingIdOf(s, buildings))?.name}</tspan>}
+              {editSections && <tspan x={c.x} dy={campus ? '1.25em' : '0.35em'} fontWeight={campus ? 500 : 700}>{polygonArea(s.points).toFixed(1)} m²</tspan>}
+            </text>
+          );
+        })}
       </svg>
       <div className="pointer-events-none absolute bottom-2 right-3 rounded bg-black/50 px-1.5 py-0.5 text-[10px] text-white/80">Imagery © Google</div>
       {children}

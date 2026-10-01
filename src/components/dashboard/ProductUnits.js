@@ -33,7 +33,8 @@ export default function ProductUnitsPage() {
     setBusy(true);
     try {
       const productUnits = rows.map((r) => r.unit.trim()).filter(Boolean);
-      setCompany(await api('/api/company', { method: 'PUT', body: { productUnits } }));
+      const patch = await api('/api/company/catalog-settings', { method: 'PUT', body: { productUnits } });
+      setCompany({ ...company, ...patch });
       toast.success('Units saved');
       setEditing(false);
     } catch (err) {

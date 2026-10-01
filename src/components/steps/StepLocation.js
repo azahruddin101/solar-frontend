@@ -84,8 +84,30 @@ export default function StepLocation({ design }) {
   const [method, setMethod] = useState('search');
   const [coords, setCoords] = useState('');
   const [pending, setPending] = useState(place?.location || null);
+  const [address, setAddress] = useState(place?.address || '');
 
   const confirmed = origin && pending && Math.abs(origin.lat - pending.lat) < 1e-7 && Math.abs(origin.lng - pending.lng) < 1e-7;
+
+  useEffect(() => {
+    if (!origin || !MAPS_API_KEY) return;
+    if (place?.location && Math.abs(place.location.lat - origin.lat) < 1e-7 && Math.abs(place.location.lng - origin.lng) < 1e-7 && place.address) {
+      setAddress(place.address);
+      return;
+    }
+    let dead = false;
+    setAddress('');
+    importLibrary('geocoding')
+      .then(({ Geocoder }) => new Geocoder().geocode({ location: origin }))
+      .then((res) => {
+        if (dead) return;
+        setAddress(res.results?.[0]?.formatted_address || '');
+      })
+      .catch(() => {
+        if (!dead) setAddress('');
+      });
+    return () => (dead = true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origin?.lat, origin?.lng]);
   const pick = (p) => {
     set({ place: p });
     setPending(p.location);
@@ -164,6 +186,7 @@ export default function StepLocation({ design }) {
           <Sun className="mt-0.5 h-5 w-5 text-slate-600" />
           <div className="text-sm">
             <div className="font-semibold">Solar Data</div>
+            {address && <div className="text-slate-700">{address}</div>}
             <div className="text-slate-500">
               Irradiance: {irradiance.toFixed(2)} kWh/m²/day · {origin.lat.toFixed(5)}, {origin.lng.toFixed(5)}
             </div>

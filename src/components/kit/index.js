@@ -1,11 +1,13 @@
 'use client';
 
 // UI kit for the SaaS screens (admin console, company workspace, sign-in). Tailwind + brand tokens.
-import { AlertTriangle, Camera, Download, CheckCircle2, CircleAlert, Eye, EyeOff, ImageIcon, Loader2, X, XCircle } from 'lucide-react';
+import { AlertTriangle, Camera, Download, CheckCircle2, CircleAlert, EllipsisVertical, Eye, EyeOff, ImageIcon, Loader2, X, XCircle } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { openFile, signedFileUrl } from '@/lib/files';
 import { create } from 'zustand';
+import RichTextEditor from './RichTextEditor';
 
 export function cx(...c) {
   return c.filter(Boolean).join(' ');
@@ -202,6 +204,86 @@ export function IconButton({ icon: Icon, label, tone = 'default', className, ...
   );
 }
 
+/**
+ * Three-dot menu for a table row: `items` are {key, icon, label, tone?, disabled?, onClick | href}; falsy entries are skipped.
+ * The list is drawn in a portal, so a scrolling table cannot clip it, and opens upwards when there is no room below.
+ */
+export function RowMenu({ items, label = 'Actions' }) {
+  const [pos, setPos] = useState(null); // where the open list sits, in viewport pixels
+  const button = useRef(null);
+  const list = useRef(null);
+  const entries = items.filter(Boolean);
+  const close = () => setPos(null);
+
+  const toggle = () => {
+    if (pos) return close();
+    const r = button.current.getBoundingClientRect();
+    const height = entries.length * 38 + 10;
+    const up = window.innerHeight - r.bottom < height + 12 && r.top > height + 12;
+    return setPos({ right: Math.max(8, window.innerWidth - r.right), ...(up ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }) });
+  };
+
+  useEffect(() => {
+    if (!pos) return undefined;
+    const onPointer = (e) => !button.current?.contains(e.target) && !list.current?.contains(e.target) && close();
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        close();
+        button.current?.focus();
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const els = [...list.current.querySelectorAll('a,button:not(:disabled)')];
+        const i = els.indexOf(document.activeElement);
+        els[(i + (e.key === 'ArrowDown' ? 1 : -1) + els.length) % els.length]?.focus();
+      }
+    };
+    list.current?.querySelector('a,button:not(:disabled)')?.focus();
+    window.addEventListener('pointerdown', onPointer);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true); // the list is fixed: it would drift from its row
+    return () => {
+      window.removeEventListener('pointerdown', onPointer);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [pos]);
+
+  return (
+    <>
+      <button ref={button} type="button" aria-label={label} title={label} aria-haspopup="menu" aria-expanded={Boolean(pos)} onClick={toggle} className={cx('grid h-8 w-8 shrink-0 place-items-center rounded-md transition-colors hover:bg-slate-100 hover:text-slate-700', pos ? 'bg-slate-100 text-slate-700' : 'text-slate-500')}>
+        <EllipsisVertical className="h-4 w-4" />
+      </button>
+      {pos && createPortal(
+        <div ref={list} role="menu" aria-label={label} style={pos} className="fixed z-50 min-w-52 animate-pop overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-left shadow-xl">
+          {entries.map(({ key, icon: Icon, label: text, tone, disabled, onClick, href }) => {
+            const className = cx('flex w-full items-center gap-3 px-3.5 py-2 text-left text-sm font-medium outline-none disabled:cursor-not-allowed disabled:opacity-40', tone === 'danger' ? 'text-red-600 hover:bg-red-50 focus-visible:bg-red-50' : 'text-slate-700 hover:bg-slate-50 focus-visible:bg-slate-50');
+            const body = <>{Icon && <Icon className={cx('h-4 w-4 shrink-0', tone === 'danger' ? 'text-red-500' : 'text-slate-400')} />}{text}</>;
+            if (href && !disabled) return <Link key={key || text} href={href} role="menuitem" onClick={close} className={className}>{body}</Link>;
+            return (
+              <button
+                key={key || text}
+                type="button"
+                role="menuitem"
+                disabled={disabled}
+                onClick={() => {
+                  close();
+                  onClick?.();
+                }}
+                className={className}
+              >
+                {body}
+              </button>
+            );
+          })}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
 /* ───────────── Form controls ───────────── */
 
 const CONTROL = 'block rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-brand focus:ring-4 focus:ring-brand-muted/60 disabled:bg-slate-50 disabled:text-slate-500';
@@ -229,6 +311,48 @@ export function Input({ className, onValue, onChange, ...props }) {
 }
 
 /** Phone number: only digits, one leading +, spaces, dashes and brackets can be typed or pasted. */
+/**
+ * A number field you can clear and retype. It keeps what is typed while the field is focused, tells the parent the
+ * number as soon as it is valid (an empty box counts as 0 when 0 is allowed), and only applies `min` when you leave —
+ * so clearing a "1" to type "5" no longer snaps back to 1, and there is no stray leading 0.
+ */
+export function NumField({ value, onValue, min, max, ...props }) {
+  const [draft, setDraft] = useState(null);
+  const shown = draft ?? (value === undefined || value === null || Number.isNaN(value) ? '' : value);
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      {...props}
+      value={shown}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        if (raw === '') return (min ?? 0) <= 0 ? onValue(0) : undefined;
+        let n = Number(raw);
+        if (!Number.isFinite(n)) return undefined;
+        if (max != null) n = Math.min(max, n);
+        if (min != null && min >= 0 && n < 0) return undefined;
+        return onValue(n);
+      }}
+      onBlur={(e) => {
+        setDraft(null);
+        if (min != null && Number(value) < min) onValue(min);
+        const step = props.step;
+        if (step === '0.01' || step === 0.01) {
+          const n = Number(value);
+          if (Number.isFinite(n)) {
+            const r = Math.round(n * 100) / 100;
+            if (r !== n) onValue(r);
+          }
+        }
+        props.onBlur?.(e);
+      }}
+    />
+  );
+}
+
 export function cleanPhoneInput(v) {
   let d = String(v).replace(/\D/g, '');
   if (d.length === 12 && d.startsWith('91')) d = d.slice(2); // pasted +91 98765 43210
@@ -425,6 +549,38 @@ export function LoadingBlock({ label = 'Loading…' }) {
   );
 }
 
+/** Footer for a paginated table backed by `usePagedResource` — shown only while more rows remain. */
+export function LoadMoreRow({ hasMore, loadingMore, onClick, loaded, total }) {
+  if (!hasMore) return null;
+  return (
+    <div className="flex items-center justify-center gap-3 border-t border-slate-100 px-6 py-4">
+      <Button size="sm" variant="secondary" loading={loadingMore} onClick={onClick}>Load more</Button>
+      <span className="text-xs text-slate-400">{loaded} of {total}</span>
+    </div>
+  );
+}
+
+/** Prev / next footer for `usePaginatedResource` or client-sliced lists. */
+export function TablePagination({ page, totalPages, total, pageSize, onPageChange, className }) {
+  if (total <= 0) return null;
+  const pages = Math.max(1, totalPages || Math.ceil(total / pageSize) || 1);
+  if (pages <= 1 && total <= pageSize) return null;
+  const start = (page - 1) * pageSize + 1;
+  const end = Math.min(page * pageSize, total);
+  return (
+    <div className={cx('flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-6 py-3', className)}>
+      <span className="text-xs text-slate-500">
+        Showing <b className="font-medium text-slate-700">{start}–{end}</b> of <b className="font-medium text-slate-700">{total}</b>
+      </span>
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>Previous</Button>
+        <span className="min-w-[5.5rem] text-center text-xs text-slate-600">Page {page} of {pages}</span>
+        <Button size="sm" variant="secondary" disabled={page >= pages} onClick={() => onPageChange(page + 1)}>Next</Button>
+      </div>
+    </div>
+  );
+}
+
 export function FullPageLoader() {
   return (
     <div className="grid h-dvh place-items-center bg-slate-50" role="status" aria-label="Loading">
@@ -474,6 +630,28 @@ export function Tabs({ tabs, value, onChange, className }) {
           {t.count !== undefined && <span className="rounded-full bg-slate-100 px-2 py-px text-xs text-slate-600">{t.count}</span>}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** A horizontal step indicator for a multi-step form/modal. `current` is the 0-based index of the active step. */
+/** A slim progress track with the step names as labels — no numbered circles. */
+export function Stepper({ steps, current }) {
+  return (
+    <div role="list" aria-label="Steps">
+      <div className="flex items-center gap-1.5">
+        {steps.map((label, i) => (
+          <div key={label} className={cx('h-1 flex-1 rounded-full transition-colors', i <= current ? 'bg-brand' : 'bg-slate-200')} />
+        ))}
+      </div>
+      <div className="mt-2 flex justify-between">
+        {steps.map((label, i) => (
+          <span key={label} className={cx('flex items-center gap-1 text-[12px] font-medium', i === current ? 'text-brand-ink' : i < current ? 'text-slate-500' : 'text-slate-400')}>
+            {i < current && <CheckCircle2 className="h-3.5 w-3.5" />}
+            {label}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -694,3 +872,5 @@ export function timeAgo(d) {
   if (s < 86400 * 30) return `${Math.floor(s / 86400)} d ago`;
   return formatDate(d);
 }
+
+export { RichTextEditor };

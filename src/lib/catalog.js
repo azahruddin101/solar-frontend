@@ -48,6 +48,9 @@ export const DEFAULT_CATALOG = {
 
 const num = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
 
+/** The category a product is in and that category's parent category: the bill of materials is grouped by them. */
+const groupOf = (p) => ({ categoryName: String(p.categoryName || ''), parentId: String(p.parentId || ''), parentName: String(p.parentName || ''), parentOrder: Number(p.parentOrder) || 0 });
+
 export function normalizeCatalog(raw) {
   const c = { ...DEFAULT_CATALOG, ...(raw || {}) };
   c.otherCostPerKw = Number(c.otherCostPerKw) || 0;
@@ -62,11 +65,14 @@ export function normalizeCatalog(raw) {
       length: num(p.length, 1.9),
       width: num(p.width, 1.05),
       price: Number(p.price) || 0,
+      hsnCode: String(p.hsnCode || '').slice(0, 20),
+      gstPercent: p.gstPercent != null && p.gstPercent !== '' ? Number(p.gstPercent) : undefined,
       manufactureYear: Number(p.manufactureYear) || null,
       warrantyYears: Number.isFinite(Number(p.warrantyYears)) && p.warrantyYears !== null && p.warrantyYears !== undefined ? Number(p.warrantyYears) : null,
       voc: num(p.voc, Math.round((30 + watts * 0.04) * 10) / 10),
       isc: num(p.isc, Math.round((8 + watts * 0.011) * 10) / 10),
       name: `${p.brand || ''} ${p.model || ''} ${watts} W`.trim(),
+      ...groupOf(p),
     };
   });
   c.pillars = (Array.isArray(c.pillars) ? c.pillars : []).map((p, i) => ({
@@ -74,6 +80,9 @@ export function normalizeCatalog(raw) {
     name: String(p.name || '').slice(0, 60),
     shape: PILLAR_SHAPES.some((s) => s.id === p.shape) ? p.shape : 'square',
     pricePerFt: Number(p.pricePerFt) || 0,
+    hsnCode: String(p.hsnCode || '').slice(0, 20),
+    gstPercent: p.gstPercent != null && p.gstPercent !== '' ? Number(p.gstPercent) : undefined,
+    ...groupOf(p),
   }));
   if (!c.panels.length) c.panels = normalizeCatalog(DEFAULT_CATALOG).panels;
   if (!c.pillars.length) c.pillars = normalizeCatalog(DEFAULT_CATALOG).pillars;

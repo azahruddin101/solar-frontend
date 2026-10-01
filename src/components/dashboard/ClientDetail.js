@@ -1,15 +1,17 @@
 'use client';
 
-import { ArrowLeft, ArrowUpRight, Calendar, Download, Eye, FileText, Mail, MapPin, PenTool, Pencil, Phone, Plus, Trash2, User, Users, Zap } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Calendar, Download, Eye, FileText, Mail, MapPin, PenTool, Pencil, Phone, Plus, ReceiptText, Trash2, User, Users, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { api, assetUrl } from '@/lib/api';
+import { can } from '@/lib/agents';
 import { formatMoney } from '@/lib/energy';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
-import { Alert, Avatar, Badge, Button, Card, ConfirmDialog, EmptyState, FormField, IconButton, Input, LoadingBlock, PageHeader, Select, Table, Td, Textarea, Th, Tr, buttonClass, cx, formatDate, openStoredFile, timeAgo, toast } from '@/components/kit';
-import { DESIGN_STATUSES, NewDesignModal, designHref } from './shared';
+import { Alert, Avatar, Badge, Button, Card, ConfirmDialog, EmptyState, FormField, IconButton, Input, LoadingBlock, PageHeader, Select, Table, Td, Textarea, Th, Tr, buttonClass, cx, formatDate, openStoredFile, timeAgo, toast, RowMenu } from '@/components/kit';
+import ClientCredentials from './ClientCredentials';
+import { DESIGN_STATUSES, NewDesignModal, PROJECT_TYPE_LABEL, ROOF_TYPE_LABEL, designHref } from './shared';
 
 function formatFileSize(bytes) {
   if (!bytes) return '0 B';
@@ -19,24 +21,50 @@ function formatFileSize(bytes) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
-export default function ClientDetail({ id }) {
+export default function ClientDetail({ id, basePath = '/dashboard/clients', billingBasePath = '/dashboard/billing' }) {
   const router = useRouter();
   const company = useSession((s) => s.company);
+  const me = useSession((s) => s.user);
+  const canViewDesigns = can(me, 'designs', 'view');
+  const canCreateDesign = can(me, 'designs', 'create');
   const clientResource = useResource(`/api/clients/${id}`);
-  const designsResource = useResource('/api/designs');
+  const designsResource = useResource(canViewDesigns ? `/api/designs?client=${id}&limit=200` : null);
   const [modal, setModal] = useState(null);
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState('');
+  const [creds, setCreds] = useState(null);
 
   const client = clientResource.data;
 
-  const clientDesigns = useMemo(() => {
-    return (designsResource.data || []).filter((d) => d.client?.id === id || d.client === id);
-  }, [designsResource.data, id]);
+  const clientDesigns = designsResource.data?.items || [];
 
   const close = () => {
     setModal(null);
     setModalError('');
+  };
+
+  const manageLogin = async () => {
+    setBusy(true);
+    try {
+      const credentials = await api(`/api/clients/${id}/login`, { method: 'POST' });
+      clientResource.setData((c) => ({ ...c, hasLogin: true }));
+      setCreds({ clientName: client.name, credentials });
+    } catch (e) {
+      toast.error(e.message);
+    }
+    setBusy(false);
+  };
+  const removeLogin = async () => {
+    setBusy(true);
+    try {
+      await api(`/api/clients/${id}/login`, { method: 'DELETE' });
+      clientResource.setData((c) => ({ ...c, hasLogin: false }));
+      toast.success('Access removed');
+      close();
+    } catch (e) {
+      setModalError(e.message);
+    }
+    setBusy(false);
   };
 
   const remove = async () => {
@@ -44,7 +72,7 @@ export default function ClientDetail({ id }) {
     try {
       await api(`/api/clients/${id}`, { method: 'DELETE' });
       toast.success('Client deleted');
-      router.replace('/dashboard/clients');
+      router.replace(basePath);
     } catch (e) {
       setModalError(e.message);
     }
@@ -55,7 +83,7 @@ export default function ClientDetail({ id }) {
   if (clientResource.error) {
     return (
       <div className="space-y-4">
-        <Link href="/dashboard/clients" className={buttonClass({ variant: 'ghost', size: 'sm' })}>
+        <Link href={basePath} className={buttonClass({ variant: 'ghost', size: 'sm' })}>
           <ArrowLeft className="h-4 w-4 mr-1.5" /> Back to clients
         </Link>
         <Alert>{clientResource.error}</Alert>
@@ -70,7 +98,7 @@ export default function ClientDetail({ id }) {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <Link
-            href="/dashboard/clients"
+            href={basePath}
             className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-xs hover:bg-slate-50"
             title="Back to clients"
           >
@@ -90,9 +118,11 @@ export default function ClientDetail({ id }) {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'design' })}>
-            New design
-          </Button>
+          {canCreateDesign && (
+            <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'design' })}>
+              New Proposal
+            </Button>
+          )}
           <IconButton icon={Trash2} label="Delete client" tone="danger" onClick={() => setModal({ type: 'delete' })} />
         </div>
       </div>
@@ -141,6 +171,23 @@ export default function ClientDetail({ id }) {
                 <p className="mt-0.5 text-sm font-medium text-slate-900">{client.kwRequired ? `${client.kwRequired} kW` : '—'}</p>
               </div>
 
+              <div>
+                <span className="text-xs text-slate-400">Project Type</span>
+                <p className="mt-0.5 text-sm font-medium text-slate-900">{PROJECT_TYPE_LABEL[client.projectType] || '—'}</p>
+              </div>
+
+              <div>
+                <span className="text-xs text-slate-400">Roof Type</span>
+                <p className="mt-0.5 text-sm font-medium text-slate-900">{ROOF_TYPE_LABEL[client.roofType] || '—'}</p>
+              </div>
+
+              {client.projectType !== 'residential' && (
+                <div>
+                  <span className="text-xs text-slate-400">GST Number</span>
+                  <p className="mt-0.5 text-sm font-mono font-medium text-slate-900">{client.gstNumber || '—'}</p>
+                </div>
+              )}
+
               <div className="sm:col-span-2">
                 <span className="text-xs text-slate-400">Address</span>
                 <p className="mt-0.5 text-sm text-slate-800 leading-relaxed">{client.address || '—'}</p>
@@ -155,16 +202,34 @@ export default function ClientDetail({ id }) {
             </div>
           </Card>
 
+          {/* Portal access: the client's own view-only sign-in */}
+          <Card className="p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Client portal access</h2>
+                <p className="mt-1 text-sm text-slate-600">{client.hasLogin ? <>Signs in with <b className="text-slate-900">{client.email}</b> and can view their proposals, prices and payments — not edit anything.</> : client.email ? 'No login yet. Create one so this client can view their proposals.' : 'Add an email address to this client to create their login.'}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {client.hasLogin && <Badge tone="green">Active</Badge>}
+                <Button size="sm" disabled={!client.email} loading={busy} onClick={manageLogin}>{client.hasLogin ? 'Reset password' : 'Create login'}</Button>
+                {client.hasLogin && <Button size="sm" variant="dangerGhost" onClick={() => setModal({ type: 'removeLogin' })}>Remove access</Button>}
+              </div>
+            </div>
+          </Card>
+
           {/* Client Designs Table */}
+          {canViewDesigns && (
           <Card className="overflow-hidden">
             <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
               <div>
-                <h3 className="font-semibold text-slate-900">Proposals &amp; Designs</h3>
-                <p className="text-xs text-slate-500">Designs created specifically for this client</p>
+                <h3 className="font-semibold text-slate-900">Proposals</h3>
+                <p className="text-xs text-slate-500">Proposals created specifically for this client</p>
               </div>
-              <Button size="sm" variant="secondary" icon={Plus} onClick={() => setModal({ type: 'design' })}>
-                Create design
-              </Button>
+              {canCreateDesign && (
+                <Button size="sm" variant="secondary" icon={Plus} onClick={() => setModal({ type: 'design' })}>
+                  Create proposal
+                </Button>
+              )}
             </div>
 
             {designsResource.loading ? (
@@ -172,17 +237,19 @@ export default function ClientDetail({ id }) {
             ) : !clientDesigns.length ? (
               <div className="p-8 text-center">
                 <PenTool className="mx-auto h-8 w-8 text-slate-300" />
-                <p className="mt-2 text-sm font-medium text-slate-800">No designs yet for this client</p>
+                <p className="mt-2 text-sm font-medium text-slate-800">No proposals yet for this client</p>
                 <p className="mt-1 text-xs text-slate-500">Create a solar rooftop design and pricing proposal.</p>
-                <Button size="sm" variant="primary" icon={Plus} className="mt-4" onClick={() => setModal({ type: 'design' })}>
-                  New design
-                </Button>
+                {canCreateDesign && (
+                  <Button size="sm" variant="primary" icon={Plus} className="mt-4" onClick={() => setModal({ type: 'design' })}>
+                    New Proposal
+                  </Button>
+                )}
               </div>
             ) : (
               <Table>
                 <thead>
                   <tr>
-                    <Th>Design</Th>
+                    <Th>Proposal</Th>
                     <Th>Status</Th>
                     <Th className="text-right">Capacity</Th>
                     <Th className="text-right">Price</Th>
@@ -203,10 +270,16 @@ export default function ClientDetail({ id }) {
                       </Td>
                       <Td className="text-right tabular-nums">{d.summary?.kwp ? `${d.summary.kwp.toFixed(2)} kWp` : '—'}</Td>
                       <Td className="text-right tabular-nums">{d.summary?.cost ? formatMoney(d.summary.cost, company.currency) : '—'}</Td>
-                      <Td className="text-right">
-                        <Link href={designHref(d)} className={buttonClass({ size: 'sm', variant: 'ghost' })}>
-                          Open <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
-                        </Link>
+                      <Td>
+                        <div className="flex justify-end">
+                          <RowMenu
+                            label={`Actions for ${d.name}`}
+                            items={[
+                              { key: 'open', icon: ArrowUpRight, label: 'Open proposal', href: designHref(d) },
+                              d.status === 'won' && { key: 'billing', icon: ReceiptText, label: 'Billing', href: `${billingBasePath}/${d.id}` },
+                            ]}
+                          />
+                        </div>
                       </Td>
                     </Tr>
                   ))}
@@ -214,6 +287,7 @@ export default function ClientDetail({ id }) {
               </Table>
             )}
           </Card>
+          )}
         </div>
 
         {/* Right Col: Source, Referral & Documents */}
@@ -291,9 +365,13 @@ export default function ClientDetail({ id }) {
         </div>
       </div>
 
-      {modal?.type === 'design' && <NewDesignModal clients={[client]} clientId={client.id} onClose={close} />}
+      {creds && <ClientCredentials clientName={creds.clientName} credentials={creds.credentials} onClose={() => setCreds(null)} />}
+      <ConfirmDialog open={modal?.type === 'removeLogin'} onClose={close} onConfirm={removeLogin} busy={busy} error={modalError} title="Remove portal access?" confirmLabel="Remove access">
+        <b className="text-slate-900">{client.name}</b> will no longer be able to sign in. Their proposals stay; you can create a new login any time.
+      </ConfirmDialog>
+      {modal?.type === 'design' && canCreateDesign && <NewDesignModal clients={[client]} clientId={client.id} onClose={close} />}
       <ConfirmDialog open={modal?.type === 'delete'} onClose={close} onConfirm={remove} busy={busy} error={modalError} title="Delete this client?" confirmLabel="Delete client">
-        <b className="text-slate-900">{client.name}</b> will be permanently deleted along with their designs.
+        <b className="text-slate-900">{client.name}</b> will be permanently deleted along with their proposals.
       </ConfirmDialog>
     </div>
   );

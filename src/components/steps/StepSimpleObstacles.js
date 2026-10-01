@@ -2,7 +2,8 @@
 
 // "What is on your roof?" — big buttons, tap to place, drag to move, corner to resize.
 
-import { Building2, Cylinder, DoorOpen, Package, Trash2, TreePine } from 'lucide-react';
+import { Building2, Cylinder, DoorOpen, Package, Plus, Trash2, TreePine } from 'lucide-react';
+import { buildingIdOf, buildingList, mainSection, sectionsOf } from '@/lib/buildings';
 import { compassLabel, normalizeAzimuth } from '@/lib/geo';
 import { edges } from '@/lib/geometry';
 import { buildingAzimuth, normSection, ROOF_TYPES } from '@/lib/model';
@@ -66,7 +67,13 @@ function Heights({ value, options, onChange }) {
 export default function StepSimpleObstacles({ design }) {
   const s = useStore();
   const { tool, objects, sections, selectedId } = s;
-  const main = sections[0];
+  // a campus has several buildings; the panel edits one at a time
+  const buildings = buildingList(s.buildings).filter((b) => sectionsOf(sections, s.buildings, b.id).length);
+  const building = buildings.find((b) => b.id === s.buildingId) || buildings[0];
+  const campus = buildings.length > 1;
+  const main = building ? mainSection(sections, s.buildings, building.id) : null;
+  const raised = building ? sectionsOf(sections, s.buildings, building.id).slice(1) : [];
+  const addingBuilding = tool === 'draw-section' && s.pendingKey === 'building';
   const sloped = main && main.roofType && main.roofType !== 'flat';
   // a slope can face any side of the building: offer the outward direction of each long wall
   const facings = main
@@ -95,7 +102,7 @@ export default function StepSimpleObstacles({ design }) {
           setRise: (r) => s.updateSection(main.id, { rise2: r }) },
       ]
     : [{ key: 'a', side: compassLabel(frame.az), width: depth, rise: frame.rise, pitch: main.pitch, setRise: (r) => s.updateSection(main.id, { pitch: pitchFor(r, depth) }) }];
-  const things = [...sections.slice(1).map((x) => ({ ...x, kind: 'floor' })), ...objects.filter((o) => o.type === 'block' || o.type === 'tree')];
+  const things = [...raised.map((x) => ({ ...x, kind: 'floor' })), ...objects.filter((o) => o.type === 'block' || o.type === 'tree')];
 
   // tap a button, then drag across the area on the picture — the object takes exactly that size
   const armed = tool === 'mark-area' || tool === 'draw-section' ? s.pendingKey : null;
@@ -105,7 +112,8 @@ export default function StepSimpleObstacles({ design }) {
       ? s.set({ tool: 'select', pendingKey: null, pendingBlock: null })
       : s.set({ tool: it.key === 'floor' ? 'draw-section' : 'mark-area', pendingKey: it.key, pendingBlock: it.preset || null, selectedId: null });
   const armedItem = ITEMS.find((i) => i.key === armed);
-  const hint = armedItem
+  const hint = addingBuilding ? 'Click each corner of the next building\'s roof on the picture, then press Finish'
+    : armedItem
     ? armed === 'floor' ? 'Click each corner of the upper roof on the picture, then press Finish · corners can be dragged afterwards' : `Press and drag across the ${armedItem.label.toLowerCase()} on the picture to select its area`
     : sloped ? `Click the LOW edge of the roof${main.roofType === 'gable' ? ' · drag the white dot to move the ridge' : ''}`
     : things.length ? 'Drag an object to move it · pull a white dot to resize' : 'Nothing on the roof? Just press Continue';
@@ -113,7 +121,7 @@ export default function StepSimpleObstacles({ design }) {
   return (
     <>
       <div className="absolute inset-y-0 left-0 right-[400px]">
-        <Editor2D design={design} showPanels={false} slopeEdit editSections={tool === 'draw-section' || sections.slice(1).some((x) => x.id === selectedId)}>
+        <Editor2D design={design} showPanels={false} slopeEdit editSections={tool === 'draw-section' || sections.some((x) => x.id === selectedId && buildingIdOf(x, s.buildings) === building?.id && x.id !== main?.id)}>
           <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-slate-900/85 px-5 py-2 text-sm text-white shadow-lg">{hint}</div>
           {tool === 'draw-section' && (
             <div className="absolute bottom-6 right-6 flex gap-2" onPointerDown={(e) => e.stopPropagation()}>
@@ -125,8 +133,33 @@ export default function StepSimpleObstacles({ design }) {
       </div>
 
       <aside className="absolute inset-y-0 right-0 flex w-[400px] flex-col overflow-y-auto border-l border-slate-200 bg-white px-6 py-5">
-        <h2 className="text-[22px] font-bold leading-tight">Roof marked</h2>
+        <h2 className="text-[22px] font-bold leading-tight">{campus ? `${buildings.length} buildings marked` : 'Roof marked'}</h2>
         <p className="mt-1 text-sm font-medium text-brand-ink">Press Continue to see the solar plan.</p>
+
+        <div className="mt-4 rounded-lg border border-slate-200 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="text-sm font-semibold">Buildings</div>
+            <button type="button" onClick={() => s.set(addingBuilding ? { tool: 'select', pendingKey: null } : { tool: 'draw-section', pendingKey: 'building', pendingBlock: null, selectedId: null })} className={cx('inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold', addingBuilding ? 'border-brand bg-brand-soft text-brand-ink' : 'border-slate-300 text-slate-700 hover:bg-slate-50')}>
+              <Plus className="h-3.5 w-3.5" /> {addingBuilding ? 'Cancel' : 'Add building'}
+            </button>
+          </div>
+          {campus ? (
+            <>
+              <div role="radiogroup" aria-label="Building" className="flex flex-wrap gap-1.5">
+                {buildings.map((b) => (
+                  <button key={b.id} type="button" role="radio" aria-checked={b.id === building.id} onClick={() => s.set({ buildingId: b.id, selectedId: null, tool: 'select', pendingKey: null })} className={cx('max-w-full truncate rounded-full border px-3 py-1 text-xs font-medium', b.id === building.id ? 'border-brand bg-brand-soft text-brand-ink' : 'border-slate-200 text-slate-600 hover:bg-slate-50')}>{b.name}</button>
+                ))}
+              </div>
+              <div className="mt-2.5 flex items-center gap-2">
+                <input aria-label="Building name" value={building.name} maxLength={40} onChange={(e) => s.renameBuilding(building.id, e.target.value)} className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 px-2.5 text-sm font-semibold outline-none focus:border-brand" />
+                <button type="button" aria-label={`Delete ${building.name}`} title="Delete this building" onClick={() => window.confirm(`Delete ${building.name} and its roof?`) && s.removeBuilding(building.id)} className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-red-500 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
+              </div>
+              <p className="mt-1.5 text-xs text-slate-500">The roof settings below are for {building.name}.</p>
+            </>
+          ) : (
+            <p className="text-xs text-slate-500">More than one building on the site (a campus)? Add each one and mark its roof. The proposal gives one price with a breakdown per building.</p>
+          )}
+        </div>
         {main && (
           <div className="mt-5 rounded-lg border border-slate-200 p-3">
             <div className="mb-2 text-sm font-semibold">What does the roof look like?</div>
@@ -212,7 +245,7 @@ export default function StepSimpleObstacles({ design }) {
           ))}
         </div>
 
-        <button type="button" onClick={() => window.confirm('Redraw the roof outline? Objects and panels will be cleared.') && s.set({ sections: [], objects: [], tool: 'draw-section' })} className="mt-4 self-start text-sm font-medium text-slate-500 underline hover:text-slate-800">Redraw roof outline</button>
+        <button type="button" onClick={() => window.confirm(campus ? 'Redraw everything? All buildings, objects and panels will be cleared.' : 'Redraw the roof outline? Objects and panels will be cleared.') && s.set({ sections: [], buildings: [], buildingId: null, objects: [], tool: 'draw-section', pendingKey: null })} className="mt-4 self-start text-sm font-medium text-slate-500 underline hover:text-slate-800">Redraw roof outline</button>
 
         <div className="mt-5 text-sm font-semibold">On your roof ({things.length})</div>
         {!things.length && <p className="mt-1 text-sm text-slate-400">Nothing added yet.</p>}

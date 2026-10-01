@@ -77,19 +77,16 @@ export function Slider({ min, max, step = 1, value, onChange, disabled }) {
   );
 }
 
+import { NumField } from './kit';
 export function NumberInput({ value, onChange, min, max, step = 1, suffix, className }) {
   return (
     <div className={cx('flex h-9 items-center rounded-lg bg-white ring-1 ring-slate-200 focus-within:ring-2 focus-within:ring-amber-400', className)}>
-      <input
-        type="number"
+      <NumField
         value={Number.isFinite(value) ? value : ''}
         min={min}
         max={max}
         step={step}
-        onChange={(e) => {
-          const v = e.target.value === '' ? 0 : Number(e.target.value);
-          if (Number.isFinite(v)) onChange(v);
-        }}
+        onValue={onChange}
         className="h-full w-full min-w-0 rounded-lg bg-transparent px-3 text-sm outline-none"
       />
       {suffix && <span className="pr-3 text-xs text-slate-400">{suffix}</span>}

@@ -61,7 +61,7 @@ export default function DesignPanel({ design }) {
   const panelObjs = objects.filter((o) => o.type === 'array' || o.type === 'zone');
   const sel = objects.find((o) => o.id === selectedId && (o.type === 'array' || o.type === 'zone'));
   const selTable = sel?.type === 'array' ? design.tables.find((t) => t.source === sel.id) : null;
-  const main = sections[0];
+  const main = sections[0]; // the first building's main roof
 
   /** Apply to defaults and to every existing array / zone. */
   const applyAll = (patch) => s.set({ config: { ...config, ...patch }, objects: objects.map((o) => (o.type === 'array' && !o.elevated) || o.type === 'zone' ? { ...o, ...patch } : o) });

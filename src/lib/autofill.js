@@ -7,7 +7,7 @@ import { useStore } from './store.js';
 export function autoFillRoof(design) {
   const s = useStore.getState();
   const c = s.config;
-  const zones = design.sections.flatMap((sec) => zonesForSection(sec, c, design.defaultAzimuth, design.lat, newId('z'))).map((z) => ({ ...z, auto: true }));
+  const zones = design.sections.flatMap((sec) => zonesForSection(sec, c, design.azimuthFor(sec), design.lat, newId('z'))).map((z) => ({ ...z, auto: true }));
   s.set({ objects: [...s.objects.filter((o) => !(o.type === 'zone' && o.auto)), ...zones], selectedId: null });
 }
 
@@ -24,9 +24,9 @@ export function autoGroups(design, count = 0, { atLeast = false } = {}) {
   const c = s.config;
   const keep = s.objects.filter((o) => o.type === 'tree' || o.type === 'block');
   // flat roofs: one zone with the design's tilt; sloped roofs: one zone per slope, panels flush
-  const zones = design.sections.flatMap((sec) => zonesForSection(sec, c, design.defaultAzimuth, design.lat, newId('z')));
+  const zones = design.sections.flatMap((sec) => zonesForSection(sec, c, design.azimuthFor(sec), design.lat, newId('z')));
   const layout = (limit) => {
-    const temp = buildDesign({ sections: s.sections, objects: [...keep, ...zones], config: { ...c, maxPanels: limit }, lat: design.lat, spec: design.spec });
+    const temp = buildDesign({ sections: s.sections, buildings: s.buildings, objects: [...keep, ...zones], config: { ...c, maxPanels: limit }, lat: design.lat, spec: design.spec });
     return temp.tables.map((t, i) => ({ id: newId('g'), type: 'array', name: `Group ${i + 1}`, x: t.x, y: t.y, rows: t.rows, cols: t.cols, tilt: t.tilt, azimuth: t.azimuth, frontLeg: t.frontLeg, orientation: t.orientation }));
   };
   const placed = (groups) => groups.reduce((a, g) => a + g.rows * g.cols, 0);

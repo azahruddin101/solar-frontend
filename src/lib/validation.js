@@ -107,9 +107,12 @@ const common = { emailRequired, emailOptional, phoneOptional, panOptional, gstin
 const PRODUCT_TYPES = ['general', 'panels', 'poles'];
 const PILLAR_SHAPES = ['l-shape', 'cylindrical', 'square'];
 const STEP_STATUS = ['pending', 'in_progress', 'done'];
+const STEP_PRIORITIES = ['low', 'medium', 'high', 'urgent'];
 const TICKET_CATEGORIES = ['technical', 'billing', 'account', 'other'];
 const TICKET_PRIORITIES = ['low', 'normal', 'high'];
 const TICKET_STATUS = ['open', 'in_progress', 'resolved', 'closed'];
+export const CLIENT_PROJECT_TYPES = ['residential', 'industrial', 'commercial'];
+export const CLIENT_ROOF_TYPES = ['concrete', 'factory', 'tin_shed'];
 
 const f = { ...common };
 // Request schemas, one per form/endpoint. Objects are "loose": fields not listed here pass through untouched
@@ -131,6 +134,9 @@ export const clientSchema = obj({
   email: f.emailOptional,
   phone: f.phoneOptional,
   pan: f.panOptional,
+  gstNumber: f.gstinOptional,
+  projectType: z.enum(CLIENT_PROJECT_TYPES, 'Invalid project type').optional(),
+  roofType: z.union([z.enum(CLIENT_ROOF_TYPES), z.literal('')]).optional(),
   address: f.textOptional(400, 'Address'),
   notes: f.textOptional(1000, 'Notes'),
   consumerNumber: f.consumerNumberOptional,
@@ -152,8 +158,24 @@ const companyProfile = {
   pan: f.panOptional,
 };
 
+/** Who a direct invoice (no proposal, no client record) is addressed to. */
+export const invoiceBillToSchema = obj({
+  name: orgNameRequired,
+  phone: phoneOptional,
+  email: emailOptional,
+  address: textOptional(400, 'Address'),
+  gstNumber: gstinOptional,
+});
+
+/** Invoice numbers: fixed part + next running number typed with its leading zeros ("INVCMP2026" + "0001"). */
+export const invoiceNumberingSchema = obj({
+  prefix: optional((v) => /^[A-Za-z0-9/_.-]*$/.test(v), 'The fixed part can only have letters, digits and - / _ .', { max: 20 }),
+  next: required((v) => /^\d{1,10}$/.test(v) && Number(v) >= 1, 'Enter the next number as digits only, like 0001', { max: 10, blank: 'Enter the next invoice number' }),
+});
+
 export const companySelfSchema = obj({
   ...companyProfile,
+  invoiceNumbering: invoiceNumberingSchema.optional(),
   signatoryName: f.personNameOptional,
   signatoryTitle: f.textOptional(80, 'Title'),
   qrLabel: f.textOptional(80, 'QR label'),
@@ -203,8 +225,14 @@ export const categorySchema = obj({
   description: f.textOptional(300, 'Description'),
   type: z.enum(PRODUCT_TYPES, 'Invalid category type').optional(),
   specKeys: strArray(40).optional(),
+  parent: z.string().optional(), // a parent category id, or '' for none
 });
 export const categoryUpdateSchema = categorySchema.partial();
+
+export const parentCategorySchema = obj({
+  name: f.textRequired(60, 'Parent category name'),
+  description: f.textOptional(300, 'Description'),
+});
 
 const spec = obj({ key: z.string().trim().max(60, 'Specification name is too long'), value: z.string().trim().max(200, 'Specification value is too long').optional() });
 const year = new Date().getFullYear() + 1;
@@ -218,6 +246,7 @@ export const productSchema = obj({
   hsnCode: f.hsnOptional,
   unit: f.textOptional(20, 'Unit'),
   price: f.numOptional({ min: 0, max: 1e9, label: 'Price' }),
+  gstPercent: f.numOptional({ min: 0, max: 100, label: 'GST %' }),
   quantity: f.numOptional({ min: 0, max: 1e9, label: 'Quantity' }),
   warrantyYears: f.numOptional({ min: 0, max: 60, int: true, label: 'Warranty' }),
   description: f.textOptional(1000, 'Description'),
@@ -246,6 +275,7 @@ const stepFields = {
   description: f.textOptional(400, 'Description'),
   role: f.textOptional(40, 'Role'),
   assignee: f.objectIdOrBlank,
+  priority: z.enum(STEP_PRIORITIES, 'Invalid step priority').optional(),
 };
 export const stepCreateSchema = obj(stepFields);
 export const stepUpdateSchema = obj({

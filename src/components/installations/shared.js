@@ -1,6 +1,8 @@
 'use client';
 
 // Bits shared by the company's installation screens and the agent workspace.
+import { Flag } from 'lucide-react';
+import { stepPriority } from '@/lib/steps';
 import { Badge, cx } from '../kit';
 
 export const STEP_STATUSES = [
@@ -12,6 +14,11 @@ export const STEP_STATUSES = [
 export function StepStatusBadge({ status }) {
   const s = STEP_STATUSES.find((x) => x.id === status) || STEP_STATUSES[0];
   return <Badge dot tone={s.tone}>{s.label}</Badge>;
+}
+
+export function StepPriorityBadge({ step }) {
+  const p = stepPriority(step);
+  return <Badge tone={p.tone}><Flag className="h-3 w-3" />{p.label}</Badge>;
 }
 
 export function ProjectStatusBadge({ status }) {

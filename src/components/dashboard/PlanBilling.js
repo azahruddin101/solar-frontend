@@ -41,7 +41,7 @@ function RequestCard({ req, busy, onCancel }) {
         <span className="ml-auto text-xs text-slate-400">Requested {formatDate(req.createdAt)}</span>
       </div>
       {req.type === 'custom' && (
-        <p className="mt-2 text-sm text-slate-600">{req.requestedLimits?.maxClients} clients · {req.requestedLimits?.maxDesigns} designs · {req.requestedLimits?.maxConcurrentLogins} sign-ins</p>
+        <p className="mt-2 text-sm text-slate-600">{req.requestedLimits?.maxClients} clients · {req.requestedLimits?.maxDesigns} proposals · {req.requestedLimits?.maxConcurrentLogins} sign-ins</p>
       )}
       {req.message && <p className="mt-2 text-sm text-slate-600">“{req.message}”</p>}
       {req.status === 'approved' && <p className="mt-2 text-sm text-emerald-700">{req.planName} is now active on your workspace.</p>}
@@ -63,7 +63,7 @@ function PresetCard({ plan, disabled, busy, onRequest }) {
       <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">₹{plan.priceMonthly}<span className="text-sm font-normal text-slate-500">/mo</span></p>
       <ul className="mt-4 flex-1 space-y-1.5 text-sm text-slate-600">
         <li>{plan.maxClients} clients</li>
-        <li>{plan.maxDesigns} designs</li>
+        <li>{plan.maxDesigns} proposals</li>
         <li>{plan.maxConcurrentLogins} concurrent sign-ins</li>
         {plan.features?.map((f) => <li key={f} className="flex items-start gap-1.5"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />{f}</li>)}
       </ul>
@@ -153,7 +153,7 @@ export default function PlanBilling() {
             )}
             <div className="grid gap-3 p-6 sm:grid-cols-3">
               <LimitPill icon={Users} label="Clients" value={limits.maxClients} />
-              <LimitPill icon={Layers} label="Designs" value={limits.maxDesigns} />
+              <LimitPill icon={Layers} label="Proposals" value={limits.maxDesigns} />
               <LimitPill icon={Monitor} label="Sign-ins" value={limits.maxConcurrentLogins} />
             </div>
           </section>
@@ -180,7 +180,7 @@ export default function PlanBilling() {
                 <div className="space-y-4 p-6">
                   <div className="grid gap-4 md:grid-cols-3">
                     <FormField label="Clients"><Input type="number" min={1} step="1" value={custom.maxClients} onValue={(v) => setCustom({ ...custom, maxClients: v })} /></FormField>
-                    <FormField label="Designs"><Input type="number" min={1} step="1" value={custom.maxDesigns} onValue={(v) => setCustom({ ...custom, maxDesigns: v })} /></FormField>
+                    <FormField label="Proposals"><Input type="number" min={1} step="1" value={custom.maxDesigns} onValue={(v) => setCustom({ ...custom, maxDesigns: v })} /></FormField>
                     <FormField label="Concurrent sign-ins"><Input type="number" min={1} step="1" value={custom.maxConcurrentLogins} onValue={(v) => setCustom({ ...custom, maxConcurrentLogins: v })} /></FormField>
                   </div>
                   <FormField label="What do you need?"><Textarea rows={3} maxLength={2000} value={custom.message} onValue={(v) => setCustom({ ...custom, message: v })} placeholder="e.g. 5 field agents and about 300 clients this year" /></FormField>

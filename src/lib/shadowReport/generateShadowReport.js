@@ -6,6 +6,7 @@
 // setting, selection and camera are left exactly as they were.
 
 import * as THREE from 'three';
+import { buildingList } from '../buildings.js';
 import { compassLabel, DEG } from '../geo.js';
 import { fmtDay, fmtHour, fmtHour24, isoDay } from '../seasons.js';
 import { useStore } from '../store.js';
@@ -14,7 +15,7 @@ import { REPORT_HOURS, REPORT_SEASONS, SAMPLING } from './config.js';
 import { analyseSystemShading } from './panelShading.js';
 import { createReportCamera } from './reportCamera.js';
 import { createReportRenderer } from './reportRenderer.js';
-import { countPanelInstances, describeObstacles, designBounds, getObstacles, getSolarPanels, getSunLight, sunDirectionOf } from './sceneAdapter.js';
+import { buildingBounds, countPanelInstances, describeObstacles, designBounds, getObstacles, getSolarPanels, getSunLight, sunDirectionOf } from './sceneAdapter.js';
 import { buildShadowReportPdf } from './shadowReportPdf.js';
 
 /**
@@ -40,7 +41,8 @@ import { buildShadowReportPdf } from './shadowReportPdf.js';
  * @property {number|null} shadedAreaPercent
  * @property {number|null} backlitPercent
  * @property {import('./panelShading.js').PanelResult[]|null} panels
- * @property {{data:string, width:number, height:number}} image
+ * @property {{buildingId:string, buildingName:string, image:{data:string, width:number, height:number}}[]} images
+ *   one render per building, each framed close on that building (a single-building design has one entry)
  */
 
 /**
@@ -149,7 +151,11 @@ export async function generateShadowReport({ design, getScene, project, place, c
     await waitForPanels(scene, panels.length, signal);
     const obstacles = getObstacles(scene);
     report = createReportRenderer(gl);
-    const camera = createReportCamera(designBounds(design), report.width / report.height);
+    // a single-building design gets one render per hour, same as before; a campus gets one close-up render
+    // per building per hour, each framed on that building alone rather than the whole site
+    const buildings = buildingList(design.buildings);
+    const aspect = report.width / report.height;
+    const cameras = buildings.map((b) => createReportCamera(buildings.length > 1 ? buildingBounds(design, b.id) : designBounds(design), aspect));
     const totalArea = panels.reduce((a, p) => a + p.area, 0);
     onStep('geometry', 'done', `${panels.length} panels · ${obstacles.length} shadow-casting objects · ${report.width} × ${report.height} renders`);
 
@@ -188,7 +194,11 @@ export async function generateShadowReport({ design, getScene, project, place, c
           sunCompass: compassLabel(s.azimuth),
           panelCount: panels.length,
         };
-        const image = report.capture(scene, camera, overlay);
+        const images = buildings.map((b, i) => ({
+          buildingId: b.id,
+          buildingName: b.name,
+          image: report.capture(scene, cameras[i], buildings.length > 1 ? { ...overlay, buildingLabel: b.name } : overlay),
+        }));
         results.push({
           season: season.id,
           seasonLabel: season.label,
@@ -211,7 +221,7 @@ export async function generateShadowReport({ design, getScene, project, place, c
           shadedAreaPercent: shading?.shadedAreaPercent ?? null,
           backlitPercent: shading?.backlitPercent ?? null,
           panels: shading?.panels ?? null,
-          image,
+          images,
         });
         onStep(stepId, 'done', sunUp ? `Effective output ${Math.round(shading.effectiveOutputPercent)}% · shaded ${Math.round(shading.shadedAreaPercent)}%` : 'No direct sunlight');
         await nextFrame();
@@ -233,6 +243,7 @@ export async function generateShadowReport({ design, getScene, project, place, c
       panelWatts: spec.watts,
       moduleName: [spec.brand, spec.model].filter(Boolean).join(' ') || spec.name || `${spec.watts} W module`,
       totalPanelArea: totalArea,
+      buildings: buildings.map((b) => ({ id: b.id, name: b.name })),
       obstacles: describeObstacles(design),
       renderWidth: report.width,
       renderHeight: report.height,

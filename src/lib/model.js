@@ -2,6 +2,7 @@
 // "tables" (rows x cols of modules on a tilted frame with front/back legs).
 // Everything is in local metres around the project origin (x east, y north).
 
+import { buildingIdOf, buildingList } from './buildings.js';
 import { DEG, normalizeAzimuth } from './geo.js';
 import {
   circleHitsPoly,
@@ -188,6 +189,13 @@ export function resolveAzimuth(config, sections, lat) {
   return buildingAzimuth(sections, lat);
 }
 
+/** The facing panels get on this section: in "follow the building" mode, that of the section's own building. */
+export function sectionAzimuth(config, sections, lat, section) {
+  if (config.azimuthMode === 'custom' || config.azimuthMode === 'south') return resolveAzimuth(config, sections, lat);
+  const own = sections.filter((s) => s.building === section.building);
+  return buildingAzimuth(own.length ? own : sections, lat);
+}
+
 // ---------- tables ----------
 export function moduleDims(spec, orientation) {
   return orientation === 'landscape' ? { slope: spec.width, cross: spec.length } : { slope: spec.length, cross: spec.width };
@@ -351,8 +359,18 @@ function expandTable(t, ctx) {
 }
 
 /** Build everything derived from the stored design. */
-export function buildDesign({ sections: rawSections, objects, config, lat, spec: givenSpec }) {
-  const sections = rawSections.map(normSection).filter((s) => s.poly.length >= 3);
+export function buildDesign({ sections: rawSections, objects, config, lat, spec: givenSpec, buildings: rawBuildings }) {
+  // every section knows its building; a building's first section is its main roof
+  const list = buildingList(rawBuildings);
+  const mains = new Set();
+  const sections = rawSections.map(normSection).filter((s) => s.poly.length >= 3).map((s) => {
+    const building = buildingIdOf(s, list);
+    const main = !mains.has(building);
+    mains.add(building);
+    return { ...s, building, main };
+  });
+  const buildings = list.filter((b) => mains.has(b.id));
+  if (!buildings.length) buildings.push(list[0]);
   const spec = givenSpec || getSpec(config.specId);
   const trees = objects.filter((o) => o.type === 'tree');
   const blocks = objects.filter((o) => o.type === 'block');
@@ -385,9 +403,14 @@ export function buildDesign({ sections: rawSections, objects, config, lat, spec:
     }
   }
 
+  // panels belong to the building whose roof they stand on
+  for (const t of tables) {
+    t.building = topSection(sections, t.x, t.y)?.building || buildings[0].id;
+    for (const m of t.modules) m.building = t.building;
+  }
   const modules = tables.filter((t) => t.valid).flatMap((t) => t.modules);
-  const roofArea = sections.length ? polygonArea(sections[0].poly) : 0;
-  return { sections, spec, trees, blocks, tables, modules, roofArea, ctx };
+  const roofArea = sections.filter((s) => s.main).reduce((a, s) => a + polygonArea(s.poly), 0);
+  return { sections, buildings, spec, trees, blocks, tables, modules, roofArea, ctx };
 }
 
 /**

@@ -1,13 +1,13 @@
 'use client';
 
 // Company profile, theme colours, logo, e-signature, QR code and proposal text.
-import { Building2, Check, FileText, Image as ImageIcon, Palette, PenLine, QrCode, Trash2, Upload, UserCog } from 'lucide-react';
+import { Building2, Check, FileText, Hash, Image as ImageIcon, Palette, PenLine, QrCode, Trash2, Upload, UserCog } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { api, assetUrl } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { THEME_PRESETS, foregroundOn, isHex, luminance } from '@/lib/theme';
-import { companySelfSchema, useValidation } from '@/lib/validation';
+import { companySelfSchema, invoiceNumberingSchema, useValidation } from '@/lib/validation';
 import { Alert, Badge, Button, Card, CardHeader, FormField, ImageFrame, ImageSourceButtons, Input, NameInput, PhoneInput, PageHeader, Spinner, Tabs, Textarea, cx, showError, toast } from '../kit';
 import RichTextEditor from '../kit/RichTextEditor';
 import AccountSettings from '../layout/AccountSettings';
@@ -308,10 +308,68 @@ function Proposal() {
   );
 }
 
+const padSeq = (n, width) => String(n ?? 1).padStart(width || 4, '0');
+
+function InvoiceNumbering() {
+  const { company, setCompany } = useSession();
+  const saved = company.invoiceNumbering || {};
+  const [form, setForm] = useState({ prefix: saved.prefix ?? 'INV-', next: padSeq(saved.next, saved.width) });
+  const [busy, setBusy] = useState(false);
+  const v = useValidation(invoiceNumberingSchema, form);
+  const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+  const okNext = /^\d{1,10}$/.test(form.next) && Number(form.next) >= 1;
+  const preview = (offset) => `${form.prefix}${String(Number(form.next) + offset).padStart(form.next.length, '0')}`;
+  const save = async (e) => {
+    e.preventDefault();
+    const body = v.validate();
+    if (!body) return;
+    setBusy(true);
+    try {
+      setCompany(await api('/api/company', { method: 'PUT', body: { invoiceNumbering: body } }));
+      toast.success('Invoice numbering saved');
+    } catch (err) {
+      showError(err, 'Your changes were not saved');
+    }
+    setBusy(false);
+  };
+  return (
+    <Card className="max-w-3xl">
+      <CardHeader title="Invoice numbering" description="Every invoice gets the fixed part followed by a running number that goes up by one each time." />
+      <form onSubmit={save} noValidate className="grid gap-4 p-6 sm:grid-cols-2">
+        <FormField label="Fixed part" optional hint="Letters, digits and - / _ . — for example INVCMP2026 or INV/26-27/." error={v.error('prefix')}>
+          <Input maxLength={20} value={form.prefix} onValue={(x) => set({ prefix: x.replace(/\s/g, '') })} placeholder="INV-" className="font-mono" />
+        </FormField>
+        <FormField label="Next number" hint="Type it with leading zeros to fix the width: 0001 gives 0001, 0002 … 0099, 0100." error={v.error('next')}>
+          <Input inputMode="numeric" maxLength={10} value={form.next} onValue={(x) => set({ next: x.replace(/\D/g, '') })} placeholder="0001" className="font-mono" />
+        </FormField>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm sm:col-span-2">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Preview</div>
+          {okNext ? (
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono">
+              <span className="font-semibold text-slate-900">{preview(0)}</span>
+              <span className="text-slate-400">then</span>
+              <span className="text-slate-600">{preview(1)}</span>
+              <span className="text-slate-600">{preview(2)}</span>
+              <span className="text-slate-400">…</span>
+            </div>
+          ) : (
+            <div className="mt-1 text-slate-500">Enter the next number to see how invoices will be numbered.</div>
+          )}
+          <p className="mt-2 text-xs text-slate-500">
+            Current setting: <span className="font-mono text-slate-700">{saved.nextInvoiceNo || `${saved.prefix ?? 'INV-'}${padSeq(saved.next, saved.width)}`}</span> will be the next invoice. Numbers already issued are never reused: if you point the counter at a used number, the save is refused.
+          </p>
+        </div>
+        <div className="sm:col-span-2"><Button type="submit" variant="primary" loading={busy}>Save numbering</Button></div>
+      </form>
+    </Card>
+  );
+}
+
 const TABS = [
   { id: 'profile', label: 'Company profile', icon: Building2 },
   { id: 'branding', label: 'Branding', icon: Palette },
   { id: 'proposal', label: 'Proposal PDF', icon: FileText },
+  { id: 'invoices', label: 'Invoice numbering', icon: Hash },
   { id: 'account', label: 'My account', icon: UserCog },
 ];
 
@@ -326,6 +384,7 @@ export default function Settings() {
       {tab === 'profile' && <Profile />}
       {tab === 'branding' && <Branding />}
       {tab === 'proposal' && <Proposal />}
+      {tab === 'invoices' && <InvoiceNumbering />}
       {tab === 'account' && <AccountSettings />}
     </>
   );

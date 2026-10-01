@@ -1,5 +1,6 @@
 import { Geist, Geist_Mono } from 'next/font/google';
 import { LightboxHost } from '@/components/kit';
+import RouteTracker from '@/components/RouteTracker';
 import './globals.css';
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
@@ -15,6 +16,7 @@ export default function RootLayout({ children }) {
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="h-full overflow-hidden">
         {children}
+        <RouteTracker />
         <LightboxHost />
       </body>
     </html>

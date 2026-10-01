@@ -22,6 +22,12 @@
   --animate-slide-in: slide-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Small text is one step larger (Tailwind's text-xs and the small arbitrary sizes) */
+@theme {
+  --text-xs: 0.84375rem; /* 13.5px, was 12px */
+  --text-xs--line-height: calc(1.25 / 0.84375);
+}
+
 @keyframes pop {
   from { opacity: 0; transform: translateY(6px) scale(0.98); }
 }
@@ -202,3 +208,17 @@ button:disabled {
 .bg-grid { background-image: linear-gradient(to right, rgb(15 23 42 / 0.05) 1px, transparent 1px), linear-gradient(to bottom, rgb(15 23 42 / 0.05) 1px, transparent 1px); background-size: 44px 44px; }
 .mask-fade-b { mask-image: linear-gradient(to bottom, black 55%, transparent); }
 .mask-radial { mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 40%, transparent 100%); }
+
+
+/* ───────────── readable text ─────────────
+   Lighter greys used for text read as black, and the smallest sizes are one step bigger. Dark surfaces
+   (the sidebar, login and landing panels, tooltips, the 3D overlays) keep their own light text. */
+:is(.text-slate-400, .text-slate-500, .text-slate-600, .text-slate-700):not(:is(aside *, .text-white *, [class*="bg-slate-9"] *, [class*="bg-black"] *, [class*="bg-\[\#0"] *)) {
+  color: #000;
+}
+.text-\[8px\] { font-size: 10px; }
+.text-\[9px\] { font-size: 11px; }
+.text-\[10px\] { font-size: 12px; }
+.text-\[11px\] { font-size: 13px; }
+.text-\[12px\] { font-size: 13.5px; }
+.text-\[13px\] { font-size: 14px; }

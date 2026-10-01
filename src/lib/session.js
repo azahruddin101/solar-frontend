@@ -1,6 +1,6 @@
 'use client';
 
-// Who is signed in: super admin, company or one of the company's agents. Clients never sign in.
+// Who is signed in: super admin, company, one of the company's agents, or a client (view-only portal).
 import { create } from 'zustand';
 import { api, setUnauthorizedHandler, tokens } from './api.js';
 import { clearFileLinks } from './files.js';
@@ -15,7 +15,7 @@ function wipeWorkspace() {
   useStore.setState({ catalog: null });
 }
 
-const HOMES = { superadmin: '/admin', company: '/dashboard', agent: '/agent' };
+const HOMES = { superadmin: '/admin', company: '/dashboard', agent: '/agent', client: '/portal' };
 export const homeFor = (role) => HOMES[role] || '/login';
 
 export const useSession = create((set, get) => ({

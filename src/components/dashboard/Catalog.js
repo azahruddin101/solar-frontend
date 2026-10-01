@@ -26,7 +26,8 @@ function Pricing() {
     e.preventDefault();
     setBusy(true);
     try {
-      setCompany(await api('/api/company', { method: 'PUT', body: form }));
+      const patch = await api('/api/company/catalog-settings', { method: 'PUT', body: form });
+      setCompany({ ...company, ...patch });
       toast.success('Pricing saved');
     } catch (err) {
       showError(err, 'Pricing was not saved');
@@ -46,7 +47,7 @@ function Pricing() {
   );
 }
 
-export default function Catalog() {
+export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-categories' }) {
   const company = useSession((s) => s.company);
   const categories = useResource('/api/categories');
   const designer = useResource('/api/catalog'); // which of the products the designer picks up
@@ -61,6 +62,12 @@ export default function Catalog() {
   // the first category until a tab is picked (or after the picked one is deleted)
   const tab = picked === 'pricing' || picked === 'packages' || list.some((c) => c.id === picked) ? picked : list[0]?.id || 'packages';
   const category = list.find((c) => c.id === tab);
+  // a few categories show as tabs; the rest sit in a dropdown, so nothing needs sideways scrolling.
+  // The open category always stays visible as a tab, taking the last slot when it came from the dropdown.
+  const MAX_TABS = 3;
+  let shown = list.slice(0, MAX_TABS);
+  if (category && !shown.includes(category)) shown = [...list.slice(0, MAX_TABS - 1), category];
+  const more = list.filter((c) => !shown.includes(c));
   const missing = designer.data ? [!designer.data.panels.length && 'solar panel', !designer.data.pillars.length && 'pole'].filter(Boolean) : [];
 
   const close = () => { setModal(null); setModalError(''); };
@@ -90,7 +97,7 @@ export default function Catalog() {
       {categories.error && <Alert className="mb-6">{categories.error}</Alert>}
       {missing.length > 0 && (
         <Alert tone="info" className="mb-6">
-          The designer has no {missing.join(' or ')} of yours yet, so it uses built-in samples. Under <Link href="/dashboard/categories" className="font-medium underline">Manage categories</Link>, set a category’s <b>Used in the designer as</b>, then add products to it.
+          The designer has no {missing.join(' or ')} of yours yet, so it uses built-in samples. Under <Link href={mastersPath} className="font-medium underline">Manage categories</Link>, set a category’s <b>Used in the designer as</b>, then add products to it.
         </Alert>
       )}
       <div className="mb-6 flex items-end gap-2">
@@ -99,12 +106,18 @@ export default function Catalog() {
           value={tab}
           onChange={setPicked}
           tabs={[
-            ...list.map((c) => ({ id: c.id, label: c.name, icon: c.type === 'panels' ? PanelsTopLeft : c.type === 'poles' ? Boxes : Package, count: c.products })),
+            ...shown.map((c) => ({ id: c.id, label: c.name, icon: c.type === 'panels' ? PanelsTopLeft : c.type === 'poles' ? Boxes : Package, count: c.products })),
             // { id: 'packages', label: 'Packages', icon: PackageCheck },
             // { id: 'pricing', label: 'Pricing', icon: Wallet },
           ]}
         />
-        <Link href="/dashboard/categories" className={buttonClass({ size: 'sm', className: 'mb-1.5' })}><Settings2 className="h-3.5 w-3.5" /> Manage categories</Link>
+        {more.length > 0 && (
+          <Select aria-label="More categories" value="" onValue={setPicked} className="mb-1.5 h-8! w-auto max-w-[14rem] py-0! text-[13px]">
+            <option value="">More categories ({more.length})</option>
+            {more.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.products})</option>)}
+          </Select>
+        )}
+        <Link href={mastersPath} className={buttonClass({ size: 'sm', className: 'mb-1.5 shrink-0' })}><Settings2 className="h-3.5 w-3.5" /> Manage categories</Link>
       </div>
 
       {categories.loading && <Card><LoadingBlock /></Card>}
@@ -127,7 +140,7 @@ export default function Catalog() {
       )}
       {tab === 'pricing' && !categories.loading && (
         <>
-          {!list.length && <Card className="mb-6"><EmptyState icon={Tags} title="No categories yet" description="Create a category — solar panels, poles, inverters… — then add your products to it."><Link href="/dashboard/categories" className={buttonClass({ variant: 'primary' })}>Create a category</Link></EmptyState></Card>}
+          {!list.length && <Card className="mb-6"><EmptyState icon={Tags} title="No categories yet" description="Create a category — solar panels, poles, inverters… — then add your products to it."><Link href={mastersPath} className={buttonClass({ variant: 'primary' })}>Create a category</Link></EmptyState></Card>}
           <Pricing />
         </>
       )}

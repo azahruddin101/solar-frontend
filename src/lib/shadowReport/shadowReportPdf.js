@@ -19,8 +19,8 @@ const M = 14;
 const CW = W - 2 * M;
 
 const INK = [15, 23, 42];
-const BODY = [51, 65, 85];
-const MUTED = [100, 116, 139];
+const BODY = [0, 0, 0];
+const MUTED = [0, 0, 0];
 const LINE = [226, 232, 240];
 const SOFT = [248, 250, 252];
 const WHITE = [255, 255, 255];
@@ -145,11 +145,12 @@ function cover(doc, r, results, summaries) {
   y += loc.length * 4.6;
   if (Number.isFinite(meta.lat) && Number.isFinite(meta.lng)) text(doc, `${meta.lat.toFixed(5)}°, ${meta.lng.toFixed(5)}°`, M, y, { size: 8, color: MUTED });
 
-  // hero render, full width: the brightest daylight render
+  // hero render, full width: the brightest daylight render (first building when there's more than one)
   const hero = results.filter((x) => x.sunUp).sort((a, b) => b.effectiveOutputPercent - a.effectiveOutputPercent)[0] || results[0];
+  const heroImage = hero.images[0].image;
   const hy = 112;
-  const hh = CW * (hero.image.height / hero.image.width);
-  render(doc, hero.image, M, hy, CW, hh);
+  const hh = CW * (heroImage.height / heroImage.width);
+  render(doc, heroImage, M, hy, CW, hh);
   text(doc, clip(doc, `${hero.seasonLabel} · ${hero.timeLabel} — ${hero.sunUp ? `Effective Solar Output ${pct(hero.effectiveOutputPercent)}` : 'No direct sunlight'}  ·  render of the 3D design model`, CW, 7.5), M, hy + hh + 4.5, { size: 7.5, color: MUTED });
 
   // key figures: 3 + 2 tiles
@@ -180,41 +181,54 @@ function cover(doc, r, results, summaries) {
   text(doc, `${meta.renderWidth} × ${meta.renderHeight} px renders`, W - M, H - 5, { size: 7.5, color: MUTED, align: 'right' });
 }
 
+/** Room left on the page before the footer; a new page (with the same header) is started when a row won't fit. */
+const BOTTOM = H - 18;
+
 function seasonPage(doc, r, season, results, summary) {
-  newPage(doc, r, `${season.label.toUpperCase()} — SHADOW ANALYSIS`, `Representative date ${summary.dateLabel}  ·  ${season.note}`);
   const rows = results.filter((x) => x.season === season.id);
-  const cols = 2;
-  const gap = 5;
-  const iw = (CW - gap * (cols - 1)) / cols;
-  const ih = iw * (rows[0].image.height / rows[0].image.width);
+  const buildings = r.meta.buildings?.length ? r.meta.buildings : [{ id: 'b1', name: '' }];
+  const n = buildings.length;
+  const title = `${season.label.toUpperCase()} — SHADOW ANALYSIS`;
+  const sub = `Representative date ${summary.dateLabel}  ·  ${season.note}`;
+  let y = newPage(doc, r, title, sub);
+
+  const gap = 4;
+  const iw = (CW - gap * (n - 1)) / n;
+  const ih = iw * (rows[0].images[0].image.height / rows[0].images[0].image.width);
   const cap = 20;
   const rowH = ih + cap;
-  const y0 = 30;
-  rows.forEach((res, i) => {
-    const x = M + (i % cols) * (iw + gap);
-    const y = y0 + Math.floor(i / cols) * (rowH + 5);
-    render(doc, res.image, x, y, iw, ih);
+
+  rows.forEach((res) => {
+    if (y + rowH > BOTTOM) y = newPage(doc, r, title, `Representative date ${summary.dateLabel} (continued)`);
+    // one close-up per building, side by side, sharing this hour's figures below
+    res.images.forEach((im, i) => {
+      const x = M + i * (iw + gap);
+      render(doc, im.image, x, y, iw, ih);
+      if (n > 1) text(doc, clip(doc, im.buildingName, iw - 6, 7, 'bold'), x + 3, y + 8, { size: 7, style: 'bold', color: WHITE });
+    });
     const cy = y + ih;
-    text(doc, res.timeLabel, x, cy + 5.2, { size: 10, style: 'bold', color: INK });
-    text(doc, res.sunUp ? `Sun altitude ${res.sunAltitude.toFixed(0)}°  ·  azimuth ${res.sunAzimuth.toFixed(0)}° ${res.sunCompass}` : `Sun below the horizon (${res.sunAltitude.toFixed(0)}°)`, x + iw, cy + 5.2, { size: 7, color: MUTED, align: 'right' });
-    const half = iw / 2;
+    text(doc, res.timeLabel, M, cy + 5.2, { size: 10, style: 'bold', color: INK });
+    text(doc, res.sunUp ? `Sun altitude ${res.sunAltitude.toFixed(0)}°  ·  azimuth ${res.sunAzimuth.toFixed(0)}° ${res.sunCompass}` : `Sun below the horizon (${res.sunAltitude.toFixed(0)}°)`, M + CW, cy + 5.2, { size: 7, color: MUTED, align: 'right' });
+    const half = CW / 2;
     if (res.sunUp) {
-      text(doc, 'EFFECTIVE SOLAR OUTPUT', x, cy + 10.6, { size: 6.3, style: 'bold', color: MUTED });
-      text(doc, pct(res.effectiveOutputPercent), x, cy + 15.8, { size: 11.5, style: 'bold', color: tone(res.effectiveOutputPercent) });
-      text(doc, 'SHADED AREA', x + half, cy + 10.6, { size: 6.3, style: 'bold', color: MUTED });
+      text(doc, 'EFFECTIVE SOLAR OUTPUT', M, cy + 10.6, { size: 6.3, style: 'bold', color: MUTED });
+      text(doc, pct(res.effectiveOutputPercent), M, cy + 15.8, { size: 11.5, style: 'bold', color: tone(res.effectiveOutputPercent) });
+      text(doc, 'SHADED AREA', M + half, cy + 10.6, { size: 6.3, style: 'bold', color: MUTED });
       const shaded = `${pct(res.shadedAreaPercent)}  ·  ${res.shadedArea.toFixed(1)} of ${res.totalPanelArea.toFixed(1)} m²`;
-      text(doc, shaded, x + half, cy + 15.8, { size: 9, style: 'bold', color: INK });
-      if ((res.backlitPercent ?? 0) >= 0.5) text(doc, `${pct(res.backlitPercent)} of the area faces away from the sun`, x + half, cy + 19.4, { size: 6.3, color: MUTED });
+      text(doc, shaded, M + half, cy + 15.8, { size: 9, style: 'bold', color: INK });
+      if ((res.backlitPercent ?? 0) >= 0.5) text(doc, `${pct(res.backlitPercent)} of the area faces away from the sun`, M + half, cy + 19.4, { size: 6.3, color: MUTED });
     } else {
-      text(doc, 'NO DIRECT SUNLIGHT', x, cy + 10.6, { size: 6.3, style: 'bold', color: MUTED });
-      text(doc, 'Output: N/A', x, cy + 15.8, { size: 11.5, style: 'bold', color: MUTED });
-      text(doc, 'SHADED AREA', x + half, cy + 10.6, { size: 6.3, style: 'bold', color: MUTED });
-      text(doc, '—  not applicable', x + half, cy + 15.8, { size: 9, style: 'bold', color: MUTED });
+      text(doc, 'NO DIRECT SUNLIGHT', M, cy + 10.6, { size: 6.3, style: 'bold', color: MUTED });
+      text(doc, 'Output: N/A', M, cy + 15.8, { size: 11.5, style: 'bold', color: MUTED });
+      text(doc, 'SHADED AREA', M + half, cy + 10.6, { size: 6.3, style: 'bold', color: MUTED });
+      text(doc, '—  not applicable', M + half, cy + 15.8, { size: 9, style: 'bold', color: MUTED });
     }
+    y += rowH + 5;
   });
 
   // season strip
-  const sy = y0 + Math.ceil(rows.length / cols) * (rowH + 5) + 3;
+  if (y + 15 > BOTTOM) y = newPage(doc, r, title, `Representative date ${summary.dateLabel} (continued)`);
+  const sy = y;
   doc.setFillColor(...SOFT);
   doc.rect(M, sy, CW, 15, 'F');
   doc.setFillColor(...r.brand.primary);

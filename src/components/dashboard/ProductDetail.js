@@ -21,7 +21,7 @@ function Fact({ label, children }) {
   );
 }
 
-export default function ProductDetail({ id }) {
+export default function ProductDetail({ id, catalogPath = '/dashboard/catalog' }) {
   const router = useRouter();
   const company = useSession((s) => s.company);
   const productResource = useResource(`/api/products/${id}`);
@@ -36,7 +36,7 @@ export default function ProductDetail({ id }) {
     ? product.category
     : categories.find((c) => c.id === product?.category);
   const type = typeOf(category);
-  const catalogHref = category?.id ? `/dashboard/catalog?category=${category.id}` : '/dashboard/catalog';
+  const catalogHref = category?.id ? `${catalogPath}?category=${category.id}` : catalogPath;
   const money = (v) => formatMoney(v, company.currency);
   const shapeLabel = PILLAR_SHAPES.find((sh) => sh.id === product?.shape)?.label || product?.shape;
   const categoryKeys = useMemo(
@@ -67,7 +67,7 @@ export default function ProductDetail({ id }) {
   if (productResource.error) {
     return (
       <div className="space-y-4">
-        <Link href="/dashboard/catalog" className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900">
+        <Link href={catalogPath} className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900">
           <ArrowLeft className="h-4 w-4" /> Back to catalog
         </Link>
         <Alert>{productResource.error}</Alert>
@@ -128,6 +128,7 @@ export default function ProductDetail({ id }) {
                 {money(product.price)}
                 <span className="font-normal text-slate-500"> / {product.unit}</span>
               </Fact>
+              <Fact label="GST %">{product.gstPercent != null ? `${product.gstPercent}%` : '18%'}</Fact>
               <Fact label="Unit">{product.unit}</Fact>
               {type === 'panels' && (
                 <>

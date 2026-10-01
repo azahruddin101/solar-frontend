@@ -26,6 +26,7 @@ const BLANK = (units) => ({
   hsnCode: '',
   unit: normalizeProductUnit('', units),
   price: 0,
+  gstPercent: 18,
   quantity: 0,
   warrantyYears: 0,
   description: '',
@@ -190,8 +191,9 @@ export function ProductForm({ product, category, categories, categoryKeys, brand
     >
       <form id={formId} noValidate className="space-y-4" onSubmit={onSubmit}>
         <FormField label="Product name" error={v.error('name')}><Input ref={nameRef} maxLength={120} value={form.name} onValue={(x) => set({ name: upperFirst(x) })} placeholder="e.g. Waaree 550 W mono panel" /></FormField>
-        <div className="grid grid-cols-[1fr_130px_130px] gap-3">
-          <FormField label={`Price (${currency})`} error={v.error('price')}><Input type="number" min={0} step="any" value={form.price} onValue={(x) => set({ price: num(x) })} /></FormField>
+        <div className="grid grid-cols-[1fr_100px_130px_130px] gap-3">
+          <FormField label={`Price before GST (${currency})`} error={v.error('price')}><Input type="number" min={0} step="any" value={form.price} onValue={(x) => set({ price: num(x) })} /></FormField>
+          <FormField label="GST %" error={v.error('gstPercent')} hint=""><Input type="number" min={0} max={100} step="any" value={form.gstPercent ?? 18} onValue={(x) => set({ gstPercent: num(x) })} /></FormField>
           <FormField label="Per">
             <Select required value={form.unit} onValue={(v) => set({ unit: v })}>
               {unitOptions.map((u) => <option key={u} value={u}>{u}</option>)}
@@ -239,7 +241,7 @@ export function ProductForm({ product, category, categories, categoryKeys, brand
 /* ───────────── one category's tab ───────────── */
 
 /** `modal` / `setModal` come from the Catalog page so its header button can open the form too. */
-export function CategoryProducts({ category, categories, money, currency, units, excelImport, modal, setModal, onCount }) {
+export function CategoryProducts({ category, categories, money, currency, units, excelImport, modal, setModal, onCount, catalogPath = '/dashboard/catalog' }) {
   const { data, setData, loading, error, reload } = useResource(`/api/products?category=${category.id}`);
   const [query, setQuery] = useState('');
   const [importNote, setImportNote] = useState(null);
@@ -321,7 +323,7 @@ export function CategoryProducts({ category, categories, money, currency, units,
                 return (
                   <Tr key={p.id}>
                     <Td>
-                      <Link href={`/dashboard/catalog/${p.id}`} className="block max-w-[320px] truncate font-medium text-slate-900 hover:text-brand hover:underline" title={p.description || undefined}>{p.name}</Link>
+                      <Link href={`${catalogPath}/${p.id}`} className="block max-w-[320px] truncate font-medium text-slate-900 hover:text-brand hover:underline" title={p.description || undefined}>{p.name}</Link>
                       <div className="max-w-[320px] truncate text-xs text-slate-500">{subtitle || '—'}</div>
                     </Td>
                     <Td className="text-[13px] whitespace-nowrap text-slate-500">{p.warrantyYears || '—'}</Td>

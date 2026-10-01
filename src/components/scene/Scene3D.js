@@ -2,16 +2,16 @@
 
 import { Html, Line, OrbitControls } from '@react-three/drei';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { ChevronDown, ChevronUp, Pause, Play, Sun, X } from 'lucide-react';
+import { Building2, ChevronDown, ChevronUp, Maximize, Pause, Play, Sun, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { formatMoney, formatNumber } from '@/lib/energy';
-import { compassLabel } from '@/lib/geo';
+import { compassLabel, toLatLng } from '@/lib/geo';
 import { offsetPolygon, rectPoly, signedArea } from '@/lib/geometry';
 import { magnetize, PANEL_THICKNESS, ridgeHeight, roofHeightAt, roofPlanes, roofZ } from '@/lib/model';
 import { dayFor, fmtDay, fmtHour, fmtHour24, SEASON_DAYS } from '@/lib/seasons';
 import { PANEL_MESH_TAG, SUN_LIGHT_NAME } from '@/lib/shadowReport/sceneAdapter';
-import { staticMapSize, staticMapUrl } from '@/lib/staticMap';
+import { staticMapSize, staticMapUrl, zoomForSpan } from '@/lib/staticMap';
 import { useStore } from '@/lib/store';
 import { dayLength, SUN_UP_MIN_Z, sunPosition } from '@/lib/sun';
 import { cx } from '../ui';
@@ -47,11 +47,14 @@ function ringGeo(outer, inner, height, base) {
   return g;
 }
 
-function topGeo(poly, y, mapSize) {
+// `at` is where the satellite picture is centred, in the design's metres ({x, y}); the map's own centre by default
+const HERE = { x: 0, y: 0 };
+
+function topGeo(poly, y, mapSize, at = HERE) {
   const g = new THREE.ShapeGeometry(new THREE.Shape(poly.map((p) => new THREE.Vector2(p.x, p.y))));
   const pos = g.attributes.position;
   const uv = [];
-  for (let i = 0; i < pos.count; i++) uv.push(pos.getX(i) / mapSize + 0.5, pos.getY(i) / mapSize + 0.5);
+  for (let i = 0; i < pos.count; i++) uv.push((pos.getX(i) - at.x) / mapSize + 0.5, (pos.getY(i) - at.y) / mapSize + 0.5);
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.rotateX(-Math.PI / 2);
   g.translate(0, y, 0);
@@ -62,7 +65,7 @@ function topGeo(poly, y, mapSize) {
  * Pitched roof: each slope is triangulated in plan and lifted onto the roof surface, and the walls
  * are closed up to it (the triangular gable ends, the tall side of a single slope).
  */
-function slopedRoofGeo(section, mapSize) {
+function slopedRoofGeo(section, mapSize, at = HERE) {
   const top = [];
   const topUv = [];
   const walls = [];
@@ -75,7 +78,7 @@ function slopedRoofGeo(section, mapSize) {
       for (const i of tri) {
         const p = poly[i];
         top.push(p.x, roofZ(section, p.x, p.y) + lift, -p.y);
-        topUv.push(p.x / mapSize + 0.5, p.y / mapSize + 0.5);
+        topUv.push((p.x - at.x) / mapSize + 0.5, (p.y - at.y) / mapSize + 0.5);
       }
     }
     for (let i = 0; i < poly.length; i++) {
@@ -252,7 +255,7 @@ function Windows({ poly, wallH }) {
   );
 }
 
-function Building({ section, tex, mapSize }) {
+function Building({ section, tex, mapSize, at = HERE }) {
   const geos = useMemo(() => {
     const t = Math.min(section.parapetT || 0.23, 0.5);
     const inner = offsetPolygon(section.poly, t);
@@ -261,7 +264,7 @@ function Building({ section, tex, mapSize }) {
     // a slightly proud, darker band at ground level
     const plinth = plinthH > 0.05 ? ringGeo(offsetPolygon(section.poly, -0.03), null, plinthH, 0) : null;
     if (section.frame) {
-      const roof = slopedRoofGeo(section, mapSize);
+      const roof = slopedRoofGeo(section, mapSize, at);
       const body = ringGeo(section.poly, null, wallH, 0);
       return { body, top: roof.top, gables: roof.walls, parapet: null, sloped: true, plinth, edges: new THREE.EdgesGeometry(body, 30) };
     }
@@ -272,13 +275,13 @@ function Building({ section, tex, mapSize }) {
     const cap = Math.min(0.06, section.parapetH / 2);
     return {
       body,
-      top: topGeo(section.poly, section.height + 0.02, mapSize),
+      top: topGeo(section.poly, section.height + 0.02, mapSize, at),
       parapet: hasParapet ? ringGeo(section.poly, inner, section.parapetH - cap, section.height) : null,
       coping: hasParapet && capIn.length >= 3 ? ringGeo(offsetPolygon(section.poly, -0.03), capIn, cap, section.height + section.parapetH - cap) : null,
       plinth,
       edges: new THREE.EdgesGeometry(body, 30),
     };
-  }, [section, mapSize]);
+  }, [section, mapSize, at]);
   useEffect(() => () => Object.values(geos).forEach((g) => g?.dispose?.()), [geos]);
   const wallMap = plaster();
   return (
@@ -413,6 +416,7 @@ function TablePick({ t, design }) {
   const onDown = (e) => {
     e.stopPropagation();
     const store = useStore.getState();
+    if (store.readOnly) return; // the client's view-only 3D: no selecting, no moving
     store.set({ selectedId: t.source });
     if (!movable || e.button !== 0) return;
     const { camera, gl, controls, raycaster } = get();
@@ -451,7 +455,7 @@ function TablePick({ t, design }) {
       position={[t.x, mid, -t.y]}
       rotation={[t.tilt * (Math.PI / 180), Math.PI - t.azimuth * (Math.PI / 180), 0, 'YXZ']}
       onPointerDown={onDown}
-      onPointerOver={() => (document.body.style.cursor = movable ? 'grab' : 'pointer')}
+      onPointerOver={() => !useStore.getState().readOnly && (document.body.style.cursor = movable ? 'grab' : 'pointer')}
       onPointerOut={() => (document.body.style.cursor = '')}
     >
       <boxGeometry args={[t.size.width + 0.1, 0.08, t.size.slopeLen + 0.1]} />
@@ -691,12 +695,13 @@ function SunPath({ lat, day, hour, radius }) {
       {winter.pts.length > 1 && <Line points={winter.pts} color={WINTER} lineWidth={1.5} transparent opacity={0.85} />}
       {today.pts.length > 1 && <Line points={today.pts} color={DAY_PATH} lineWidth={2.5} />}
       {hours.map((h) => (
-        <Html key={h} position={today.at(h)} center style={{ pointerEvents: 'none' }}>
+        // zIndexRange kept low so these never escape above page UI (modals sit at z-50) — drei's default range is in the millions
+        <Html key={h} position={today.at(h)} center zIndexRange={[1, 0]} style={{ pointerEvents: 'none' }}>
           <span className={label('text-yellow-300', 'text-xl')}>{h}</span>
         </Html>
       ))}
       {[today.sunrise, today.sunset].map((h) => (
-        <Html key={h} position={today.at(h)} center style={{ pointerEvents: 'none' }}>
+        <Html key={h} position={today.at(h)} center zIndexRange={[1, 0]} style={{ pointerEvents: 'none' }}>
           <span className={cx(label('text-yellow-300', 'text-sm'), 'block translate-y-5')}>{fmtHour24(h)}</span>
         </Html>
       ))}
@@ -717,7 +722,8 @@ function SunPath({ lat, day, hour, radius }) {
 
 /** Reports the camera's heading every frame so the compass can turn with it (north is −z). */
 function CompassTracker({ onTurn }) {
-  useFrame(({ camera }) => onTurn((Math.atan2(camera.position.x, camera.position.z) * 180) / Math.PI));
+  // measured from the point the camera turns around, which is not always the middle of the map
+  useFrame(({ camera, controls }) => onTurn((Math.atan2(camera.position.x - (controls?.target.x || 0), camera.position.z - (controls?.target.z || 0)) * 180) / Math.PI));
   return null;
 }
 
@@ -929,7 +935,7 @@ function GroupTag({ info, lift }) {
         <sphereGeometry args={[0.12, 16, 16]} />
         <meshBasicMaterial color="#ffffff" depthTest={false} toneMapped={false} />
       </mesh>
-      <Html position={head} style={{ pointerEvents: 'none' }}>
+      <Html position={head} zIndexRange={[1, 0]} style={{ pointerEvents: 'none' }}>
         <div className="-translate-x-1/2 -translate-y-full pb-1">
           <div className="whitespace-nowrap rounded-md bg-brand/90 px-3 py-1 text-center text-xs font-semibold text-brand-fg shadow-lg">
             <div>{info.name}</div>
@@ -961,7 +967,7 @@ function SunControls({ day, hour, sunrise, sunset, playing, onPlay, patch }) {
     ['Selected day', DAY_PATH, 1],
   ];
   return (
-    <div className="absolute bottom-4 left-1/2 w-[22rem] max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-2xl bg-white/95 text-slate-800 shadow-xl backdrop-blur" onPointerDown={(e) => e.stopPropagation()}>
+    <div className="absolute bottom-4 left-1/2 z-10 w-[22rem] max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-2xl bg-white/95 text-slate-800 shadow-xl backdrop-blur" onPointerDown={(e) => e.stopPropagation()}>
       <div className="flex items-center gap-2 px-3 py-2">
         <Sun className="h-4 w-4 shrink-0 text-amber-500" />
         <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm">
@@ -1013,12 +1019,54 @@ function SunControls({ day, hour, sunrise, sunset, playing, onPlay, patch }) {
   );
 }
 
-function Bridge({ span, height }) {
+/** Moves the camera's pivot: `focusApi.go(point, distance?)`, set while a scene is mounted. */
+const focusApi = { go: null };
+
+/**
+ * The point the camera turns around. It glides to wherever `focusApi.go` sends it — a double-clicked spot,
+ * a building, the whole site — carrying the camera along, so the view keeps its angle. Dragging the view
+ * takes over at once.
+ */
+function CameraFocus() {
+  const get = useThree((s) => s.get);
+  const goal = useRef(null);
+  const bound = useRef(null);
+  useEffect(() => {
+    focusApi.go = (point, distance) => { goal.current = { to: new THREE.Vector3().copy(point), distance }; };
+    return () => {
+      focusApi.go = null;
+      bound.current?.controls.removeEventListener('start', bound.current.stop);
+    };
+  }, []);
+  useFrame((_, dt) => {
+    const { camera, controls } = get();
+    if (!controls) return;
+    if (bound.current?.controls !== controls) {
+      const stop = () => { goal.current = null; };
+      controls.addEventListener('start', stop);
+      bound.current = { controls, stop };
+    }
+    const g = goal.current;
+    if (!g) return;
+    const k = 1 - Math.exp(-Math.min(dt, 0.1) * 7);
+    const step = g.to.clone().sub(controls.target).multiplyScalar(k);
+    controls.target.add(step);
+    camera.position.add(step);
+    const arm = camera.position.clone().sub(controls.target);
+    if (g.distance) camera.position.copy(controls.target).add(arm.setLength(arm.length() + (g.distance - arm.length()) * k));
+    controls.update();
+    const there = g.to.distanceTo(controls.target) < 0.03 && (!g.distance || Math.abs(camera.position.distanceTo(controls.target) - g.distance) < 0.1);
+    if (there) goal.current = null;
+  });
+  return null;
+}
+
+function Bridge({ span, height, center }) {
   const get = useThree((s) => s.get);
   useEffect(() => {
     const { camera } = get();
     const d = Math.max(span * 1.25, 20);
-    camera.position.set(-d * 0.55, height + d * 0.6, d * 0.75);
+    camera.position.set(center[0] - d * 0.55, height + d * 0.6, center[2] + d * 0.75);
     sceneApi.capture = () => {
       const { gl, scene, camera: cam } = get();
       gl.render(scene, cam);
@@ -1032,7 +1080,7 @@ function Bridge({ span, height }) {
       sceneApi.capture = null;
       sceneApi.getScene = null;
     };
-  }, [get, span, height]);
+  }, [get, span, height, center]);
   return null;
 }
 
@@ -1062,6 +1110,28 @@ export default function Scene3D({ design }) {
     return Math.max(Math.max(...p.map((q) => q.x)) - Math.min(...p.map((q) => q.x)), Math.max(...p.map((q) => q.y)) - Math.min(...p.map((q) => q.y)), 12);
   }, [design.sections]);
   const maxH = Math.max(3, ...design.sections.map((s) => ridgeHeight(s)));
+  // the camera starts turning around the middle of everything drawn, not the map's centre
+  const centerKey = useMemo(() => {
+    const p = design.sections.flatMap((s) => s.poly);
+    if (!p.length) return '0|0';
+    return `${((Math.max(...p.map((q) => q.x)) + Math.min(...p.map((q) => q.x))) / 2).toFixed(1)}|${((Math.max(...p.map((q) => q.y)) + Math.min(...p.map((q) => q.y))) / 2).toFixed(1)}`;
+  }, [design.sections]);
+  const center = useMemo(() => {
+    const [x, y] = centerKey.split('|').map(Number);
+    return [x, maxH * 0.6, -y];
+  }, [centerKey, maxH]);
+  // one entry per building, to bring it into view
+  const places = useMemo(() => design.buildings.map((b) => {
+    const own = design.sections.filter((s) => s.building === b.id);
+    const p = own.flatMap((s) => s.poly);
+    if (!p.length) return null;
+    const xs = p.map((q) => q.x);
+    const ys = p.map((q) => q.y);
+    const size = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 8);
+    const top = Math.max(...own.map((s) => ridgeHeight(s)));
+    return { id: b.id, name: b.name, point: new THREE.Vector3((Math.max(...xs) + Math.min(...xs)) / 2, top * 0.6, -(Math.max(...ys) + Math.min(...ys)) / 2), distance: Math.max(size * 1.7 + top, 18) };
+  }).filter(Boolean), [design.buildings, design.sections]);
+  const wholeSite = () => focusApi.go?.(new THREE.Vector3(...center), Math.max(span * 1.25, 20) * 1.15);
 
   useEffect(() => {
     if (!playing) return undefined;
@@ -1078,17 +1148,55 @@ export default function Scene3D({ design }) {
     <div className="absolute inset-0 bg-[#05070d]">
       <Canvas shadows dpr={[1, 2]} gl={{ preserveDrawingBuffer: true, antialias: true }} camera={{ fov: 42, near: 0.3, far: 5000 }}>
         <color attach="background" args={['#05070d']} />
-        <SceneContent design={design} origin={origin} day={day} hour={hour} span={span} maxH={maxH} />
-        <OrbitControls makeDefault enableDamping target={[0, maxH * 0.6, 0]} maxPolarAngle={Math.PI / 2 - 0.03} minDistance={3} maxDistance={span * 8} />
-        <Bridge span={span} height={maxH} />
+        {/* double-click anything — a roof, a panel, the ground — to turn the camera around that spot */}
+        <group onDoubleClick={(e) => { e.stopPropagation(); focusApi.go?.(e.point); }}>
+          <SceneContent design={design} origin={origin} day={day} hour={hour} span={span} maxH={maxH} />
+        </group>
+        <OrbitControls makeDefault enableDamping target={center} maxPolarAngle={Math.PI / 2 - 0.03} minDistance={3} maxDistance={span * 8} />
+        <CameraFocus />
+        <Bridge span={span} height={maxH} center={center} />
         <CompassTracker onTurn={turnCompass} />
         {info && !sunOverride && <GroupTag info={info} lift={Math.max(3, span * 0.2)} />}
       </Canvas>
 
+      {!sunOverride && (
+        <div className="absolute left-4 top-16 flex max-w-[60%] flex-col items-start gap-2">
+          {places.length > 1 && (
+            <div className="flex flex-wrap gap-1.5 rounded-xl bg-black/70 p-1.5 shadow-lg ring-1 ring-white/15 backdrop-blur-sm">
+              <button type="button" onClick={wholeSite} className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-white/15"><Maximize className="h-3.5 w-3.5" /> Whole site</button>
+              {places.map((b) => (
+                <button key={b.id} type="button" title={`Bring ${b.name} into view`} onClick={() => focusApi.go?.(b.point, b.distance)} className="inline-flex max-w-[11rem] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-white/90 hover:bg-white/15"><Building2 className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{b.name}</span></button>
+              ))}
+            </div>
+          )}
+          <div className="pointer-events-none rounded-full bg-black/60 px-3 py-1 text-[11px] text-white/80 shadow ring-1 ring-white/10">Double-click a spot to rotate around it · right-drag to move the view</div>
+        </div>
+      )}
       <Compass dial={dial} />
       {info && !sunOverride && <PanelInfo info={info} onClose={() => useStore.getState().set({ selectedId: null })} />}
       <SunControls day={userDay} hour={sun.hour} sunrise={sunrise} sunset={sunset} playing={playing} onPlay={() => setPlaying((v) => !v)} patch={patch} />
     </div>
+  );
+}
+
+/**
+ * A building that lies outside the sharp satellite picture around the map's centre (a campus spreads
+ * further than one picture covers). It gets a picture of its own, centred on it: laid on the ground
+ * around it and on its roofs, so every building looks as sharp as the first.
+ */
+function FarBuilding({ group }) {
+  const tex = useSatellite(group.center, group.zoom);
+  const size = staticMapSize(group.center.lat, group.zoom);
+  return (
+    <>
+      {tex && (
+        <mesh rotation-x={-Math.PI / 2} position={[group.at.x, 0.015, -group.at.y]} receiveShadow>
+          <planeGeometry args={[size, size]} />
+          <meshStandardMaterial map={tex} roughness={1} />
+        </mesh>
+      )}
+      {group.sections.map((s) => <Building key={s.id} section={s} tex={tex} mapSize={size} at={group.at} />)}
+    </>
   );
 }
 
@@ -1097,6 +1205,27 @@ function SceneContent({ design, origin, day, hour, span, maxH }) {
   const texFar = useSatellite(origin, 18);
   const nearSize = staticMapSize(origin.lat, 20);
   const farSize = staticMapSize(origin.lat, 18);
+  // roofs inside the centre picture use it; a building reaching beyond it gets a picture of its own
+  const groups = useMemo(() => {
+    const reach = nearSize / 2 - 1;
+    const near = [];
+    const far = [];
+    for (const b of design.buildings) {
+      const sections = design.sections.filter((s) => s.building === b.id);
+      const p = sections.flatMap((s) => s.poly);
+      if (!p.length) continue;
+      const xs = p.map((q) => q.x);
+      const ys = p.map((q) => q.y);
+      if (Math.max(...xs.map(Math.abs), ...ys.map(Math.abs)) <= reach) {
+        near.push(...sections);
+        continue;
+      }
+      const at = { x: (Math.max(...xs) + Math.min(...xs)) / 2, y: (Math.max(...ys) + Math.min(...ys)) / 2 };
+      const size = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+      far.push({ id: b.id, sections, at, center: toLatLng(at, origin), zoom: Math.min(20, zoomForSpan(origin.lat, size, 1.25)) });
+    }
+    return { near, far };
+  }, [design.buildings, design.sections, nearSize, origin]);
   return (
     <>
       <Lights lat={design.lat} day={day} hour={hour} span={span} />
@@ -1114,9 +1243,10 @@ function SceneContent({ design, origin, day, hour, span, maxH }) {
           <meshStandardMaterial map={texNear} roughness={1} />
         </mesh>
       )}
-      {design.sections.map((s) => (
+      {groups.near.map((s) => (
         <Building key={s.id} section={s} tex={texNear} mapSize={nearSize} />
       ))}
+      {groups.far.map((g) => <FarBuilding key={g.id} group={g} />)}
       {design.blocks.map((b) => {
         const base = roofHeightAt(design.sections, b.x, b.y);
         const c = rectPoly(b.x, b.y, b.w, b.d, b.rot || 0);
