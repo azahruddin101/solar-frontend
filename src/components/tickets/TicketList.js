@@ -1,29 +1,34 @@
 'use client';
 
-// Support tickets: the company's own, or every company's for the platform admin.
+// A list of support conversations, for either channel (see channelOf in ./shared): a company's tickets with the
+// platform (every company's for the platform admin), or client support between a company and its clients.
 import { LifeBuoy, Plus, RefreshCw, Search, X } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '@/lib/api';
+import { useCan } from '@/lib/useCan';
+import { useResource } from '@/lib/useResource';
 import { usePagedResource } from '@/lib/useResource';
-import { ticketCreateSchema, useValidation } from '@/lib/validation';
+import { clientTicketCreateSchema, ticketCreateSchema, useValidation } from '@/lib/validation';
 import { useUnread } from '@/lib/unread';
 import { Alert, Badge, Button, Card, EmptyState, FormField, FormModal, Input, LoadingBlock, LoadMoreRow, PageHeader, Select, Textarea, cx, timeAgo } from '../kit';
-import { Attachment, TICKET_CATEGORIES, TICKET_PRIORITIES, TICKET_STATUSES, TicketStatusBadge, labelOf } from './shared';
+import { TICKET_PRIORITIES, TICKET_STATUSES, TicketStatusBadge, channelOf, labelOf } from './shared';
 import Composer from './Composer';
 
-function NewTicket({ onClose, onCreated }) {
-  const [form, setForm] = useState({ subject: '', category: 'technical', priority: 'normal', body: '' });
+function NewTicket({ c, withClient, onClose, onCreated }) {
+  const [form, setForm] = useState({ subject: '', category: c.categories.find((x) => x.id === 'service')?.id || c.categories[0].id, priority: 'normal', body: '', ...(withClient ? { clientId: '' } : {}) });
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const v = useValidation(ticketCreateSchema, form);
+  const clients = useResource(withClient ? '/api/clients?limit=200' : null);
+  const v = useValidation(withClient || c.api !== '/api/tickets' ? clientTicketCreateSchema : ticketCreateSchema, form);
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
 
   const submit = async () => {
     const data = v.validate();
     if (!data) return;
+    if (withClient && !data.clientId) { setError('Choose the client'); return; }
     if (!data.body && !files.length) { setError('Describe the problem or attach a file'); return; }
     setBusy(true);
     setError('');
@@ -31,7 +36,7 @@ function NewTicket({ onClose, onCreated }) {
       const fd = new FormData();
       Object.entries(data).forEach(([k, val]) => fd.append(k, val));
       files.forEach((f) => fd.append('files', f));
-      onCreated(await api('/api/tickets', { method: 'POST', form: fd }));
+      onCreated(await api(c.api, { method: 'POST', form: fd }));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -40,39 +45,51 @@ function NewTicket({ onClose, onCreated }) {
   };
 
   return (
-    <FormModal open onClose={onClose} title="New support ticket" description="Tell the platform team what you need help with." submitLabel="Send ticket" busy={busy} error={error} onSubmit={submit} noValidate>
+    <FormModal open onClose={onClose} title={c.newTitle} description={c.newDescription} submitLabel="Send" busy={busy} error={error} onSubmit={submit} noValidate>
+      {withClient && (
+        <FormField label="Client">
+          <Select value={form.clientId} onValue={(x) => set({ clientId: x })} disabled={!clients.data}>
+            <option value="">{clients.data ? 'Choose a client…' : 'Loading clients…'}</option>
+            {(clients.data?.items || []).map((cl) => <option key={cl.id} value={cl.id}>{cl.name}{cl.phone ? ` · ${cl.phone}` : ''}</option>)}
+          </Select>
+        </FormField>
+      )}
       <FormField label="Subject" error={v.error('subject')}><Input value={form.subject} onValue={(x) => set({ subject: x })} maxLength={150} autoFocus /></FormField>
       <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Category"><Select value={form.category} onValue={(v) => set({ category: v })}>{TICKET_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</Select></FormField>
+        <FormField label="Category"><Select value={form.category} onValue={(v) => set({ category: v })}>{c.categories.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</Select></FormField>
         <FormField label="Priority"><Select value={form.priority} onValue={(v) => set({ priority: v })}>{TICKET_PRIORITIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</Select></FormField>
       </div>
-      <FormField label="Describe the problem" error={v.error('body')}><Textarea rows={5} value={form.body} onValue={(x) => set({ body: x })} maxLength={4000} /></FormField>
+      <FormField label={withClient ? 'Message' : 'Describe the problem'} error={v.error('body')}><Textarea rows={5} value={form.body} onValue={(x) => set({ body: x })} maxLength={4000} /></FormField>
       <FormField label="Attachments" optional hint="Images or PDFs, up to 5 files, 10 MB each."><Composer.Attach files={files} setFiles={setFiles} /></FormField>
     </FormModal>
   );
 }
 
-export default function TicketList({ admin = false, basePath }) {
+export default function TicketList({ admin = false, basePath, channel = 'platform' }) {
   const router = useRouter();
-  const base = basePath || (admin ? '/admin/support' : '/dashboard/support');
+  const c = channelOf(channel, admin);
+  const may = useCan();
+  const base = basePath || (channel === 'clients' ? '/dashboard/client-support' : channel === 'portal' ? '/portal/support' : admin ? '/admin/support' : '/dashboard/support');
+  // starting one: a client always; the company with Reply permission (client support); the company's platform tickets as before
+  const canCreate = Boolean(c.newLabel) && (channel !== 'clients' || may('helpdesk', 'update'));
   const [status, setStatus] = useState('');
   const [query, setQuery] = useState('');
   const [q, setQ] = useState(''); // the search that is applied (on Search / Enter)
   const [creating, setCreating] = useState(false);
-  const { items: data, total, loading, error, reload, hasMore, loadingMore, loadMore } = usePagedResource(`/api/tickets?${new URLSearchParams({ ...(status && { status }), ...(q && { q }) })}`, { limit: 50 });
+  const { items: data, total, loading, error, reload, hasMore, loadingMore, loadMore } = usePagedResource(`${c.api}?${new URLSearchParams({ ...(status && { status }), ...(q && { q }) })}`, { limit: 50 });
   const refreshBadge = useUnread((s) => s.refresh);
 
   const refresh = async () => { await reload(); refreshBadge(); };
 
   return (
     <>
-      <PageHeader title="Support" description={admin ? 'Tickets from every company, newest activity first.' : 'Ask the platform team for help. Replies show up here.'}>
+      <PageHeader title={c.title} description={c.description}>
         <Button icon={RefreshCw} onClick={refresh}>Refresh</Button>
-        {!admin && <Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>New ticket</Button>}
+        {canCreate && <Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>{c.newLabel}</Button>}
       </PageHeader>
 
       <form className="mb-4 flex max-w-md gap-2" role="search" onSubmit={(e) => { e.preventDefault(); setQ(query.trim()); }}>
-        <Input value={query} onValue={setQuery} placeholder="Search by ticket ID (TKT-…) or subject" aria-label="Search tickets" />
+        <Input value={query} onValue={setQuery} placeholder={c.search} aria-label="Search tickets" />
         {q && <Button type="button" icon={X} aria-label="Clear search" onClick={() => { setQuery(''); setQ(''); }} />}
         <Button type="submit" variant="primary" icon={Search}>Search</Button>
       </form>
@@ -85,8 +102,8 @@ export default function TicketList({ admin = false, basePath }) {
 
       {error && <Alert className="mb-6">{error}</Alert>}
       {loading && !data ? <LoadingBlock /> : !data?.length ? (
-        <Card><EmptyState icon={LifeBuoy} title={q ? 'No matching tickets' : 'No tickets'} description={q ? 'Try a different ticket ID or subject.' : admin ? 'Nothing here yet.' : 'Need help? Open a ticket and the platform team will reply here.'}>
-          {!admin && <Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>New ticket</Button>}
+        <Card><EmptyState icon={LifeBuoy} title={q ? 'Nothing matches' : channel === 'platform' ? 'No tickets' : 'No requests yet'} description={q ? 'Try a different ID or subject.' : c.empty}>
+          {canCreate && <Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>{c.newLabel}</Button>}
         </EmptyState></Card>
       ) : (
         <Card className="divide-y divide-slate-100 overflow-hidden">
@@ -101,8 +118,8 @@ export default function TicketList({ admin = false, basePath }) {
                   <TicketStatusBadge status={t.status} />
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-slate-500">
-                  {admin && <span className="font-medium text-slate-600">{t.company?.name}</span>}
-                  <span>{labelOf(TICKET_CATEGORIES, t.category)}</span>
+                  {c.party(t) && <span className="font-medium text-slate-600">{c.party(t)}</span>}
+                  <span>{labelOf(c.categories, t.category)}</span>
                   {t.priority === 'high' && <span className="font-medium text-red-600">High priority</span>}
                   <span>{t.messageCount} message{t.messageCount === 1 ? '' : 's'}</span>
                   <span className="ml-auto">{timeAgo(t.lastMessageAt)}</span>
@@ -115,7 +132,7 @@ export default function TicketList({ admin = false, basePath }) {
         </Card>
       )}
 
-      {creating && <NewTicket onClose={() => setCreating(false)} onCreated={(t) => { setCreating(false); router.push(`${base}/${t.id}`); }} />}
+      {creating && <NewTicket c={c} withClient={channel === 'clients'} onClose={() => setCreating(false)} onCreated={(t) => { setCreating(false); router.push(`${base}/${t.id}`); }} />}
     </>
   );
 }

@@ -110,6 +110,7 @@ const STEP_STATUS = ['pending', 'in_progress', 'done'];
 const STEP_PRIORITIES = ['low', 'medium', 'high', 'urgent'];
 const TICKET_CATEGORIES = ['technical', 'billing', 'account', 'other'];
 const TICKET_PRIORITIES = ['low', 'normal', 'high'];
+const CLIENT_TICKET_CATEGORIES = ['installation', 'service', 'billing', 'proposal', 'other'];
 const TICKET_STATUS = ['open', 'in_progress', 'resolved', 'closed'];
 export const CLIENT_PROJECT_TYPES = ['residential', 'industrial', 'commercial'];
 export const CLIENT_ROOF_TYPES = ['concrete', 'factory', 'tin_shed'];
@@ -302,6 +303,14 @@ export const ticketCreateSchema = obj({
   body: f.textOptional(4000, 'Message'),
   category: z.enum(TICKET_CATEGORIES).optional(),
   priority: z.enum(TICKET_PRIORITIES).optional(),
+});
+/** Client support (company ↔ client); `clientId` when the company starts the conversation. */
+export const clientTicketCreateSchema = obj({
+  subject: f.textRequired(150, 'Subject').refine((v) => v.length >= 3, 'Subject must be at least 3 characters'),
+  body: f.textOptional(4000, 'Message'),
+  category: z.enum(CLIENT_TICKET_CATEGORIES).optional(),
+  priority: z.enum(TICKET_PRIORITIES).optional(),
+  clientId: z.string().optional(),
 });
 export const ticketMessageSchema = obj({ body: f.textOptional(4000, 'Message') });
 export const ticketStatusSchema = obj({ status: z.enum(TICKET_STATUS, 'Invalid ticket status') });

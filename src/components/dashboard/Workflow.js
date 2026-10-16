@@ -93,7 +93,7 @@ export default function Workflow() {
       </Card>
       {steps?.length > 0 && !roleOptions.length && (
         <Alert tone="info" className="mt-4">
-          Define roles under <Link href="/dashboard/agent-roles" className="font-medium underline">Agent roles</Link>, then pick which role should handle each step (e.g. site inspection → Site surveyor).
+          Add job titles under <Link href="/dashboard/agent-roles" className="font-medium underline">Job titles</Link>, then pick which job title should handle each step (e.g. site inspection → Site surveyor).
         </Alert>
       )}
     </form>

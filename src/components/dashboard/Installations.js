@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { stepPriority } from '@/lib/steps';
 import { useResource, usePagedResource } from '@/lib/useResource';
+import { useCan } from '@/lib/useCan';
 import { Alert, Badge, Button, Card, EmptyState, FormField, FormModal, Input, LoadingBlock, LoadMoreRow, PageHeader, Select, Table, Td, Th, Tr, buttonClass, timeAgo } from '../kit';
 import { Progress, ProjectStatusBadge, currentStep } from '../installations/shared';
 
@@ -56,6 +57,7 @@ function StartModal({ designs, designId, steps, basePath, workflowPath, onClose 
 }
 
 export default function Installations({ basePath = '/dashboard/installations', workflowPath = '/dashboard/workflow' }) {
+  const may = useCan();
   const router = useRouter();
   const params = useSearchParams();
   const { items: data, loading, error, hasMore, loadingMore, loadMore, total } = usePagedResource('/api/projects', { limit: 100 });
@@ -92,7 +94,7 @@ export default function Installations({ basePath = '/dashboard/installations', w
 
   return (
     <>
-      <PageHeader title="Installations" description="Accepted proposals on their way to a working system — step by step.">{ready && startButton}</PageHeader>
+      <PageHeader title="Installations" description="Accepted proposals on their way to a working system — step by step.">{ready && may('tasks', 'create') && startButton}</PageHeader>
       {(error || designs.error) && <Alert className="mb-6">{error || designs.error}</Alert>}
 
       <Card className="overflow-hidden">

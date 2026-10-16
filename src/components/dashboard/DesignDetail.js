@@ -2,17 +2,19 @@
 
 // Read-only overview of one design: its current summary plus every quotation PDF ever downloaded for it,
 // each snapshotting the design's data/summary at that moment so previous versions stay traceable and restorable.
-import { ArrowLeft, Clock, Eye, History, Loader2, PenLine, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Clock, Eye, History, Loader2, MessageCircle, PenLine, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { useSignedUrl } from '@/lib/files';
+import { shareProposalVersionOnWhatsApp } from '@/lib/proposalWhatsApp';
 import { formatMoney, formatNumber } from '@/lib/energy';
+import { useCan } from '@/lib/useCan';
 import { useSession } from '@/lib/session';
 import { useStore } from '@/lib/store';
 import { useResource } from '@/lib/useResource';
-import { Alert, Card, CardHeader, EmptyState, LoadingBlock, Modal, Table, Td, Th, Tr, formatDate, toast, buttonClass } from '../kit';
+import { Alert, Card, CardHeader, EmptyState, LoadingBlock, Modal, Table, Td, Th, Tr, formatDate, showError, toast, buttonClass } from '../kit';
 import { DesignStatusBadge, designHref } from './shared';
 
 const formatDateTime = (d) => (d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '—');
@@ -35,11 +37,29 @@ function PdfPreviewModal({ url, onClose }) {
 export default function DesignDetail({ designId, basePath = '/dashboard/designs' }) {
   const router = useRouter();
   const company = useSession((s) => s.company);
+  const may = useCan();
   const { data: design, loading, error } = useResource(`/api/designs/${designId}`);
   const versions = useResource(`/api/designs/${designId}/versions`);
   const money = (v) => formatMoney(v || 0, company?.currency);
   const [preview, setPreview] = useState(null); // /uploads/<name> of the PDF being viewed
   const [restoringId, setRestoringId] = useState(null); // the version currently being restored
+  const [sharingId, setSharingId] = useState(null);
+
+  const shareVersion = async (v) => {
+    if (!design.client?.phone) return toast.error('Add a mobile number on the client profile to share on WhatsApp.');
+    setSharingId(v.id);
+    try {
+      await shareProposalVersionOnWhatsApp({
+        pdfName: v.pdfName,
+        proposalName: design.name,
+        client: design.client,
+      });
+    } catch (e) {
+      showError(e, 'Could not share on WhatsApp');
+    } finally {
+      setSharingId(null);
+    }
+  };
 
   if (loading) return <LoadingBlock />;
   if (error || !design) return <Alert>{error || 'Proposal not found'}</Alert>;
@@ -76,7 +96,7 @@ export default function DesignDetail({ designId, basePath = '/dashboard/designs'
             {design.client?.name} · <DesignStatusBadge status={design.status} /> · {design.type === 'quick' ? 'Quick proposal' : '3D proposal'}
           </p>
         </div>
-        <Link href={designHref(design)} className={buttonClass({ variant: 'primary' })}><PenLine className="h-4 w-4" />Edit proposal</Link>
+        <Link href={designHref(design)} className={buttonClass({ variant: 'primary' })}><PenLine className="h-4 w-4" />{may('proposals', 'update') ? 'Edit proposal' : 'Open proposal'}</Link>
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -121,13 +141,16 @@ export default function DesignDetail({ designId, basePath = '/dashboard/designs'
                   <Td className="text-right whitespace-nowrap tabular-nums">{v.summary?.kwp ? `${v.summary.kwp.toFixed(2)} kWp · ${v.summary.panels || 0} panels` : '—'}</Td>
                   <Td className="text-right whitespace-nowrap tabular-nums">{money(v.summary?.cost)}</Td>
                   <Td className="text-right whitespace-nowrap">
-                    <div className="flex justify-end gap-3">
+                    <div className="flex flex-wrap justify-end gap-3">
                       <button type="button" onClick={() => setPreview(`/uploads/${v.pdfName}`)} className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900">
                         <Eye className="h-4 w-4" />View
                       </button>
-                      <button type="button" onClick={() => restore(v)} disabled={Boolean(restoringId)} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline disabled:opacity-50">
+                      {may('proposals', 'share') && <button type="button" onClick={() => shareVersion(v)} disabled={Boolean(sharingId || restoringId)} className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 hover:text-emerald-900 disabled:opacity-50">
+                        {sharingId === v.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}Share on WhatsApp
+                      </button>}
+                      {may('proposals', 'update') && <button type="button" onClick={() => restore(v)} disabled={Boolean(restoringId || sharingId)} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline disabled:opacity-50">
                         {restoringId === v.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}Restore & edit
-                      </button>
+                      </button>}
                     </div>
                   </Td>
                 </Tr>

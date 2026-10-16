@@ -1,15 +1,17 @@
 'use client';
 
 // One won proposal's money: payments received (each with a receipt), the balance still to pay, and the invoice.
-import { ArrowLeft, Download, PenLine, Plus, ReceiptText, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, MessageCircle, PenLine, Plus, ReceiptText, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { PAYMENT_MODE_LABEL, generateInvoicePdf, generateReceiptPdf } from '@/lib/billingPdf';
 import { buildInvoicePdfBlob } from '@/lib/invoicePdf';
+import { shareInvoiceOnWhatsApp, shareReceiptOnWhatsApp } from '@/lib/billingWhatsApp';
 import { openFile } from '@/lib/files';
 import { formatMoney } from '@/lib/energy';
+import { useCan } from '@/lib/useCan';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { Alert, Button, Card, ConfirmDialog, EmptyState, FormField, FormModal, Input, LoadingBlock, NumField, Select, Table, Td, Th, Tr, formatDate, showError, toast, RowMenu } from '../kit';
@@ -51,6 +53,9 @@ function PaymentForm({ designId, balance, money, onClose, onSaved }) {
 
 export default function BillingDetail({ designId, basePath = '/dashboard/billing' }) {
   const company = useSession((s) => s.company);
+  const may = useCan();
+  const canInvoice = may('finances', 'create_invoice');
+  const canReceipt = may('finances', 'create_receipt');
   const params = useSearchParams();
   const { data, loading, error, reload } = useResource(`/api/billing/designs/${designId}`);
   const { data: catalog } = useResource('/api/catalog');
@@ -106,6 +111,34 @@ export default function BillingDetail({ designId, basePath = '/dashboard/billing
     } catch (e) {
       console.error(e);
       toast.error('The invoice could not be opened. Please try again.');
+    }
+  };
+
+  const shareReceipt = async (p, i) => {
+    if (!design.client?.phone) return toast.error('Add a mobile number on the client profile to share on WhatsApp.');
+    try {
+      const pdfName = await shareReceiptOnWhatsApp({
+        payment: p,
+        proposalName: design.name,
+        total,
+        history: payments.slice(0, i + 1),
+        company,
+        client: design.client,
+        currency,
+      });
+      if (pdfName && !p.pdfName) await reload();
+    } catch (e) {
+      showError(e, 'Could not share on WhatsApp');
+    }
+  };
+
+  const shareInvoice = async (inv) => {
+    if (!design.client?.phone) return toast.error('Add a mobile number on the client profile to share on WhatsApp.');
+    try {
+      const pdfName = await shareInvoiceOnWhatsApp({ ...invoicePdfParams(inv), invoice: inv });
+      if (pdfName && !inv.pdfName) await reload();
+    } catch (e) {
+      showError(e, 'Could not share on WhatsApp');
     }
   };
   const saved = async (res) => {
@@ -164,9 +197,9 @@ export default function BillingDetail({ designId, basePath = '/dashboard/billing
           <p className="text-sm text-slate-500">{design.client?.name} · <DesignStatusBadge status={design.status} /></p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href={designHref({ id: designId, type: design.type, summary: design })} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"><PenLine className="h-4 w-4" />Edit proposal</Link>
-          {won && total > 0 && <Button variant="secondary" icon={ReceiptText} loading={busy} onClick={() => setModal({ type: 'invoice' })}>Generate invoice</Button>}
-          {won && balance > 0 && <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'pay' })}>Record payment</Button>}
+          {may('proposals', 'view') && <Link href={designHref({ id: designId, type: design.type, summary: design })} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"><PenLine className="h-4 w-4" />{may('proposals', 'update') ? 'Edit proposal' : 'Open proposal'}</Link>}
+          {canInvoice && won && total > 0 && <Button variant="secondary" icon={ReceiptText} loading={busy} onClick={() => setModal({ type: 'invoice' })}>Generate invoice</Button>}
+          {canReceipt && won && balance > 0 && <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'pay' })}>Record payment</Button>}
         </div>
       </div>
 
@@ -201,7 +234,9 @@ export default function BillingDetail({ designId, basePath = '/dashboard/billing
                         label="Receipt actions"
                         items={[
                           { key: 'download', icon: Download, label: 'Download receipt', onClick: () => downloadReceipt(p, i) },
-                          i === payments.length - 1 && { key: 'remove', icon: Trash2, label: 'Remove receipt', tone: 'danger', onClick: () => setModal({ type: 'remove', item: p }) },
+                          // sharing archives the PDF the first time, which is part of recording the payment
+                          (p.pdfName || canReceipt) && { key: 'whatsapp', icon: MessageCircle, label: 'Share on WhatsApp', onClick: () => shareReceipt(p, i) },
+                          may('finances', 'remove_receipt') && i === payments.length - 1 && { key: 'remove', icon: Trash2, label: 'Remove receipt', tone: 'danger', onClick: () => setModal({ type: 'remove', item: p }) },
                         ]}
                       />
                     </div>
@@ -219,7 +254,7 @@ export default function BillingDetail({ designId, basePath = '/dashboard/billing
             <div className="text-sm font-semibold text-slate-900">Invoices</div>
             <p className="text-xs text-slate-500">Each generation is saved. Pick plain or tax invoice and edit lines each time.</p>
           </div>
-          <Button variant="primary" icon={ReceiptText} disabled={!won || !(total > 0)} loading={busy} onClick={() => setModal({ type: 'invoice' })}>Generate invoice</Button>
+          {canInvoice && <Button variant="primary" icon={ReceiptText} disabled={!won || !(total > 0)} loading={busy} onClick={() => setModal({ type: 'invoice' })}>Generate invoice</Button>}
         </div>
         {!invoices.length ? (
           <EmptyState icon={ReceiptText} title="No invoices yet" description={won && total > 0 ? 'Generate a plain or tax invoice, edit line items, and apply a discount.' : 'Add a price on the proposal first.'} />
@@ -239,6 +274,7 @@ export default function BillingDetail({ designId, basePath = '/dashboard/billing
                         label="Invoice actions"
                         items={[
                           { key: 'download', icon: Download, label: inv.pdfName ? 'Open PDF' : 'Download PDF', onClick: () => downloadInvoice(inv) },
+                          (inv.pdfName || canInvoice) && { key: 'whatsapp', icon: MessageCircle, label: 'Share on WhatsApp', onClick: () => shareInvoice(inv) },
                         ]}
                       />
                     </div>

@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { agentRolesFor, agentRolesLabel, agentsForStepRole } from '@/lib/agents';
 import { api, assetUrl } from '@/lib/api';
 import { importLibrary, MAPS_API_KEY } from '@/lib/googleMaps';
+import { can } from '@/lib/permissions';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { useSignedUrl } from '@/lib/files';
@@ -223,7 +224,14 @@ export default function ProjectView({ id, mode, basePath = '/dashboard/installat
   const me = useSession((s) => s.user);
   const { data: project, setData, loading, error } = useResource(`${base}/${id}`);
   const lifecycle = useResource(`${base}/${id}/lifecycle`);
-  const agents = useResource(owner ? '/api/agents' : null);
+  // in the full view (owner, or staff with Installations › View all) each control follows the permissions
+  const may = {
+    update: owner && can(me, 'tasks', 'update'),
+    assign: owner && can(me, 'tasks', 'assign'),
+    status: owner && can(me, 'tasks', 'change_status'),
+    del: owner && can(me, 'tasks', 'delete'),
+  };
+  const agents = useResource(may.assign ? (me?.role === 'company' ? '/api/agents' : '/api/projects/assignees') : null);
   const [modal, setModal] = useState(null);
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState('');
@@ -290,7 +298,7 @@ export default function ProjectView({ id, mode, basePath = '/dashboard/installat
       <Link href={back} className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-900"><ArrowLeft className="h-4 w-4" /> {owner ? 'All installations' : 'My tasks'}</Link>
       <PageHeader title={design?.name || 'Installation'} description={<span className="flex flex-wrap items-center gap-x-4 gap-y-1"><ProjectStatusBadge status={project.status} /><span>Started {formatDateTime(project.createdAt)}</span></span>}>
         {owner && design && <Link href={`/design/${design.id}/plan`} className="text-sm font-medium text-brand hover:underline">Open proposal</Link>}
-        {owner && <Button variant="dangerGhost" icon={Trash2} onClick={() => setModal({ type: 'delete' })}>Delete</Button>}
+        {may.del && <Button variant="dangerGhost" icon={Trash2} onClick={() => setModal({ type: 'delete' })}>Delete</Button>}
       </PageHeader>
 
       <Card className="mb-6 grid gap-x-8 gap-y-3 px-6 py-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
@@ -302,10 +310,10 @@ export default function ProjectView({ id, mode, basePath = '/dashboard/installat
 
       <div className="grid items-start gap-6 xl:grid-cols-[1fr_380px]">
         <Card className="overflow-hidden">
-          <CardHeader title="Steps" description={<Progress project={project} className="mt-1.5 w-56" />} action={owner && <Button size="sm" icon={Plus} onClick={() => setModal({ type: 'step' })}>Add step</Button>} />
+          <CardHeader title="Steps" description={<Progress project={project} className="mt-1.5 w-56" />} action={may.update && <Button size="sm" icon={Plus} onClick={() => setModal({ type: 'step' })}>Add step</Button>} />
           <ol>
             {steps.map((s, i) => {
-              const mine = owner || s.assignee?.id === me.id;
+              const mine = owner ? may.status : s.assignee?.id === me.id;
               const eligibleAgents = agentsForStepRole(activeAgents, s.role);
               return (
                 <li key={s.id} style={{ borderLeftColor: stepColor(s) }} className={cx('flex gap-4 border-b border-l-4 border-slate-100 px-6 py-4 last:border-b-0', !owner && s.assignee?.id === me.id && s.status !== 'done' && 'bg-brand-soft/50')}>
@@ -320,7 +328,7 @@ export default function ProjectView({ id, mode, basePath = '/dashboard/installat
                     </div>
                     {s.description && <p className="mt-1 text-[13px] leading-relaxed text-slate-500">{s.description}</p>}
                     <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-slate-500">
-                      {owner ? (
+                      {may.assign ? (
                         <Select aria-label={`Assign ${s.name}`} value={s.assignee?.id || ''} onValue={(v) => quick(`/steps/${s.id}`, { method: 'PUT', body: { assignee: v || null } })} className="h-8 min-w-[12rem] max-w-full text-[13px]">
                           <option value="">{s.role ? `Unassigned (${s.role})` : 'Unassigned'}</option>
                           {s.assignee && !s.assignee.active && !eligibleAgents.some((a) => a.id === s.assignee.id) && (
@@ -341,12 +349,12 @@ export default function ProjectView({ id, mode, basePath = '/dashboard/installat
                       </div>
                     )}
                   </div>
-                  {owner && (
+                  {(may.update || may.del) && (
                     <div className="flex shrink-0 items-start">
-                      <IconButton icon={ArrowUp} label="Move up" disabled={i === 0} className="disabled:opacity-30" onClick={() => quick(`/steps/${s.id}`, { method: 'PUT', body: { move: 'up' } })} />
-                      <IconButton icon={ArrowDown} label="Move down" disabled={i === steps.length - 1} className="disabled:opacity-30" onClick={() => quick(`/steps/${s.id}`, { method: 'PUT', body: { move: 'down' } })} />
-                      <IconButton icon={Pencil} label="Edit step" onClick={() => setModal({ type: 'step', step: s })} />
-                      <IconButton icon={Trash2} label="Remove step" tone="danger" disabled={steps.length === 1} className="disabled:opacity-30" onClick={() => setModal({ type: 'removeStep', step: s })} />
+                      {may.update && <IconButton icon={ArrowUp} label="Move up" disabled={i === 0} className="disabled:opacity-30" onClick={() => quick(`/steps/${s.id}`, { method: 'PUT', body: { move: 'up' } })} />}
+                      {may.update && <IconButton icon={ArrowDown} label="Move down" disabled={i === steps.length - 1} className="disabled:opacity-30" onClick={() => quick(`/steps/${s.id}`, { method: 'PUT', body: { move: 'down' } })} />}
+                      {may.update && <IconButton icon={Pencil} label="Edit step" onClick={() => setModal({ type: 'step', step: s })} />}
+                      {may.del && <IconButton icon={Trash2} label="Remove step" tone="danger" disabled={steps.length === 1} className="disabled:opacity-30" onClick={() => setModal({ type: 'removeStep', step: s })} />}
                     </div>
                   )}
                 </li>

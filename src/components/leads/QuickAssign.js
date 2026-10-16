@@ -1,0 +1,78 @@
+'use client';
+
+// "Assign by count": give a number of the unassigned leads to one staff member, without ticking them one by one.
+// The leads waiting longest go first. Used on the Meta, Google Ads and manual lead pages.
+import { Users } from 'lucide-react';
+import { useState } from 'react';
+import { api } from '@/lib/api';
+import { useResource } from '@/lib/useResource';
+import { Alert, FormField, FormModal, Input, Select, toast } from '../kit';
+
+/** `source`: 'meta' | 'google' | 'manual'. `onAssigned()` reloads the page's list. */
+export default function QuickAssign({ source, onClose, onAssigned }) {
+  const staff = useResource('/api/leads/assignees');
+  const pool = useResource(`/api/leads/${source}/unassigned-count`);
+  const [form, setForm] = useState({ counsellorId: '', count: '' });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const available = pool.data?.unassigned ?? null;
+  const count = Number(form.count);
+  const person = (staff.data || []).find((s) => s._id === form.counsellorId);
+
+  const submit = async () => {
+    if (!form.counsellorId) return setError('Choose the staff member');
+    if (!Number.isInteger(count) || count < 1) return setError('Enter how many leads to assign');
+    if (available !== null && count > available) return setError(`Only ${available} lead${available === 1 ? ' is' : 's are'} unassigned`);
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/api/leads/${source}/assign-unassigned`, { method: 'POST', body: { counsellorId: form.counsellorId, count } });
+      toast.success(`${count} lead${count === 1 ? '' : 's'} assigned to ${person?.name || 'the staff member'}`);
+      onAssigned();
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+      pool.reload();
+    }
+  };
+
+  const none = available === 0;
+  return (
+    <FormModal
+      open
+      onClose={onClose}
+      title="Assign by count"
+      description="Give a number of unassigned leads to one person. The leads waiting longest go first."
+      submitLabel={count > 0 ? `Assign ${count} lead${count === 1 ? '' : 's'}` : 'Assign'}
+      busy={busy}
+      error={error}
+      onSubmit={submit}
+      noValidate
+    >
+      <div className="flex items-center gap-3 rounded-lg bg-slate-50 px-4 py-3">
+        <Users className="h-5 w-5 shrink-0 text-slate-400" />
+        <p className="text-sm text-slate-700">
+          {available === null ? 'Counting unassigned leads…' : none ? 'There are no unassigned leads right now.' : <><b className="text-slate-900">{available}</b> unassigned lead{available === 1 ? '' : 's'}</>}
+        </p>
+      </div>
+      {none ? (
+        <Alert tone="info">Every lead already has someone working on it.</Alert>
+      ) : (
+        <>
+          <FormField label="Staff member">
+            <Select value={form.counsellorId} onValue={(x) => setForm({ ...form, counsellorId: x })} disabled={!staff.data}>
+              <option value="">{staff.data ? (staff.data.length ? 'Choose who gets the leads…' : 'No staff can work on leads yet') : 'Loading staff…'}</option>
+              {(staff.data || []).map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
+            </Select>
+          </FormField>
+          <FormField label="Number of leads" hint={available ? `1 to ${available}` : undefined}>
+            <div className="flex items-center gap-2">
+              <Input type="number" inputMode="numeric" min={1} max={available || undefined} value={form.count} onValue={(x) => setForm({ ...form, count: x.replace(/\D/g, '') })} placeholder="e.g. 20" className="w-32" />
+              {available > 0 && <button type="button" className="text-[13px] font-medium text-brand hover:underline" onClick={() => setForm({ ...form, count: String(available) })}>All {available}</button>}
+            </div>
+          </FormField>
+        </>
+      )}
+    </FormModal>
+  );
+}

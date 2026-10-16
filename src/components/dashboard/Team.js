@@ -1,193 +1,17 @@
 'use client';
 
-// Staff: the company's field team. They sign in and work on the installation steps assigned to them,
-// plus whichever workspace areas (designs, clients, billing, installations, support) they're given access to.
-import { CheckCircle2, ClipboardList, Eye, KeyRound, Mail, Pencil, Phone, Plus, ShieldCheck, Trash2, UserCog } from 'lucide-react';
+// Staff: the company's team. They sign in and work on the installation steps assigned to them, plus whatever their
+// roles (named permission sets, see StaffRoles.js) and any extra grants on their own account allow.
+import { CheckCircle2, ClipboardList, Eye, HardHat, KeyRound, Mail, Pencil, Phone, Plus, Trash2, UserCog } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { agentRolesFor, agentRolesOf, hasStaffPermission, staffPermission, STAFF_PERMISSION_ACTIONS, STAFF_PERMISSION_AREAS } from '@/lib/agents';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { agentRolesOf } from '@/lib/agents';
 import { api, assetUrl } from '@/lib/api';
-import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
-import { agentCreateSchema, agentUpdateSchema, useValidation } from '@/lib/validation';
-import { Alert, Avatar, Badge, Button, buttonClass, Card, ConfirmDialog, cx, EmptyState, FormField, FormModal, ImageSourceButtons, Input, NameInput, PhoneInput, LoadingBlock, Modal, PageHeader, PasswordInput, StatCard, Table, Td, Th, Toggle, Tr, timeAgo, toast, RowMenu } from '../kit';
-
-const BLANK = { name: '', email: '', phone: '', roles: [], permissions: [], password: '', active: true };
-
-/** Which actions a staff member has been granted within one area, as a short label ("View, Create"). */
-function areaSummary(permissions, area) {
-  const on = STAFF_PERMISSION_ACTIONS.filter((a) => hasStaffPermission(permissions, area.id, a.id));
-  return on.length ? on.map((a) => a.label).join(', ') : '';
-}
-
-/** Editable view/create/update/delete grid, one row per area. */
-function PermissionMatrix({ permissions, onChange }) {
-  const toggle = (area, action) => {
-    const p = staffPermission(area, action);
-    onChange(permissions.includes(p) ? permissions.filter((x) => x !== p) : [...permissions, p]);
-  };
-  const toggleRow = (area, allOn) => {
-    const rowPerms = STAFF_PERMISSION_ACTIONS.map((a) => staffPermission(area, a.id));
-    onChange(allOn ? permissions.filter((p) => !rowPerms.includes(p)) : [...new Set([...permissions, ...rowPerms])]);
-  };
-  return (
-    <div className="overflow-hidden rounded-lg border border-slate-200">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase">
-            <th className="px-3.5 py-2">Area</th>
-            {STAFF_PERMISSION_ACTIONS.map((a) => <th key={a.id} className="px-2 py-2 text-center">{a.label}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {STAFF_PERMISSION_AREAS.map((area) => {
-            const allOn = STAFF_PERMISSION_ACTIONS.every((a) => hasStaffPermission(permissions, area.id, a.id));
-            return (
-              <tr key={area.id} className="border-b border-slate-100 last:border-0">
-                <td className="px-3.5 py-1.5">
-                  <button type="button" title={area.description} onClick={() => toggleRow(area.id, allOn)} className="text-left hover:underline">
-                    <span className="block text-sm font-medium text-slate-900">{area.label}</span>
-                  </button>
-                </td>
-                {STAFF_PERMISSION_ACTIONS.map((a) => (
-                  <td key={a.id} className="px-2 py-1.5 text-center">
-                    <input
-                      type="checkbox"
-                      aria-label={`${area.label} — ${a.label}`}
-                      checked={hasStaffPermission(permissions, area.id, a.id)}
-                      onChange={() => toggle(area.id, a.id)}
-                      className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
-                    />
-                  </td>
-                ))}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function StaffForm({ agent, onClose, onSaved }) {
-  const { company } = useSession();
-  const roleOptions = agentRolesFor(company);
-  const editing = Boolean(agent?.id);
-  const [form, setForm] = useState(() => ({
-    ...BLANK,
-    ...agent,
-    roles: agentRolesOf(agent),
-    permissions: Array.isArray(agent?.permissions) ? agent.permissions : [],
-    password: '',
-  }));
-  const [photoFile, setPhotoFile] = useState(null);
-  const [photoPreview, setPhotoPreview] = useState(() => (agent?.photo ? assetUrl(agent.photo) : ''));
-  const [removePhoto, setRemovePhoto] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const v = useValidation(editing ? agentUpdateSchema : agentCreateSchema, form);
-  const set = (patch) => setForm((f) => ({ ...f, ...patch }));
-  const toggleRole = (role) => setForm((f) => ({
-    ...f,
-    roles: f.roles.includes(role) ? f.roles.filter((r) => r !== role) : [...f.roles, role],
-  }));
-  useEffect(() => () => { if (photoPreview?.startsWith('blob:')) URL.revokeObjectURL(photoPreview); }, [photoPreview]);
-
-  const pickPhoto = (file) => {
-    if (!file) return;
-    setPhotoFile(file);
-    setRemovePhoto(false);
-    setPhotoPreview((prev) => {
-      if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev);
-      return URL.createObjectURL(file);
-    });
-  };
-
-  const submit = async () => {
-    const checked = v.validate();
-    if (!checked) return;
-    setBusy(true);
-    setError('');
-    try {
-      const body = { ...checked, permissions: form.permissions };
-      delete body.photo;
-      delete body.jobTitle;
-      delete body.openSteps;
-      let saved = editing ? await api(`/api/agents/${agent.id}`, { method: 'PUT', body }) : await api('/api/agents', { method: 'POST', body });
-      const id = saved.id || agent.id;
-      if (removePhoto && editing) {
-        saved = await api(`/api/agents/${id}/photo`, { method: 'DELETE' });
-      } else if (photoFile) {
-        const fd = new FormData();
-        fd.append('file', photoFile);
-        saved = await api(`/api/agents/${id}/photo`, { method: 'POST', form: fd });
-      }
-      onSaved({ openSteps: agent?.openSteps || saved.openSteps || 0, ...saved });
-    } catch (e) {
-      setError(e.message);
-      setBusy(false);
-    }
-  };
-
-  return (
-    <FormModal open onClose={onClose} size="2xl" title={editing ? 'Edit staff member' : 'Add a staff member'} description="Staff sign in with this email and see only the installation steps assigned to them, plus any workspace areas you grant below." submitLabel={editing ? 'Save changes' : 'Add staff member'} busy={busy} error={error} onSubmit={submit} noValidate>
-      <div className="grid gap-x-8 gap-y-4 lg:grid-cols-2">
-        <div className="space-y-4">
-          <FormField label="Photo" optional hint="Shown in the team list and on assigned installation steps. PNG, JPG or WebP, up to 2 MB.">
-            <div className="flex flex-wrap items-center gap-4">
-              <Avatar name={form.name || 'Staff'} src={photoPreview && !removePhoto ? photoPreview : undefined} size={56} />
-              <div className="flex flex-wrap gap-2">
-                <ImageSourceButtons onFiles={pickPhoto} />
-                {(photoPreview && !removePhoto) && (
-                  <Button type="button" size="sm" variant="ghost" onClick={() => { setPhotoFile(null); setRemovePhoto(true); setPhotoPreview(''); }}>Remove</Button>
-                )}
-              </div>
-            </div>
-          </FormField>
-          <FormField label="Full name" error={v.error('name')}><NameInput maxLength={120} value={form.name} onValue={(x) => set({ name: x })} placeholder="Imran Shaikh" /></FormField>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <FormField label="Sign-in email" error={v.error('email')}><Input type="email" value={form.email} onValue={(x) => set({ email: x })} autoComplete="off" /></FormField>
-            <FormField label="Phone" optional error={v.error('phone')}><PhoneInput maxLength={20} value={form.phone} onValue={(x) => set({ phone: x })} /></FormField>
-          </div>
-          <FormField label={editing ? 'New password' : 'Password'} optional={editing} hint={editing ? 'Leave empty to keep the current password.' : 'At least 8 characters with a letter and a number. Share it with them; they can change it after signing in.'} error={v.error('password')}>
-            <PasswordInput defaultVisible maxLength={200} value={form.password} onValue={(x) => set({ password: x })} autoComplete="new-password" />
-          </FormField>
-          <FormField label="Job roles" optional hint="Pick every role this person performs. Manage the list under Agent roles.">
-            {roleOptions.length ? (
-              <div className="flex flex-wrap gap-2">
-                {roleOptions.map((role) => {
-                  const on = form.roles.includes(role);
-                  return (
-                    <button
-                      key={role}
-                      type="button"
-                      onClick={() => toggleRole(role)}
-                      className={cx(
-                        'rounded-full border px-3 py-1.5 text-sm transition-colors',
-                        on ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300',
-                      )}
-                    >
-                      {role}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="text-sm text-slate-500">
-                No roles defined yet.{' '}
-                <Link href="/dashboard/agent-roles" className="font-medium text-slate-900 underline">Add roles</Link>
-              </p>
-            )}
-          </FormField>
-          {editing && <Toggle checked={form.active} onChange={(v) => set({ active: v })} label="Active" description="An inactive staff member cannot sign in. Their steps and history stay as they are." />}
-        </div>
-        <FormField label="Permissions" optional hint="What this person may view, create, edit or delete in your company workspace, beyond their own assigned steps. Click an area's name to toggle all four at once.">
-          <PermissionMatrix permissions={form.permissions} onChange={(permissions) => set({ permissions })} />
-        </FormField>
-      </div>
-    </FormModal>
-  );
-}
+import { Alert, Avatar, Badge, Button, buttonClass, Card, ConfirmDialog, EmptyState, LoadingBlock, Modal, PageHeader, StatCard, Table, Td, Th, Tr, timeAgo, toast, RowMenu } from '../kit';
+import { AreaPills, PermissionSummary } from './PermissionEditor';
+import { AccessChip, JobChip } from './StaffEditor';
 
 function Tile({ label, value, sub }) {
   return (
@@ -199,10 +23,33 @@ function Tile({ label, value, sub }) {
   );
 }
 
+/** The two kinds of "role" on this page, said once, plainly, in their colours. */
+function TwoKindsExplainer() {
+  return (
+    <div className="mb-6 grid gap-3 md:grid-cols-2">
+      <div className="flex gap-3 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-500 text-white"><HardHat className="h-5 w-5" /></span>
+        <div className="min-w-0">
+          <div className="font-semibold text-slate-900">Job title = field work</div>
+          <p className="mt-0.5 text-[13px] leading-snug text-slate-600">Electrician, Installer, Surveyor… Decides which <b className="font-medium text-slate-800">installation tasks</b> a person can be given. Opens nothing in the app.</p>
+          <Link href="/dashboard/masters?tab=agent-roles" className="mt-1.5 inline-block text-[13px] font-medium text-amber-700 hover:underline">Edit job titles →</Link>
+        </div>
+      </div>
+      <div className="flex gap-3 rounded-2xl border border-violet-200 bg-violet-50/50 p-4">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-violet-600 text-white"><KeyRound className="h-5 w-5" /></span>
+        <div className="min-w-0">
+          <div className="font-semibold text-slate-900">Access role = app access</div>
+          <p className="mt-0.5 text-[13px] leading-snug text-slate-600">Telecaller, Accountant, Sales… Decides what a person can <b className="font-medium text-slate-800">open and do in the app</b> — leads, proposals, payments.</p>
+          <Link href="/dashboard/team/roles" className="mt-1.5 inline-block text-[13px] font-medium text-violet-700 hover:underline">Manage access roles →</Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Everything about one staff member: contact, roles, permissions, current workload and recent completions. */
 function StaffDetails({ agent: a, onClose, onEdit }) {
   const st = a.stats || {};
-  const granted = STAFF_PERMISSION_AREAS.map((area) => ({ area, summary: areaSummary(a.permissions, area) })).filter((x) => x.summary);
   return (
     <Modal open onClose={onClose} title="Staff details" footer={<><Button variant="ghost" onClick={onClose}>Close</Button><Button icon={Pencil} onClick={onEdit}>Edit</Button></>}>
       <div className="flex items-center gap-4">
@@ -219,23 +66,21 @@ function StaffDetails({ agent: a, onClose, onEdit }) {
         <div className="text-[13px] text-slate-500">Last sign-in: {timeAgo(a.lastLoginAt)}</div>
       </dl>
 
-      {agentRolesOf(a).length > 0 && (
-        <div className="mt-4 flex flex-wrap gap-1.5">{agentRolesOf(a).map((r) => <Badge key={r} tone="slate">{r}</Badge>)}</div>
-      )}
-
-      <h3 className="mt-6 mb-2 text-[13px] font-semibold tracking-wide text-slate-500 uppercase">Permissions</h3>
-      {granted.length ? (
-        <div className="space-y-1">
-          {granted.map(({ area, summary }) => (
-            <div key={area.id} className="flex items-center gap-2 text-sm">
-              <span className="font-medium text-slate-900">{area.label}</span>
-              <Badge tone="brand">{summary}</Badge>
-            </div>
-          ))}
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3">
+          <div className="flex items-center gap-1.5 text-[13px] font-semibold text-amber-800"><HardHat className="h-4 w-4" /> Field work</div>
+          {agentRolesOf(a).length ? <div className="mt-2 flex flex-wrap gap-1.5">{agentRolesOf(a).map((r) => <JobChip key={r}>{r}</JobChip>)}</div> : <p className="mt-1.5 text-xs text-slate-500">No job title</p>}
         </div>
-      ) : (
-        <p className="text-sm text-slate-500">Only their own assigned installation steps.</p>
-      )}
+        <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-3">
+          <div className="flex items-center gap-1.5 text-[13px] font-semibold text-violet-800"><KeyRound className="h-4 w-4" /> App access</div>
+          {a.staffRoles?.length || a.permissions?.length ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">{a.staffRoles?.map((r) => <AccessChip key={r.id}>{r.name}</AccessChip>)}{a.permissions?.length > 0 && <AccessChip extra>Customised</AccessChip>}</div>
+          ) : <p className="mt-1.5 text-xs text-slate-500">No access role — only their own tasks</p>}
+        </div>
+      </div>
+
+      <h3 className="mt-6 mb-2 text-[13px] font-semibold tracking-wide text-slate-500 uppercase">{a.name.split(/\s+/)[0]} can</h3>
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3"><PermissionSummary permissions={a.effectivePermissions || []} ownTasks /></div>
 
       <h3 className="mt-6 mb-2 text-[13px] font-semibold tracking-wide text-slate-500 uppercase">Current tasks</h3>
       <div className="grid grid-cols-3 gap-2">
@@ -256,7 +101,10 @@ function StaffDetails({ agent: a, onClose, onEdit }) {
 }
 
 export default function Team() {
+  const router = useRouter();
   const { data, setData, loading, error } = useResource('/api/agents');
+  const addNew = () => router.push('/dashboard/team/new');
+  const edit = (a) => router.push(`/dashboard/team/${a.id}/edit`);
   const [modal, setModal] = useState(null);
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState('');
@@ -277,13 +125,14 @@ export default function Team() {
 
   return (
     <>
-      <PageHeader title="Team" description="Your staff: who carries out your installations, and who else can manage designs, clients, billing and support.">
+      <PageHeader title="Team" description="Your staff: the field work each person does, and what they can use in the app.">
         <div className="flex flex-wrap gap-2">
-          <Link href="/dashboard/agent-roles" className={buttonClass()}>Agent roles</Link>
-          <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'form' })}>Add staff member</Button>
+          <Link href="/dashboard/team/roles" className={buttonClass()}><KeyRound className="h-4 w-4 text-violet-600" />Access roles</Link>
+          <Button variant="primary" icon={Plus} onClick={addNew}>Add staff member</Button>
         </div>
       </PageHeader>
       {error && <Alert className="mb-6">{error}</Alert>}
+      <TwoKindsExplainer />
 
       {data?.length > 0 && (() => {
         const sum = (k) => data.reduce((n, a) => n + (a.stats?.[k] || 0), 0);
@@ -300,11 +149,11 @@ export default function Team() {
       <Card className="overflow-hidden">
         {loading ? <LoadingBlock /> : !data?.length ? (
           <EmptyState icon={UserCog} title="No staff yet" description="Add your surveyors, installers and electricians, then assign installation steps to them.">
-            <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'form' })}>Add staff member</Button>
+            <Button variant="primary" icon={Plus} onClick={addNew}>Add staff member</Button>
           </EmptyState>
         ) : (
           <Table>
-            <thead><tr><Th>Staff</Th><Th>Status</Th><Th>Permissions</Th><Th className="text-right">Current tasks</Th><Th className="text-right">Actions</Th></tr></thead>
+            <thead><tr><Th>Staff</Th><Th><span className="text-amber-700">Job title</span></Th><Th><span className="text-violet-700">App access</span></Th><Th className="text-right">Open tasks</Th><Th className="text-right">Actions</Th></tr></thead>
             <tbody>
               {data.map((a) => (
                 <Tr key={a.id} className="cursor-pointer" onClick={() => setModal({ type: 'details', agent: a })}>
@@ -312,21 +161,24 @@ export default function Team() {
                     <div className="flex items-center gap-3">
                       <Avatar name={a.name} src={a.photo ? assetUrl(a.photo) : undefined} />
                       <div className="min-w-0">
-                        <div className="max-w-[240px] truncate font-medium text-slate-900">{a.name}</div>
-                        {agentRolesOf(a).length > 0 && <div className="max-w-[240px] truncate text-xs text-slate-500">{agentRolesOf(a).join(' · ')}</div>}
+                        <div className="max-w-[220px] truncate font-medium text-slate-900">{a.name}</div>
+                        <div className="text-xs">{a.active ? <span className="text-emerald-700">● Can sign in</span> : <span className="text-slate-400">● Switched off</span>}</div>
                       </div>
                     </div>
                   </Td>
-                  <Td>{a.active ? <Badge dot tone="green">Active</Badge> : <Badge dot tone="slate">Inactive</Badge>}</Td>
                   <Td>
-                    {a.permissions?.length ? (
-                      <div className="flex max-w-[260px] flex-wrap gap-1">
-                        {STAFF_PERMISSION_AREAS.map((area) => {
-                          const summary = areaSummary(a.permissions, area);
-                          return summary ? <Badge key={area.id} tone="brand">{area.label}</Badge> : null;
-                        })}
+                    {agentRolesOf(a).length ? <div className="flex max-w-[220px] flex-wrap gap-1">{agentRolesOf(a).map((r) => <JobChip key={r}>{r}</JobChip>)}</div> : <span className="text-xs text-slate-400">—</span>}
+                  </Td>
+                  <Td>
+                    {a.staffRoles?.length || a.permissions?.length ? (
+                      <div className="max-w-[300px] space-y-1">
+                        <div className="flex flex-wrap gap-1">
+                          {a.staffRoles?.map((r) => <AccessChip key={r.id}>{r.name}</AccessChip>)}
+                          {a.permissions?.length > 0 && <AccessChip extra>{a.staffRoles?.length ? '+ customised' : 'Customised'}</AccessChip>}
+                        </div>
+                        <AreaPills permissions={a.effectivePermissions} />
                       </div>
-                    ) : <span className="text-xs text-slate-400">Own steps only</span>}
+                    ) : <span className="text-xs text-slate-400">Only their own tasks</span>}
                   </Td>
                   <Td className="text-right font-medium text-slate-900 tabular-nums">{a.stats?.open ?? 0}</Td>
                   <Td>
@@ -335,7 +187,7 @@ export default function Team() {
                         label={`Actions for ${a.name}`}
                         items={[
                           { key: 'view', icon: Eye, label: 'View details', onClick: () => setModal({ type: 'details', agent: a }) },
-                          { key: 'edit', icon: Pencil, label: 'Edit staff member', onClick: () => setModal({ type: 'form', agent: a }) },
+                          { key: 'edit', icon: Pencil, label: 'Edit staff member', onClick: () => edit(a) },
                           { key: 'delete', icon: Trash2, label: 'Delete staff member', tone: 'danger', onClick: () => setModal({ type: 'delete', agent: a }) },
                         ]}
                       />
@@ -348,20 +200,8 @@ export default function Team() {
         )}
       </Card>
       <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500"><KeyRound className="h-3.5 w-3.5" /> Staff sign in on the same sign-in page as you. To reset a password, edit them and set a new one.</p>
-      <p className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-500"><ShieldCheck className="h-3.5 w-3.5" /> Permissions only open a workspace area for a staff member to manage; job roles only decide which installation steps they can be assigned. The two are independent.</p>
 
-      {modal?.type === 'details' && <StaffDetails agent={data?.find((x) => x.id === modal.agent.id) || modal.agent} onClose={close} onEdit={() => setModal({ type: 'form', agent: modal.agent })} />}
-      {modal?.type === 'form' && (
-        <StaffForm
-          agent={modal.agent}
-          onClose={close}
-          onSaved={(a) => {
-            setData((list) => (list.some((x) => x.id === a.id) ? list.map((x) => (x.id === a.id ? a : x)) : [a, ...list]));
-            toast.success(modal.agent ? 'Staff member updated' : 'Staff member added');
-            close();
-          }}
-        />
-      )}
+      {modal?.type === 'details' && <StaffDetails agent={data?.find((x) => x.id === modal.agent.id) || modal.agent} onClose={close} onEdit={() => edit(modal.agent)} />}
       <ConfirmDialog open={modal?.type === 'delete'} onClose={close} onConfirm={remove} busy={busy} error={modalError} title="Delete this staff member?" confirmLabel="Delete staff member">
         <b className="text-slate-900">{modal?.agent?.name}</b> will no longer be able to sign in{modal?.agent?.openSteps ? <>, and their <b className="text-slate-900">{modal.agent.openSteps} open step{modal.agent.openSteps > 1 ? 's' : ''}</b> will become unassigned</> : ''}. Activity logs keep their name. To pause access instead, mark them inactive.
       </ConfirmDialog>

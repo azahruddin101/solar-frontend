@@ -12,6 +12,7 @@ import { pricingFromQuote } from '@/lib/pricing';
 import { toDateInput, validUntilInput } from '@/lib/validity';
 import { generateQuotePdf } from '@/lib/pdf';
 import { DEFAULT_SYSTEM, computeQuoteSystem, deriveQuoteSystem, wattsFrom } from '@/lib/quoteModel';
+import { can } from '@/lib/permissions';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { Alert, Button, Card, FormField, Input, LoadingBlock, NumField, Select, toast } from '../kit';
@@ -41,6 +42,9 @@ function buildItems(q, packages) {
 
 function Editor({ designId }) {
   const company = useSession((s) => s.company);
+  const canChangeStatus = useSession((s) => can(s.user, 'proposals', 'change_status'));
+  const readOnly = useSession((s) => !can(s.user, 'proposals', 'update')); // view only: explore, never save
+  const canShare = useSession((s) => can(s.user, 'proposals', 'share'));
   const { data: design, loading, error, setData } = useResource(`/api/designs/${designId}`);
   const { data: packages } = useResource('/api/packages');
   const { data: products } = useResource('/api/products');
@@ -101,7 +105,7 @@ function Editor({ designId }) {
 
   // debounced autosave
   useEffect(() => {
-    if (!dirty.current || !quote) return undefined;
+    if (!dirty.current || !quote || readOnly) return undefined;
     const t = setTimeout(async () => {
       try {
         await api(`/api/designs/${designId}`, { method: 'PUT', body: { data: { quote }, validUntil: validUntil || null, summary: { cost: Math.round(totals.grandTotal), pricing: totals } } });
@@ -112,7 +116,7 @@ function Editor({ designId }) {
       }
     }, 1000);
     return () => clearTimeout(t);
-  }, [quote, totals, designId, validUntil]);
+  }, [quote, totals, designId, validUntil, readOnly]);
 
   const model = useMemo(() => (quote && totals && sysInfo ? computeQuoteSystem(quote, sysInfo.spec, { count: sysInfo.count, years: quote.outlookYears, tariff, cost: totals.grandTotal }) : null), [quote, totals, sysInfo, tariff]);
   const changeStatus = async (v) => {
@@ -144,11 +148,11 @@ function Editor({ designId }) {
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900">{design.name}</h1>
-          <p className="text-sm text-slate-500">Proposal for {client.name} · no 3D layout · <span>{save === 'saving' ? 'Saving…' : save === 'error' ? 'Not saved — retry by editing' : 'Saved'}</span></p>
+          <p className="text-sm text-slate-500">Proposal for {client.name} · no 3D layout · <span>{readOnly ? <b className="font-medium text-amber-700">View only — changes aren’t saved</b> : save === 'saving' ? 'Saving…' : save === 'error' ? 'Not saved — retry by editing' : 'Saved'}</span></p>
         </div>
         <div className="flex items-center gap-2">
-          <Select value={status} onValue={changeStatus} aria-label="Status" className="w-36">{DESIGN_STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</Select>
-          <Button icon={QrCode} onClick={() => setShareOpen(true)}>Share</Button>
+          <Select value={status} onValue={changeStatus} disabled={!canChangeStatus} title={canChangeStatus ? undefined : 'Needs the Proposals › Change status permission'} aria-label="Status" className="w-36">{DESIGN_STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</Select>
+          {canShare && <Button icon={QrCode} onClick={() => setShareOpen(true)}>Share</Button>}
           <Button variant="primary" icon={Download} loading={exporting} disabled={!quote.items.length || !model?.ready} title={!model?.ready ? 'Choose a package with a solar panel, or a solar panel product, first' : undefined} onClick={() => setPicking(true)}>Download PDF</Button>
         </div>
       </div>
@@ -307,7 +311,7 @@ function Editor({ designId }) {
 
 export default function QuickProposal({ designId }) {
   return (
-    <AuthGuard role={['company', 'agent']} permission="designs:view">
+    <AuthGuard role={['company', 'agent']} permission="proposals:view">
       <Editor designId={designId} />
     </AuthGuard>
   );

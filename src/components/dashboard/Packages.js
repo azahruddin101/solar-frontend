@@ -6,11 +6,13 @@ import { api } from '@/lib/api';
 import { formatMoney } from '@/lib/energy';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
+import { useCan } from '@/lib/useCan';
 import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, LoadingBlock, toast } from '../kit';
 import PackageFormModal from './PackageFormModal';
 
 export default function Packages({ money: propMoney, currency: propCurrency }) {
   const session = useSession();
+  const may = useCan();
   const currency = propCurrency || session?.company?.currency || 'INR';
   const money = propMoney || ((v) => formatMoney(v, currency));
   const packages = useResource('/api/packages');
@@ -47,9 +49,11 @@ export default function Packages({ money: propMoney, currency: propCurrency }) {
             Bundled rooftop solar packages with all equipment included. When creating a design, choose between Package or Custom calculation mode.
           </p>
         </div>
-        <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'create' })}>
-          Create package
-        </Button>
+        {may('inventory', 'create') && (
+          <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'create' })}>
+            Create package
+          </Button>
+        )}
       </div>
 
       {packages.loading && (
@@ -67,9 +71,11 @@ export default function Packages({ money: propMoney, currency: propCurrency }) {
             title="No packages created yet"
             description="Create all-inclusive packages (Panels, Inverter, Poles, Cabling, Earthing, ACDB, DCDB) with fixed client pricing."
           >
-            <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'create' })}>
-              Create your first package
-            </Button>
+            {may('inventory', 'create') && (
+              <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'create' })}>
+                Create your first package
+              </Button>
+            )}
           </EmptyState>
         </Card>
       )}
@@ -131,23 +137,29 @@ export default function Packages({ money: propMoney, currency: propCurrency }) {
                 </div>
               </div>
 
-              <div className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  icon={Pencil}
-                  onClick={() => setModal({ type: 'edit', pkg })}
-                >
-                  Edit
-                </Button>
-                <IconButton
-                  size="sm"
-                  tone="danger"
-                  icon={Trash2}
-                  title="Delete package"
-                  onClick={() => setModal({ type: 'delete', pkg })}
-                />
-              </div>
+              {(may('inventory', 'update') || may('inventory', 'delete')) && (
+                <div className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+                  {may('inventory', 'update') && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={Pencil}
+                      onClick={() => setModal({ type: 'edit', pkg })}
+                    >
+                      Edit
+                    </Button>
+                  )}
+                  {may('inventory', 'delete') && (
+                    <IconButton
+                      size="sm"
+                      tone="danger"
+                      icon={Trash2}
+                      title="Delete package"
+                      onClick={() => setModal({ type: 'delete', pkg })}
+                    />
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -19,6 +19,12 @@ export function signedFileUrl(url) {
   return promise;
 }
 
+/** Absolute signed URL (7 days) for sharing a stored PDF with a client via WhatsApp — file must be in uploads / S3. */
+export function shareableFileUrl(uploadPath) {
+  const path = uploadPath.startsWith('/uploads/') ? uploadPath : `/uploads/${uploadPath}`;
+  return api(`/api/files/share-link?url=${encodeURIComponent(path)}`).then((r) => assetUrl(r.url));
+}
+
 /** Forget every signed link (called on sign-out so the next person on this browser never reuses one). */
 export const clearFileLinks = () => cache.clear();
 

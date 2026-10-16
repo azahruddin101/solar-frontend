@@ -2,7 +2,7 @@
 
 // Who is signed in: super admin, company, one of the company's agents, or a client (view-only portal).
 import { create } from 'zustand';
-import { api, setUnauthorizedHandler, tokens } from './api.js';
+import { api, setForbiddenHandler, setUnauthorizedHandler, tokens } from './api.js';
 import { clearFileLinks } from './files.js';
 import { clearMapToken } from './staticMap.js';
 import { useStore } from './store.js';
@@ -29,6 +29,19 @@ export const useSession = create((set, get) => ({
     set({ status: 'ready', user: s.user, company: s.company, impersonated: Boolean(s.impersonated) });
   },
   setCompany: (company) => set({ company }),
+
+  /**
+   * Re-reads who is signed in and what they may do — for staff whose roles the owner can change at any time. Runs when
+   * the API refuses something (403) and when the tab comes back into view; at most once every 15 seconds.
+   */
+  async refresh() {
+    const { status, user, refreshedAt = 0 } = get();
+    if (status !== 'ready' || user?.role !== 'agent' || Date.now() - refreshedAt < 15000) return;
+    set({ refreshedAt: Date.now() });
+    try {
+      get().apply(await api('/api/auth/me'));
+    } catch { /* a 401 signs out through the handler below; anything else: keep what we have */ }
+  },
 
   /** Restore the session from the stored token (once per page load). */
   async init() {
@@ -76,6 +89,12 @@ export const useSession = create((set, get) => ({
     set({ status: 'guest', user: null, company: null, impersonated: false });
   },
 }));
+
+setForbiddenHandler(() => useSession.getState().refresh());
+if (typeof window !== 'undefined') {
+  window.addEventListener('focus', () => useSession.getState().refresh());
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && useSession.getState().refresh());
+}
 
 setUnauthorizedHandler(() => {
   if (useSession.getState().status !== 'ready') return;

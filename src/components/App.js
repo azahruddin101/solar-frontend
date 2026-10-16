@@ -1,13 +1,15 @@
 'use client';
 
-import { AlertCircle, ArrowRight, Check, ChevronDown, ChevronLeft, CloudOff, Download, FileStack, FileText, Loader2, QrCode } from 'lucide-react';
+import { AlertCircle, ArrowRight, Check, ChevronDown, ChevronLeft, CloudOff, Download, Eye, FileStack, FileText, Loader2, MessageCircle, QrCode } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, assetUrl } from '@/lib/api';
 import { generatePdf } from '@/lib/pdf';
+import { archiveProposalPdfAndShareOnWhatsApp } from '@/lib/proposalWhatsApp';
 import { RETURN_PAGE_KEY } from './RouteTracker';
+import { can } from '@/lib/permissions';
 import { useSession } from '@/lib/session';
 import { useMapToken } from '@/lib/staticMap';
 import { PRO_SLUGS, SIMPLE_SLUGS, SIMPLE_STEPS, useStore } from '@/lib/store';
@@ -123,7 +125,7 @@ function ActionsMenu({ items, busy }) {
   );
 }
 
-const SAVE_LABEL = { saved: 'All changes saved', dirty: 'Saving…', saving: 'Saving…', error: 'Not saved — retrying on next change' };
+const SAVE_LABEL = { saved: 'All changes saved', dirty: 'Saving…', saving: 'Saving…', error: 'Not saved — retrying on next change', readonly: 'View only — changes aren’t saved' };
 
 const SIMPLE_SCREENS = [StepLocation, StepRoof, StepSimpleDesign];
 const PRO_SCREENS = [StepLocation, StepDraw, StepRoofDetails, StepObstructions, StepPanelConfig, StepManualEdit, Step3D, StepElectrical, StepFinancials, StepReport];
@@ -143,6 +145,7 @@ export default function App({ designId, slug }) {
     [state.place, design.totals.kwp, design.totals.count, design.totals.acKwh, design.cost, state.config],
   );
   const sync = useDesignSync(designId, summary);
+  const canShare = useSession((s) => can(s.user, 'proposals', 'share'));
   const designMeta = useResource(`/api/designs/${designId}`);
   const loaded = sync.status === 'ready' && state.designId === designId;
   useSolar();
@@ -224,18 +227,27 @@ export default function App({ designId, slug }) {
       setCoverFor(null);
       return;
     }
+    const intent = coverFor;
     setExporting(true);
     try {
       const { blob, filename } = await generatePdf({ design, project: state.project, place: state.place, finance: state.finance, snapshot: state.snapshot, company, client: state.client, designId: state.designId, validUntil: state.validUntil, cover });
       setCoverFor(null);
-      if (state.designId && blob) {
+      if (intent === 'whatsapp') {
+        await archiveProposalPdfAndShareOnWhatsApp({
+          designId: state.designId,
+          blob,
+          filename,
+          proposalName: state.designName,
+          client: state.client,
+        });
+      } else if (state.designId && blob && !sync.readOnly) { // archiving a version is part of editing
         const form = new FormData();
         form.append('file', blob, filename);
         api(`/api/designs/${state.designId}/versions`, { method: 'POST', form }).catch((e) => console.error('Could not archive quotation PDF version', e));
       }
     } catch (e) {
       console.error(e);
-      toast.error('Sorry, the PDF could not be created. Please try again.');
+      toast.error(e.message || 'Sorry, the PDF could not be created. Please try again.');
     }
     setExporting(false);
   };
@@ -243,11 +255,12 @@ export default function App({ designId, slug }) {
   const has3d = Screen === Step3D || Screen === StepSimpleDesign; // the shadow renders come from the live 3D view
   const actions = [
     last && { key: 'pdf', icon: Download, label: 'Download proposal (PDF)', hint: noPanels ? 'Place at least one panel first' : 'Branded proposal for your client', disabled: exporting || noPanels, onClick: () => chooseCover('pdf') },
+    last && canShare && !sync.readOnly && { key: 'whatsapp', icon: MessageCircle, label: 'Share on WhatsApp', hint: noPanels ? 'Place at least one panel first' : 'Create the proposal PDF and send a link to the client', disabled: exporting || noPanels, onClick: () => chooseCover('whatsapp') },
     has3d && { key: 'combined', icon: FileStack, label: 'Proposal + shadow analysis (PDF)', hint: noPanels ? 'Place at least one panel first' : 'One PDF: the proposal followed by the shadow report', disabled: exporting || noPanels, onClick: () => chooseCover('combined') },
-    { key: 'share', icon: QrCode, label: 'Share link & QR code', hint: 'A public page anyone can open, no sign-in', onClick: () => setShareOpen(true) },
+    canShare && { key: 'share', icon: QrCode, label: 'Share link & QR code', hint: 'A public page anyone can open, no sign-in', onClick: () => setShareOpen(true) },
     has3d && { key: 'shadow', icon: FileText, label: 'Shadow analysis only (PDF)', hint: noPanels ? 'Place at least one panel first' : 'Hour-by-hour shading on the panels', disabled: noPanels, onClick: () => state.set({ shadowReport: 'report' }) },
   ].filter(Boolean);
-  const SaveIcon = sync.save === 'saved' ? Check : sync.save === 'error' ? CloudOff : Loader2;
+  const SaveIcon = sync.save === 'saved' ? Check : sync.save === 'error' ? CloudOff : sync.save === 'readonly' ? Eye : Loader2;
 
   return (
     <div className="flex h-dvh flex-col bg-slate-50 text-slate-900">
@@ -267,7 +280,7 @@ export default function App({ designId, slug }) {
             <div className="max-w-[46vw] truncate text-xs text-slate-500 sm:max-w-[360px]">For {state.client?.name || 'client'}{state.place?.address ? ` · ${state.place.address}` : ''}</div>
           </div>
         </div>
-        <div className={cx('ml-auto hidden items-center gap-1.5 text-xs md:flex', sync.save === 'error' ? 'text-red-600' : 'text-slate-400')} role="status">
+        <div className={cx('ml-auto hidden items-center gap-1.5 text-xs md:flex', sync.save === 'error' ? 'text-red-600' : sync.save === 'readonly' ? 'rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-800' : 'text-slate-400')} role="status">
           <SaveIcon className={cx('h-3.5 w-3.5', (sync.save === 'dirty' || sync.save === 'saving') && 'animate-spin')} /> {SAVE_LABEL[sync.save]}
         </div>
         {actions.length > 0 && <ActionsMenu items={actions} busy={exporting} />}
@@ -317,7 +330,7 @@ export default function App({ designId, slug }) {
       </main>
 
       {shareOpen && <ShareModal designId={designId} onClose={() => setShareOpen(false)} />}
-      <CoverPicker open={Boolean(coverFor)} onClose={() => setCoverFor(null)} onDownload={downloadPdf} company={company} snapshot={state.snapshot} submitLabel={coverFor === 'combined' ? 'Continue' : 'Download PDF'} />
+      <CoverPicker open={Boolean(coverFor)} onClose={() => setCoverFor(null)} onDownload={downloadPdf} company={company} snapshot={state.snapshot} submitLabel={coverFor === 'combined' ? 'Continue' : coverFor === 'whatsapp' ? 'Share on WhatsApp' : 'Download PDF'} />
       <Toaster />
     </div>
   );

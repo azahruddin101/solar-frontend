@@ -5,12 +5,14 @@ import { useEffect } from 'react';
 import { homeFor, useSession } from '@/lib/session';
 import { applyTheme, clearTheme } from '@/lib/theme';
 import { FullPageLoader } from '../kit';
+import NoAccess from './NoAccess';
 
 /**
  * Renders children only for a signed-in user whose role is `role` (a string, or an array to allow
  * more than one — e.g. a page both the company owner and its staff can open). When `permission` is
  * given, a non-company role must also hold that staff permission; the company owner is never checked
- * against it (they always have full access). Everyone else is redirected to their own home.
+ * against it (they always have full access). Someone in the wrong role is sent to their own home; a staff member
+ * without the permission sees the No access panel saying what's missing.
  */
 export default function AuthGuard({ role, permission, children }) {
   const router = useRouter();
@@ -26,8 +28,7 @@ export default function AuthGuard({ role, permission, children }) {
   useEffect(() => {
     if (status === 'guest') router.replace('/login');
     else if (status === 'ready' && !roleOk) router.replace(homeFor(user.role));
-    else if (denied) router.replace(homeFor(user.role));
-  }, [status, user, roleOk, denied, router]);
+  }, [status, user, roleOk, router]);
 
   // company and agent workspaces wear the company's colours
   const primary = company?.theme?.primary;
@@ -39,6 +40,10 @@ export default function AuthGuard({ role, permission, children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role, primary, accent]);
 
-  if (status !== 'ready' || !roleOk || denied) return <FullPageLoader />;
+  if (status !== 'ready' || !roleOk) return <FullPageLoader />;
+  if (denied) {
+    const [area, action] = permission.split(':');
+    return <NoAccess area={area} action={action} />;
+  }
   return children;
 }

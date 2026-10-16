@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { categorySchema, parentCategorySchema, useValidation } from '@/lib/validation';
 import { api } from '@/lib/api';
 import { useResource } from '@/lib/useResource';
+import { useCan } from '@/lib/useCan';
 import { Alert, Badge, Button, Card, CardHeader, ConfirmDialog, EmptyState, FormField, FormModal, IconButton, Input, LoadingBlock, PageHeader, Select, Table, Td, Th, Tr, buttonClass, cx, toast, RowMenu } from '../kit';
 import { MAX_SPECS, PRODUCT_TYPES, typeOf } from './CatalogProducts';
 
@@ -108,6 +109,10 @@ function CategoryForm({ category, parents, onClose, onSaved }) {
 }
 
 export default function Categories({ catalogPath = '/dashboard/catalog' }) {
+  const may = useCan();
+  const canCreate = may('inventory', 'create');
+  const canEdit = may('inventory', 'update');
+  const canDelete = may('inventory', 'delete');
   const { data, setData, loading, error } = useResource('/api/categories');
   const parentsResource = useResource('/api/parent-categories');
   const parents = parentsResource.data || [];
@@ -174,8 +179,8 @@ export default function Categories({ catalogPath = '/dashboard/catalog' }) {
     <>
       <PageHeader title="Catalog categories" description="Group what you sell your way. The order here is the order of the tabs in your product catalog.">
         <Link href={catalogPath} className={buttonClass()}>Open catalog</Link>
-        <Button icon={FolderTree} onClick={() => setModal({ type: 'parent' })}>New parent category</Button>
-        <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'form' })}>New category</Button>
+        {canCreate && <Button icon={FolderTree} onClick={() => setModal({ type: 'parent' })}>New parent category</Button>}
+        {canCreate && <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'form' })}>New category</Button>}
       </PageHeader>
       {error && <Alert className="mb-6">{error}</Alert>}
       {parentsResource.error && <Alert className="mb-6">{parentsResource.error}</Alert>}
@@ -184,7 +189,7 @@ export default function Categories({ catalogPath = '/dashboard/catalog' }) {
         <CardHeader title="Parent categories" description="Headings your categories are filed under. The bill of materials on the proposal is printed in these groups, in this order." />
         {parentsResource.loading ? <LoadingBlock /> : !parents.length ? (
           <EmptyState icon={FolderTree} title="No parent categories yet" description="Create headings such as Structures and Electricals, then choose one for each category below.">
-            <Button variant="primary" icon={FolderTree} onClick={() => setModal({ type: 'parent' })}>New parent category</Button>
+            {canCreate && <Button variant="primary" icon={FolderTree} onClick={() => setModal({ type: 'parent' })}>New parent category</Button>}
           </EmptyState>
         ) : (
           <Table>
@@ -206,13 +211,13 @@ export default function Categories({ catalogPath = '/dashboard/catalog' }) {
                     </Td>
                     <Td>
                       <div className="flex items-center justify-end gap-0.5">
-                        <IconButton icon={ArrowUp} label="Move up" disabled={i === 0} className="disabled:opacity-30" onClick={() => moveParent(i, -1)} />
-                        <IconButton icon={ArrowDown} label="Move down" disabled={i === parents.length - 1} className="disabled:opacity-30" onClick={() => moveParent(i, 1)} />
+                        {canEdit && <IconButton icon={ArrowUp} label="Move up" disabled={i === 0} className="disabled:opacity-30" onClick={() => moveParent(i, -1)} />}
+                        {canEdit && <IconButton icon={ArrowDown} label="Move down" disabled={i === parents.length - 1} className="disabled:opacity-30" onClick={() => moveParent(i, 1)} />}
                         <RowMenu
                           label={`Actions for ${p.name}`}
                           items={[
-                            { key: 'edit', icon: Pencil, label: 'Edit parent category', onClick: () => setModal({ type: 'parent', item: p }) },
-                            { key: 'delete', icon: Trash2, label: 'Delete parent category', tone: 'danger', onClick: () => setModal({ type: 'deleteParent', item: p }) },
+                            canEdit && { key: 'edit', icon: Pencil, label: 'Edit parent category', onClick: () => setModal({ type: 'parent', item: p }) },
+                            canDelete && { key: 'delete', icon: Trash2, label: 'Delete parent category', tone: 'danger', onClick: () => setModal({ type: 'deleteParent', item: p }) },
                           ]}
                         />
                       </div>
@@ -229,7 +234,7 @@ export default function Categories({ catalogPath = '/dashboard/catalog' }) {
         <CardHeader title="Categories" description="Each category holds products and can sit under one parent category." />
         {loading ? <LoadingBlock /> : !data?.length ? (
           <EmptyState icon={Tags} title="No categories yet" description="Create a category — solar panels, poles, inverters, batteries… — then add your products to it.">
-            <Button variant="primary" icon={FolderPlus} onClick={() => setModal({ type: 'form' })}>New category</Button>
+            {canCreate && <Button variant="primary" icon={FolderPlus} onClick={() => setModal({ type: 'form' })}>New category</Button>}
           </EmptyState>
         ) : (
           <Table>
@@ -254,14 +259,14 @@ export default function Categories({ catalogPath = '/dashboard/catalog' }) {
                     <Td className="text-right tabular-nums"><Link href={`${catalogPath}?category=${c.id}`} className="font-medium text-brand hover:underline">{c.products}</Link></Td>
                     <Td>
                       <div className="flex items-center justify-end gap-0.5">
-                        <IconButton icon={ArrowUp} label="Move up" disabled={i === 0} className="disabled:opacity-30" onClick={() => move(i, -1)} />
-                        <IconButton icon={ArrowDown} label="Move down" disabled={i === data.length - 1} className="disabled:opacity-30" onClick={() => move(i, 1)} />
+                        {canEdit && <IconButton icon={ArrowUp} label="Move up" disabled={i === 0} className="disabled:opacity-30" onClick={() => move(i, -1)} />}
+                        {canEdit && <IconButton icon={ArrowDown} label="Move down" disabled={i === data.length - 1} className="disabled:opacity-30" onClick={() => move(i, 1)} />}
                         <RowMenu
                           label={`Actions for ${c.name}`}
                           items={[
                             { key: 'products', icon: Package, label: 'View products', href: `${catalogPath}?category=${c.id}` },
-                            { key: 'edit', icon: Pencil, label: 'Edit category', onClick: () => setModal({ type: 'form', item: c }) },
-                            { key: 'delete', icon: Trash2, label: 'Delete category', tone: 'danger', onClick: () => setModal({ type: 'delete', item: c }) },
+                            canEdit && { key: 'edit', icon: Pencil, label: 'Edit category', onClick: () => setModal({ type: 'form', item: c }) },
+                            canDelete && { key: 'delete', icon: Trash2, label: 'Delete category', tone: 'danger', onClick: () => setModal({ type: 'delete', item: c }) },
                           ]}
                         />
                       </div>

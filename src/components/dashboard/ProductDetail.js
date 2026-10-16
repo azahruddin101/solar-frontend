@@ -9,6 +9,7 @@ import { PILLAR_SHAPES, productUnitsFor } from '@/lib/catalog';
 import { formatMoney } from '@/lib/energy';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
+import { useCan } from '@/lib/useCan';
 import { Alert, Badge, Button, Card, ConfirmDialog, IconButton, LoadingBlock, toast } from '@/components/kit';
 import { ProductForm, typeOf } from './CatalogProducts';
 
@@ -24,6 +25,7 @@ function Fact({ label, children }) {
 export default function ProductDetail({ id, catalogPath = '/dashboard/catalog' }) {
   const router = useRouter();
   const company = useSession((s) => s.company);
+  const may = useCan();
   const productResource = useResource(`/api/products/${id}`);
   const categoriesResource = useResource('/api/categories');
   const [modal, setModal] = useState(null);
@@ -108,10 +110,12 @@ export default function ProductDetail({ id, catalogPath = '/dashboard/catalog' }
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="primary" icon={Pencil} onClick={() => setModal({ type: 'edit' })}>
-            Edit
-          </Button>
-          <IconButton icon={Trash2} label="Delete product" tone="danger" onClick={() => setModal({ type: 'delete' })} />
+          {may('inventory', 'update') && (
+            <Button variant="primary" icon={Pencil} onClick={() => setModal({ type: 'edit' })}>
+              Edit
+            </Button>
+          )}
+          {may('inventory', 'delete') && <IconButton icon={Trash2} label="Delete product" tone="danger" onClick={() => setModal({ type: 'delete' })} />}
         </div>
       </div>
 

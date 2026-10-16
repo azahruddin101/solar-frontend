@@ -6,12 +6,15 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
+import { useCan } from '@/lib/useCan';
 import { usePagedResource } from '@/lib/useResource';
 import { Alert, Avatar, Badge, Button, Card, ConfirmDialog, EmptyState, Input, LoadingBlock, LoadMoreRow, PageHeader, Table, Td, Th, Tr, formatDate, toast, RowMenu } from '../kit';
 import ClientCredentials from './ClientCredentials';
 import ClientForm from './ClientForm';
 
 export default function Clients({ basePath = '/dashboard/clients' }) {
+  const may = useCan();
+  const designsPath = basePath.replace(/clients$/, 'designs');
   const router = useRouter();
   const params = useSearchParams();
   const { items: data, setItems: setData, total, loading, error, hasMore, loadingMore, loadMore } = usePagedResource('/api/clients', { limit: 100 });
@@ -61,9 +64,11 @@ export default function Clients({ basePath = '/dashboard/clients' }) {
   return (
     <>
       <PageHeader title="Clients" description="The people and businesses you design solar for.">
-        <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'form' })}>
-          Add client
-        </Button>
+        {may('clients', 'create') && (
+          <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'form' })}>
+            Add client
+          </Button>
+        )}
       </PageHeader>
       {error && <Alert className="mb-6">{error}</Alert>}
 
@@ -88,7 +93,7 @@ export default function Clients({ basePath = '/dashboard/clients' }) {
             title={data?.length ? 'No clients match' : 'No clients yet'}
             description={data?.length ? 'Try a different search.' : 'Add a client to start creating designs and proposals for them.'}
           >
-            {!data?.length && (
+            {!data?.length && may('clients', 'create') && (
               <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'form' })}>
                 Add client
               </Button>
@@ -146,16 +151,16 @@ export default function Clients({ basePath = '/dashboard/clients' }) {
                     )}
                   </Td>
                   <Td className="text-right tabular-nums">
-                    {c.designs ? (
+                    {c.designs && may('proposals', 'view') ? (
                       <button
                         type="button"
                         className="font-medium text-brand hover:underline"
-                        onClick={() => router.push(`/dashboard/designs?client=${c.id}`)}
+                        onClick={() => router.push(`${designsPath}?client=${c.id}`)}
                       >
                         {c.designs}
                       </button>
                     ) : (
-                      0
+                      c.designs || 0
                     )}
                   </Td>
                   <Td className="whitespace-nowrap text-slate-500">{formatDate(c.createdAt)}</Td>
@@ -165,8 +170,8 @@ export default function Clients({ basePath = '/dashboard/clients' }) {
                         label={`Actions for ${c.name}`}
                         items={[
                           { key: 'view', icon: Eye, label: 'View client', href: `${basePath}/${c.id}` },
-                          { key: 'edit', icon: Pencil, label: 'Edit client', onClick: () => setModal({ type: 'form', client: c }) },
-                          { key: 'delete', icon: Trash2, label: 'Delete client', tone: 'danger', onClick: () => setModal({ type: 'delete', client: c }) },
+                          may('clients', 'update') && { key: 'edit', icon: Pencil, label: 'Edit client', onClick: () => setModal({ type: 'form', client: c }) },
+                          may('clients', 'delete') && { key: 'delete', icon: Trash2, label: 'Delete client', tone: 'danger', onClick: () => setModal({ type: 'delete', client: c }) },
                         ]}
                       />
                     </div>

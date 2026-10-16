@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { api, assetUrl } from '@/lib/api';
-import { can } from '@/lib/agents';
+import { can } from '@/lib/permissions';
 import { formatMoney } from '@/lib/energy';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
@@ -25,8 +25,11 @@ export default function ClientDetail({ id, basePath = '/dashboard/clients', bill
   const router = useRouter();
   const company = useSession((s) => s.company);
   const me = useSession((s) => s.user);
-  const canViewDesigns = can(me, 'designs', 'view');
-  const canCreateDesign = can(me, 'designs', 'create');
+  const canViewDesigns = can(me, 'proposals', 'view');
+  const canCreateDesign = can(me, 'proposals', 'create');
+  const canDelete = can(me, 'clients', 'delete');
+  const canManageLogin = can(me, 'clients', 'manage_login');
+  const canSeeBilling = can(me, 'finances', 'view');
   const clientResource = useResource(`/api/clients/${id}`);
   const designsResource = useResource(canViewDesigns ? `/api/designs?client=${id}&limit=200` : null);
   const [modal, setModal] = useState(null);
@@ -123,7 +126,7 @@ export default function ClientDetail({ id, basePath = '/dashboard/clients', bill
               New Proposal
             </Button>
           )}
-          <IconButton icon={Trash2} label="Delete client" tone="danger" onClick={() => setModal({ type: 'delete' })} />
+          {canDelete && <IconButton icon={Trash2} label="Delete client" tone="danger" onClick={() => setModal({ type: 'delete' })} />}
         </div>
       </div>
 
@@ -211,8 +214,8 @@ export default function ClientDetail({ id, basePath = '/dashboard/clients', bill
               </div>
               <div className="flex items-center gap-2">
                 {client.hasLogin && <Badge tone="green">Active</Badge>}
-                <Button size="sm" disabled={!client.email} loading={busy} onClick={manageLogin}>{client.hasLogin ? 'Reset password' : 'Create login'}</Button>
-                {client.hasLogin && <Button size="sm" variant="dangerGhost" onClick={() => setModal({ type: 'removeLogin' })}>Remove access</Button>}
+                {canManageLogin && <Button size="sm" disabled={!client.email} loading={busy} onClick={manageLogin}>{client.hasLogin ? 'Reset password' : 'Create login'}</Button>}
+                {canManageLogin && client.hasLogin && <Button size="sm" variant="dangerGhost" onClick={() => setModal({ type: 'removeLogin' })}>Remove access</Button>}
               </div>
             </div>
           </Card>
@@ -276,7 +279,7 @@ export default function ClientDetail({ id, basePath = '/dashboard/clients', bill
                             label={`Actions for ${d.name}`}
                             items={[
                               { key: 'open', icon: ArrowUpRight, label: 'Open proposal', href: designHref(d) },
-                              d.status === 'won' && { key: 'billing', icon: ReceiptText, label: 'Billing', href: `${billingBasePath}/${d.id}` },
+                              canSeeBilling && d.status === 'won' && { key: 'billing', icon: ReceiptText, label: 'Billing', href: `${billingBasePath}/${d.id}` },
                             ]}
                           />
                         </div>

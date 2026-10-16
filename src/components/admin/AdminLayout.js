@@ -8,7 +8,12 @@ const NAV = [
   {
     items: [
       { href: '/admin', label: 'Overview', icon: LayoutDashboard, exact: true },
-      { href: '/admin/companies', label: 'Companies', icon: Building2 },
+      {
+        href: '/admin/companies',
+        label: 'Companies',
+        icon: Building2,
+        children: [{ href: '/admin/companies', label: 'All companies', exact: true }],
+      },
       { href: '/admin/plans', label: 'Plans', icon: CreditCard },
       { href: '/admin/plan-requests', label: 'Plan requests', icon: ClipboardCheck },
       { href: '/admin/support', label: 'Support', icon: LifeBuoy },

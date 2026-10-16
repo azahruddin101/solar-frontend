@@ -7,6 +7,7 @@ import { loadBranding } from './branding.js';
 import { formatMoney } from './energy.js';
 import { pdfKit } from './pdf.js';
 import { amountInWords, amountInWordsInr, fmtPdfDate, PAYMENT_MODE_LABEL, pdfSlug } from './billingPdfShared.js';
+import { downloadBlob } from './invoicePdf.js';
 
 const { text, clip, wrap, tableStyle, placeImage, logoOrName } = pdfKit;
 const { W, H, M, CW } = pdfKit.pageSize;
@@ -110,7 +111,8 @@ const slug = pdfSlug;
  * `payment` is the receipt, `ledger` the proposal's billing state after it ({ total, ... }),
  * `history` every receipt for the proposal up to and including this one.
  */
-export async function generateReceiptPdf({ payment, proposalName, total, history = [], company = {}, client = {}, currency = 'INR' }) {
+/** Build receipt PDF bytes (for WhatsApp share or download). */
+export async function buildReceiptPdfBlob({ payment, proposalName, total, history = [], company = {}, client = {}, currency = 'INR' }) {
   const brand = await loadBranding(company);
   const { company: co, client: cl, money } = context(company, client, currency);
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
@@ -193,8 +195,14 @@ export async function generateReceiptPdf({ payment, proposalName, total, history
   text(doc, 'This is a computer-generated receipt. Thank you for your payment.', M, y + 30, { size: 8, color: MUTED });
 
   pageFooter(doc, co, brand);
-  doc.save(`${['receipt', payment.receiptNo, slug(cl.name)].filter(Boolean).join('_')}.pdf`);
+  const filename = `${['receipt', payment.receiptNo, slug(cl.name)].filter(Boolean).join('_')}.pdf`;
+  return { blob: doc.output('blob'), filename };
+}
+
+export async function generateReceiptPdf(params) {
+  const { blob, filename } = await buildReceiptPdfBlob(params);
+  downloadBlob(blob, filename);
 }
 
 export { invoiceTax } from './pricing.js';
-export { buildInvoicePdfBlob, generateInvoicePdf } from './invoicePdf.js';
+export { buildInvoicePdfBlob, downloadBlob, generateInvoicePdf } from './invoicePdf.js';

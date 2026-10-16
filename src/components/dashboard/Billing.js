@@ -11,6 +11,7 @@ import { formatMoney } from '@/lib/energy';
 import { openFile } from '@/lib/files';
 import { buildInvoicePdfBlob, downloadBlob, generateInvoicePdf } from '@/lib/invoicePdf';
 import { useResource, usePaginatedResource } from '@/lib/useResource';
+import { useCan } from '@/lib/useCan';
 import { useSession } from '@/lib/session';
 import { PAYMENT_MODE_LABEL } from '@/lib/billingPdf';
 import { Alert, Badge, Button, Card, EmptyState, FormField, FormModal, LoadingBlock, PageHeader, Select, Table, TablePagination, Tabs, Td, Th, Tr, buttonClass, formatDate, showError, toast } from '../kit';
@@ -55,6 +56,7 @@ function ProposalPicker({ basePath, money, onClose }) {
 
 export default function Billing({ basePath = '/dashboard/billing' }) {
   const company = useSession((s) => s.company);
+  const may = useCan();
   const [tab, setTab] = useState('proposals');
   const [proposalPage, setProposalPage] = useState(1);
   const overview = useResource('/api/billing/overview');
@@ -121,8 +123,12 @@ export default function Billing({ basePath = '/dashboard/billing' }) {
   return (
     <>
       <PageHeader title="Billing" description="Generate plain or tax invoices, record payments, and issue receipts for booked proposals.">
-        <Button variant="secondary" icon={Zap} onClick={() => setModal('direct')}>Direct invoice</Button>
-        <Button variant="primary" icon={ReceiptText} onClick={() => setModal('pick')}>Generate invoice</Button>
+        {may('finances', 'create_invoice') && (
+          <>
+            <Button variant="secondary" icon={Zap} onClick={() => setModal('direct')}>Direct invoice</Button>
+            <Button variant="primary" icon={ReceiptText} onClick={() => setModal('pick')}>Generate invoice</Button>
+          </>
+        )}
       </PageHeader>
       {overview.data && (
         <div className="mb-5 grid gap-3 sm:grid-cols-3">

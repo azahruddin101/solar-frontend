@@ -1,13 +1,65 @@
 'use client';
 
-import { Building2, Layers, PenLine, Trash2, Undo2 } from 'lucide-react';
-import { useEffect } from 'react';
+import { Building2, Info, Layers, PenLine, Trash2, Undo2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { buildingList, sectionsOf } from '@/lib/buildings';
 import { useStore } from '@/lib/store';
 import Editor2D from '../editor/Editor2D';
-import { Card, Hint, RoundBtn } from './common';
+import { cx } from '../ui';
+import { Card, RoundBtn } from './common';
 
 const key = (k) => window.dispatchEvent(new KeyboardEvent('keydown', { key: k }));
+
+const DRAW_STEPS = [
+  'Scroll to zoom in on your house, drag to move the picture.',
+  'Click on each corner of your roof, one after another. Lines snap to 90°.',
+  'Press Finish outline, or click the first point. Made a mistake? Press Undo last point.',
+];
+const ADJUST_STEPS = [
+  'Drag corners to adjust the outline.',
+  'Right-click a corner to delete it.',
+  'Add an elevated roof section on top, or another building.',
+];
+
+function RoofHelp({ drawing }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const steps = drawing ? DRAW_STEPS : ADJUST_STEPS;
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e) => {
+      if (e.type === 'keydown' ? e.key === 'Escape' : !ref.current?.contains(e.target)) setOpen(false);
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', close);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', close);
+    };
+  }, [open]);
+  return (
+    <div ref={ref} className="absolute right-4 top-4 z-20" onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        aria-label="How to mark the roof"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={cx('grid h-9 w-9 place-items-center rounded-full bg-white text-slate-700 shadow-lg ring-1 ring-black/5 hover:bg-slate-50', open && 'bg-brand text-brand-fg')}
+      >
+        <Info className="h-[18px] w-[18px]" />
+      </button>
+      {open && (
+        <div role="dialog" aria-label={drawing ? 'How to mark the roof' : 'How to adjust the roof'} className="absolute right-0 top-full mt-2 w-[min(420px,calc(100vw-2rem))] rounded-lg bg-white p-4 text-left shadow-xl ring-1 ring-black/5">
+          <div className="text-[15px] font-semibold">{drawing ? 'How to mark the roof' : 'How to adjust the roof'}</div>
+          <ol className="mt-1.5 list-decimal space-y-0.5 pl-5 text-sm text-slate-600">
+            {steps.map((step) => <li key={step}>{step}</li>)}
+          </ol>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function StepDraw({ design }) {
   const tool = useStore((s) => s.tool);
@@ -28,21 +80,7 @@ export default function StepDraw({ design }) {
 
   return (
     <Editor2D design={design} showPanels={false} showObjects={false} editSections>
-      <Hint>
-        {tool === 'draw-section'
-          ? 'Click the roof corners · lines snap to 90° · click the first point or press Enter to finish · Backspace undoes'
-          : 'Drag corners to adjust · right-click a corner to delete it · add elevated roof sections on top, or another building'}
-      </Hint>
-      {!sections.length && (
-        <Card className="absolute top-6 right-0 w-[420px] -translate-x-1/2">
-          <div className="text-[15px] font-semibold">How to mark the roof</div>
-          <ol className="mt-1.5 list-decimal space-y-0.5 pl-5 text-sm text-slate-600">
-            <li>Scroll to zoom in on your house, drag to move the picture.</li>
-            <li>Click on each corner of your roof, one after another.</li>
-            <li>Press the green “Done” button. Made a mistake? Press “Undo last point”.</li>
-          </ol>
-        </Card>
-      )}
+      <RoofHelp drawing={tool === 'draw-section'} />
       {tool === 'draw-section' && (
         <div className="absolute bottom-6 right-6 flex gap-2" onPointerDown={(e) => e.stopPropagation()}>
           <button type="button" onClick={() => key('Backspace')} className="h-12 rounded-md bg-white px-5 text-sm font-semibold shadow-lg hover:bg-slate-50">Undo last point</button>
@@ -56,7 +94,7 @@ export default function StepDraw({ design }) {
         <RoundBtn icon={Trash2} label="Delete selected section" danger disabled={!selectedId} onClick={() => remove(selectedId)} />
       </div>
       {sections.length > 0 && (
-        <Card className="absolute right-4 top-4 max-h-[calc(100%-2rem)] w-64 overflow-y-auto">
+        <Card className="absolute right-4 top-16 max-h-[calc(100%-5rem)] w-64 overflow-y-auto">
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
             <Layers className="h-4 w-4" /> {buildings.length > 1 ? `Buildings (${buildings.length})` : 'Roof sections'}
           </div>

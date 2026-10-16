@@ -3,14 +3,23 @@
 // Loads the open design from the backend and autosaves changes back to it.
 import { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
+import { can } from './permissions.js';
 import { useSession } from './session.js';
 import { SAVED_KEYS, serializeDesign, useStore } from './store.js';
 
 const SAVE_DELAY = 1200;
 
-/** `summary` = { address, kwp, panels, cost, annualKwh } shown in the designs list. */
+/**
+ * `summary` = { address, kwp, panels, cost, annualKwh } shown in the designs list. Someone who may only view proposals
+ * can still open and explore the designer, but nothing is sent back: `save` is then 'readonly'.
+ */
 export function useDesignSync(designId, summary) {
   const company = useSession((s) => s.company);
+  const readOnly = useSession((s) => !can(s.user, 'proposals', 'update'));
+  const readOnlyRef = useRef(readOnly);
+  useEffect(() => {
+    readOnlyRef.current = readOnly;
+  });
   const loadedId = useStore((s) => s.designId);
   const [load, setLoad] = useState({ status: 'loading', error: '' }); // loading | ready | error
   const [save, setSave] = useState('saved'); // saved | dirty | saving | error
@@ -50,6 +59,10 @@ export function useDesignSync(designId, summary) {
     const flush = async ({ keepalive = false } = {}) => {
       clearTimeout(s.timer);
       if (!s.dirty) return;
+      if (readOnlyRef.current) {
+        s.dirty = false; // view only: local changes are just for looking, never saved
+        return;
+      }
       const st = useStore.getState();
       if (st.designId !== designId) return;
       s.dirty = false;
@@ -64,6 +77,7 @@ export function useDesignSync(designId, summary) {
     };
     s.markDirty = () => {
       s.dirty = true;
+      if (readOnlyRef.current) return;
       setSave('dirty');
       clearTimeout(s.timer);
       s.timer = setTimeout(flush, SAVE_DELAY);
@@ -92,5 +106,5 @@ export function useDesignSync(designId, summary) {
     savedSummary.current = summaryKey;
   }, [summaryKey, ready]);
 
-  return { ...load, save };
+  return { ...load, save: readOnly ? 'readonly' : save, readOnly };
 }

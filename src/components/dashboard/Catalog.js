@@ -11,6 +11,7 @@ import { productUnitsFor } from '@/lib/catalog';
 import { CURRENCIES, formatMoney } from '@/lib/energy';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
+import { useCan } from '@/lib/useCan';
 import { Alert, Button, Card, CardHeader, ConfirmDialog, EmptyState, FormField, Input, LoadingBlock, PageHeader, Select, Tabs, buttonClass, showError, toast } from '../kit';
 import { CategoryProducts } from './CatalogProducts';
 import Packages from './Packages';
@@ -49,6 +50,8 @@ function Pricing() {
 
 export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-categories' }) {
   const company = useSession((s) => s.company);
+  const isOwner = useSession((s) => s.user?.role === 'company'); // pricing defaults are a company master
+  const may = useCan();
   const categories = useResource('/api/categories');
   const designer = useResource('/api/catalog'); // which of the products the designer picks up
   const [picked, setPicked] = useState(useSearchParams().get('category')); // ?category=<id> from the categories page
@@ -92,7 +95,7 @@ export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-
   return (
     <>
       <PageHeader title="Product catalog" description="Everything your company sells, in your own categories and with your prices.">
-        {category && <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'product' })}>Add product</Button>}
+        {category && may('inventory', 'create') && <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'product' })}>Add product</Button>}
       </PageHeader>
       {categories.error && <Alert className="mb-6">{categories.error}</Alert>}
       {missing.length > 0 && (
@@ -141,7 +144,7 @@ export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-
       {tab === 'pricing' && !categories.loading && (
         <>
           {!list.length && <Card className="mb-6"><EmptyState icon={Tags} title="No categories yet" description="Create a category — solar panels, poles, inverters… — then add your products to it."><Link href={mastersPath} className={buttonClass({ variant: 'primary' })}>Create a category</Link></EmptyState></Card>}
-          <Pricing />
+          {isOwner ? <Pricing /> : <Alert tone="info">Pricing settings are managed by your company admin.</Alert>}
         </>
       )}
 

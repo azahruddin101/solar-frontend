@@ -1,11 +1,16 @@
 'use client';
 
-import { FileText, UserCog } from 'lucide-react';
+import { FileText, LifeBuoy, UserCog } from 'lucide-react';
 import AppShell from '../layout/AppShell';
 import AuthGuard from '../layout/AuthGuard';
 
 const NAV = [
-  { items: [{ href: '/portal', label: 'My proposals', icon: FileText, exact: true }] },
+  {
+    items: [
+      { href: '/portal', label: 'My proposals', icon: FileText, exact: true },
+      { href: '/portal/support', label: 'Help & support', icon: LifeBuoy },
+    ],
+  },
   { title: 'Settings', items: [{ href: '/portal/account', label: 'My account', icon: UserCog }] },
 ];
 

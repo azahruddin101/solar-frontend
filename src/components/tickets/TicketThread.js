@@ -6,10 +6,11 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { useCan } from '@/lib/useCan';
 import { useUnread } from '@/lib/unread';
 import { Alert, Avatar, Button, Card, LoadingBlock, Select, Tabs, cx, formatDate, toast } from '../kit';
 import Composer from './Composer';
-import { Attachment, TICKET_CATEGORIES, TICKET_STATUSES, TicketStatusBadge, labelOf } from './shared';
+import { Attachment, TICKET_STATUSES, TicketStatusBadge, channelOf, labelOf } from './shared';
 
 const stamp = (d) => new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const clock = (d) => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -48,12 +49,17 @@ function buildTimeline(ticket, isMine) {
   return out;
 }
 
-const ACTIONS = { created: 'Ticket opened', message: 'Message', status_changed: 'Status changed', reopened: 'Reopened' };
+const ACTIONS = { created: 'Opened', message: 'Message', status_changed: 'Status changed', reopened: 'Reopened' };
 
-export default function TicketThread({ id, admin = false, basePath }) {
+export default function TicketThread({ id, admin = false, basePath, channel = 'platform' }) {
   const me = useSession((s) => s.user);
   const refreshBadge = useUnread((s) => s.refresh);
-  const base = basePath || (admin ? '/admin/support' : '/dashboard/support');
+  const may = useCan();
+  const c = channelOf(channel, admin);
+  const staff = c.staff;
+  // the company's staff need the Reply permission of their channel; clients and the platform admin always may
+  const canReply = !c.permission || may(c.permission, 'update');
+  const base = basePath || (channel === 'clients' ? '/dashboard/client-support' : channel === 'portal' ? '/portal/support' : admin ? '/admin/support' : '/dashboard/support');
   const [ticket, setTicket] = useState(null);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -68,12 +74,12 @@ export default function TicketThread({ id, admin = false, basePath }) {
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
     try {
-      setTicket(await api(`/api/tickets/${id}`));
+      setTicket(await api(`${c.api}/${id}`));
       setCheckedAt(new Date());
       setError('');
       refreshBadge();
     } catch (e) { setError(e.message); } finally { setRefreshing(false); }
-  }, [id, refreshBadge]);
+  }, [id, refreshBadge, c.api]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
@@ -91,27 +97,28 @@ export default function TicketThread({ id, admin = false, basePath }) {
       const fd = new FormData();
       fd.append('body', text);
       files.forEach((f) => fd.append('files', f));
-      setTicket(await api(`/api/tickets/${id}/messages`, { method: 'POST', form: fd }));
+      setTicket(await api(`${c.api}/${id}/messages`, { method: 'POST', form: fd }));
       setText('');
       setFiles([]);
     } catch (e) { toast.error(e.message); } finally { setSending(false); }
   };
 
   const setStatus = async (status) => {
-    try { setTicket(await api(`/api/tickets/${id}/status`, { method: 'PUT', body: { status } })); } catch (e) { toast.error(e.message); }
+    try { setTicket(await api(`${c.api}/${id}/status`, { method: 'PUT', body: { status } })); } catch (e) { toast.error(e.message); }
   };
 
-  const isMine = useCallback((m) => m.author === me.id || (admin ? m.authorRole === 'superadmin' : m.authorRole !== 'superadmin'), [me.id, admin]);
+  const sideMine = c.mine;
+  const isMine = useCallback((m) => m.author === me.id || sideMine(m), [me.id, sideMine]);
   const timeline = useMemo(() => (ticket ? buildTimeline(ticket, isMine) : []), [ticket, isMine]);
 
   if (error && !ticket) return <><Link href={base} className="mb-4 inline-flex items-center gap-1 text-sm text-brand hover:underline"><ArrowLeft className="h-4 w-4" /> Support</Link><Alert>{error}</Alert></>;
   if (!ticket) return <LoadingBlock />;
 
   const closed = ticket.status === 'closed';
-  const adminBlocked = admin && closed;
+  const adminBlocked = staff && closed;
   return (
     <>
-      <Link href={base} className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline"><ArrowLeft className="h-4 w-4" /> All tickets</Link>
+      <Link href={base} className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline"><ArrowLeft className="h-4 w-4" /> All {c.noun}s</Link>
 
       <Card className="mb-4 px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -119,19 +126,19 @@ export default function TicketThread({ id, admin = false, basePath }) {
             <div className="text-xs font-medium text-slate-400">{ticket.ref}</div>
             <h1 className="text-lg font-semibold text-slate-900">{ticket.subject}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-              {admin && <span className="font-medium text-slate-700">{ticket.company?.name}</span>}
-              <span>{labelOf(TICKET_CATEGORIES, ticket.category)}</span>
+              {c.party(ticket) && <span className="font-medium text-slate-700">{c.party(ticket)}{channel === 'clients' && ticket.client?.phone ? ` · ${ticket.client.phone}` : ''}</span>}
+              <span>{labelOf(c.categories, ticket.category)}</span>
               <span>{ticket.priority === 'high' ? 'High priority' : `${ticket.priority} priority`}</span>
               <span>Opened {formatDate(ticket.createdAt)}{ticket.createdBy?.name ? ` by ${ticket.createdBy.name}` : ''}</span>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {admin ? (
+            {staff && canReply ? (
               <Select value={ticket.status} onValue={setStatus} aria-label="Ticket status" className="!w-40">{TICKET_STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</Select>
-            ) : (
+            ) : staff ? <TicketStatusBadge status={ticket.status} /> : (
               <>
                 <TicketStatusBadge status={ticket.status} />
-                {!closed && <Button size="sm" onClick={() => setStatus('closed')}>Close ticket</Button>}
+                {!closed && <Button size="sm" onClick={() => setStatus('closed')}>Close {c.noun}</Button>}
                 {['resolved', 'closed'].includes(ticket.status) && <Button size="sm" onClick={() => setStatus('open')}>Reopen</Button>}
               </>
             )}
@@ -164,7 +171,7 @@ export default function TicketThread({ id, admin = false, basePath }) {
                 <div key={row.key} className={cx('flex items-end gap-2', mine ? 'flex-row-reverse' : 'flex-row', cont ? 'mt-0.5' : 'mt-4')}>
                   <div className="w-8 shrink-0">{!cont && <Avatar name={m.authorName} size={32} />}</div>
                   <div className={cx('flex min-w-0 max-w-[85%] flex-col sm:max-w-[70%]', mine ? 'items-end' : 'items-start')}>
-                    {!cont && <div className="mb-1 px-1 text-xs text-slate-500"><span className="font-medium text-slate-700">{m.authorName}</span>{m.authorRole === 'superadmin' && <span className="ml-1.5 rounded bg-slate-200 px-1.5 py-px text-[10px] font-medium text-slate-600 uppercase">Admin</span>}</div>}
+                    {!cont && <div className="mb-1 px-1 text-xs text-slate-500"><span className="font-medium text-slate-700">{m.authorName}</span>{c.otherTag(m) && <span className="ml-1.5 rounded bg-slate-200 px-1.5 py-px text-[10px] font-medium text-slate-600 uppercase">{c.otherTag(m)}</span>}</div>}
                     <div className={cx('max-w-full space-y-2 px-3.5 py-2 text-sm shadow-sm', mine ? 'bg-brand text-brand-fg' : 'bg-white text-slate-800 ring-1 ring-slate-200', mine ? (cont ? 'rounded-2xl rounded-tr-md' : 'rounded-2xl rounded-br-md') : (cont ? 'rounded-2xl rounded-tl-md' : 'rounded-2xl rounded-bl-md'))}>
                       {images.length > 0 && <div className={cx('grid gap-1.5', images.length > 1 ? 'grid-cols-2' : 'grid-cols-1')}>{images.map((a) => <Attachment key={a.id || a.url} file={a} mine={mine} />)}</div>}
                       {docs.map((a) => <Attachment key={a.id || a.url} file={a} mine={mine} />)}
@@ -178,7 +185,8 @@ export default function TicketThread({ id, admin = false, basePath }) {
             <div ref={end} />
           </div>
           <div className="border-t border-slate-200 bg-white p-3 sm:p-4">
-            {adminBlocked ? <p className="rounded-lg bg-slate-50 px-4 py-3 text-center text-sm text-slate-500">This ticket is closed. The company can reopen it to continue.</p> : (
+            {!canReply ? <p className="rounded-lg bg-slate-50 px-4 py-3 text-center text-sm text-slate-500">You can read this conversation. Replying needs the “Reply” permission — ask your company admin.</p>
+              : adminBlocked ? <p className="rounded-lg bg-slate-50 px-4 py-3 text-center text-sm text-slate-500">{c.closedNote}</p> : (
               <Composer text={text} setText={setText} files={files} setFiles={setFiles} busy={sending} onSend={send} />
             )}
           </div>
@@ -190,7 +198,7 @@ export default function TicketThread({ id, admin = false, basePath }) {
               <span className="w-32 shrink-0 text-xs text-slate-400">{stamp(l.at)}</span>
               <span className="font-medium text-slate-800">{ACTIONS[l.action] || l.action}</span>
               <span className="text-slate-600">{l.message}</span>
-              <span className="ml-auto text-xs text-slate-400">{l.byName}{l.byRole === 'superadmin' ? ' · Admin' : ''}</span>
+              <span className="ml-auto text-xs text-slate-400">{l.byName}{l.byRole === 'superadmin' ? ' · Admin' : l.byRole === 'client' ? ' · Client' : ''}</span>
             </div>
           ))}
         </Card>

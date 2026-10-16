@@ -1,11 +1,11 @@
 'use client';
 
-import { Copy, FileText, HardHat, History, MapPin, PenLine, Plus, ReceiptText, Search, Trash2 } from 'lucide-react';
+import { Copy, FileText, HardHat, History, MapPin, PenLine, PenTool, Plus, ReceiptText, Search, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { api } from '@/lib/api';
-import { can } from '@/lib/agents';
+import { can } from '@/lib/permissions';
 import { formatMoney } from '@/lib/energy';
 import { generateLifecyclePdf } from '@/lib/lifecyclePdf';
 import { useSession } from '@/lib/session';
@@ -19,12 +19,18 @@ export default function Designs({ basePath = '/dashboard/designs', installations
   const params = useSearchParams();
   const company = useSession((s) => s.company);
   const me = useSession((s) => s.user);
-  const canCreate = can(me, 'designs', 'create');
-  const canUpdate = can(me, 'designs', 'update');
-  const canDelete = can(me, 'designs', 'delete');
+  const canCreate = can(me, 'proposals', 'create');
+  const canUpdate = can(me, 'proposals', 'update');
+  const canDelete = can(me, 'proposals', 'delete');
+  const canChangeStatus = can(me, 'proposals', 'change_status');
+  // other areas this page links into: only load or offer what the user may open
+  const canViewClients = can(me, 'clients', 'view');
+  const canSeeBilling = can(me, 'finances', 'view');
+  const canViewTasks = can(me, 'tasks', 'view');
+  const canStartTask = can(me, 'tasks', 'create');
   const { items: data, setItems: setData, loading, error, hasMore, loadingMore, loadMore, total } = usePagedResource('/api/designs', { limit: 100 });
-  const clients = useResource('/api/clients?limit=500');
-  const projects = useResource('/api/projects?limit=1000');
+  const clients = useResource(canViewClients ? '/api/clients?limit=500' : null);
+  const projects = useResource(canViewTasks ? '/api/projects?limit=1000' : null);
   const clientList = clients.data?.items || [];
   const projectList = projects.data?.items || [];
   const [query, setQuery] = useState('');
@@ -87,7 +93,8 @@ export default function Designs({ basePath = '/dashboard/designs', installations
   };
 
   const hasClients = Boolean(clientList.length);
-  const newButton = hasClients ? <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'new' })}>New Proposal</Button> : <Link href={`${clientsBasePath}?new=1`} className={buttonClass({ variant: 'primary' })}>Add a client first</Link>;
+  // a proposal is made for a client, so creating one needs the client list too
+  const newButton = !canViewClients ? null : hasClients ? <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'new' })}>New Proposal</Button> : can(me, 'clients', 'create') ? <Link href={`${clientsBasePath}?new=1`} className={buttonClass({ variant: 'primary' })}>Add a client first</Link> : null;
 
   return (
     <>
@@ -121,12 +128,12 @@ export default function Designs({ basePath = '/dashboard/designs', installations
               {rows.map((d) => (
                 <Tr key={d.id}>
                   <Td>
-                    <Link href={designHref(d)} className="block max-w-[260px] truncate font-medium text-slate-900 hover:text-brand">{d.name}</Link>
+                    <Link href={`${basePath}/${d.id}`} className="block max-w-[260px] truncate font-medium text-slate-900 hover:text-brand">{d.name}</Link>
                     {d.summary?.address && <div className="flex max-w-[260px] items-center gap-1 text-xs text-slate-500"><MapPin className="h-3 w-3 shrink-0" /><span className="truncate">{d.summary.address}</span></div>}
                   </Td>
                   <Td><div className="max-w-[160px] truncate" title={d.client?.name}>{d.client?.name || '—'}</div></Td>
                   <Td>
-                    {canUpdate ? (
+                    {canChangeStatus ? (
                       <Select aria-label="Status" value={d.status} onValue={(v) => setDesignStatus(d, v)} className="h-8 w-[118px] text-[13px]">
                         {DESIGN_STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                       </Select>
@@ -145,12 +152,11 @@ export default function Designs({ basePath = '/dashboard/designs', installations
                       <RowMenu
                         label={`Actions for ${d.name}`}
                         items={[
-                          { key: 'edit', icon: PenLine, label: 'Edit proposal', href: designHref(d) },
+                          { key: 'edit', icon: PenLine, label: canUpdate ? 'Edit proposal' : 'Open proposal (view only)', href: designHref(d) },
                           { key: 'detail', icon: History, label: 'View details & versions', href: `${basePath}/${d.id}` },
-                          d.status === 'won' && { key: 'billing', icon: ReceiptText, label: 'Billing', href: `${billingBasePath}/${d.id}` },
-                          installationOf.has(d.id)
-                            ? { key: 'installation', icon: HardHat, label: 'View installation', href: `${installationsBasePath}/${installationOf.get(d.id)}` }
-                            : { key: 'installation', icon: HardHat, label: 'Start installation', href: `${installationsBasePath}?start=${d.id}` },
+                          canSeeBilling && d.status === 'won' && { key: 'billing', icon: ReceiptText, label: 'Billing', href: `${billingBasePath}/${d.id}` },
+                          canViewTasks && installationOf.has(d.id) && { key: 'installation', icon: HardHat, label: 'View installation', href: `${installationsBasePath}/${installationOf.get(d.id)}` },
+                          canViewTasks && canStartTask && !installationOf.has(d.id) && d.status === 'won' && { key: 'installation', icon: HardHat, label: 'Start installation', href: `${installationsBasePath}?start=${d.id}` },
                           { key: 'log', icon: FileText, label: 'Download activity log (PDF)', onClick: () => downloadHistory(d) },
                           canCreate && { key: 'duplicate', icon: Copy, label: 'Duplicate', onClick: () => duplicate(d) },
                           canDelete && { key: 'delete', icon: Trash2, label: 'Delete proposal', tone: 'danger', onClick: () => setModal({ type: 'delete', design: d }) },

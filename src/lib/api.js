@@ -52,6 +52,9 @@ export class ApiError extends Error {
 
 let onUnauthorized = null;
 export const setUnauthorizedHandler = (fn) => (onUnauthorized = fn);
+let onForbidden = null;
+/** Called on every 403: the session's permissions may be out of date (the owner changed a role), so it refreshes them. */
+export const setForbiddenHandler = (fn) => (onForbidden = fn);
 
 /** JSON request with the session token. `form` sends multipart (uploads). */
 export async function api(path, { method = 'GET', body, form, signal, keepalive } = {}) {
@@ -74,7 +77,32 @@ export async function api(path, { method = 'GET', body, form, signal, keepalive 
   if (res.ok && method !== 'GET' && typeof window !== 'undefined') window.dispatchEvent(new Event('sp:changed'));
   if (!res.ok) {
     if (res.status === 401 && path !== '/api/auth/login' && path !== '/api/auth/logout') onUnauthorized?.();
-    throw new ApiError(res.status, data?.error || `Request failed (${res.status})`, data?.code, data?.details);
+    if (res.status === 403) onForbidden?.();
+    // per-field problems (`errors`, e.g. from the lead form) travel in details.errors
+    throw new ApiError(res.status, data?.error || data?.message || `Request failed (${res.status})`, data?.code, data?.details ?? (data?.errors ? { errors: data.errors } : undefined));
   }
   return data;
+}
+
+/** Downloads a file the API generates (e.g. an export) with the session token, under the name the API gives it. */
+export async function downloadApiFile(path, fallbackName = 'download') {
+  const token = tokens.get();
+  let res;
+  try {
+    res = await fetch(apiUrl(path), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  } catch {
+    throw new ApiError(0, 'Cannot reach the server. Check your connection and try again.');
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    if (res.status === 401) onUnauthorized?.();
+    throw new ApiError(res.status, data?.error || data?.message || `Request failed (${res.status})`);
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')?.[1] || fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

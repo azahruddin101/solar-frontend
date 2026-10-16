@@ -11,6 +11,7 @@ import { api } from '@/lib/api';
 import { DEFAULT_PRODUCT_UNITS, normalizeProductUnit, PILLAR_SHAPES } from '@/lib/catalog';
 import { exportPanels, importPanels } from '@/lib/excel';
 import { useResource } from '@/lib/useResource';
+import { useCan } from '@/lib/useCan';
 import { Alert, Badge, Button, Card, EmptyState, FormField, IconButton, Input, LoadingBlock, Modal, Select, Table, Td, Textarea, Th, Tr, cx, showError, toast } from '../kit';
 
 export const MAX_SPECS = 40;
@@ -242,6 +243,7 @@ export function ProductForm({ product, category, categories, categoryKeys, brand
 
 /** `modal` / `setModal` come from the Catalog page so its header button can open the form too. */
 export function CategoryProducts({ category, categories, money, currency, units, excelImport, modal, setModal, onCount, catalogPath = '/dashboard/catalog' }) {
+  const may = useCan();
   const { data, setData, loading, error, reload } = useResource(`/api/products?category=${category.id}`);
   const [query, setQuery] = useState('');
   const [importNote, setImportNote] = useState(null);
@@ -293,7 +295,7 @@ export function CategoryProducts({ category, categories, money, currency, units,
           </div>
           {panelTools && (
             <>
-              {excelImport && (
+              {excelImport && may('inventory', 'create') && may('inventory', 'update') && (
                 <>
                   <input ref={fileRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onImport(f); }} />
                   <Button icon={Upload} onClick={() => fileRef.current?.click()}>Import panels</Button>
@@ -305,7 +307,7 @@ export function CategoryProducts({ category, categories, money, currency, units,
         </div>
         {loading ? <LoadingBlock /> : error ? <p className="px-6 py-8 text-sm text-red-700">{error}</p> : !rows.length ? (
           <EmptyState icon={Package} title={data?.length ? 'No products match' : `Nothing in ${category.name} yet`} description={data?.length ? 'Try a different search.' : 'Add a product with its price and any specifications that matter.'}>
-            {!data?.length && <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'product' })}>Add product</Button>}
+            {!data?.length && may('inventory', 'create') && <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'product' })}>Add product</Button>}
           </EmptyState>
         ) : (
           <Table>

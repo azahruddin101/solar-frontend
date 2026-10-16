@@ -45,8 +45,8 @@ export default function AgentRolesPage() {
   return (
     <>
       <PageHeader
-        title="Agent roles"
-        description="Job titles your field staff can hold. When you add someone to the team, pick one or more roles from this list."
+        title="Job titles"
+        description="The field work your staff do (Electrician, Installer…). They decide which installation tasks someone can be given — they don’t open anything in the app."
       >
         {!editing && (
           <Button variant="primary" icon={Pencil} onClick={() => setEditing(true)}>
@@ -98,7 +98,7 @@ export default function AgentRolesPage() {
           </div>
         )}
 
-        <p className="mt-5 text-xs text-slate-500">These names appear when you add or edit agents on the Team page. An agent can have several roles at once.</p>
+        <p className="mt-5 text-xs text-slate-500">You pick these when you add or edit a staff member (step 2, “Field work”). A person can have several.</p>
       </Card>
     </>
   );
