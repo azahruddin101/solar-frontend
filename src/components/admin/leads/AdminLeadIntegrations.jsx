@@ -7,6 +7,7 @@ import GoogleAdsIntegration from '@/components/admin/leads/integrations/GoogleAd
 import GoogleSheetIntegration, { SheetIcon } from '@/components/admin/leads/integrations/GoogleSheetIntegration';
 import MetaLeadsIntegration from '@/components/admin/leads/integrations/MetaLeadsIntegration';
 import { FacebookIcon, GoogleAdsIcon } from '@/components/admin/leads/integrations/integrationUi';
+import { settingsSearchUrl } from '@/lib/settingsQuery';
 
 const SOURCES = [
   { id: 'meta', label: 'Facebook & Instagram', icon: FacebookIcon, Component: MetaLeadsIntegration },
@@ -27,7 +28,11 @@ export default function AdminLeadIntegrations() {
   const Active = active.Component;
   return (
     <div className="space-y-5">
-      <Tabs tabs={SOURCES.map(({ id: tabId, label, icon }) => ({ id: tabId, label, icon }))} value={active.id} onChange={(next) => router.replace(`${pathname}?source=${next}`, { scroll: false })} />
+      <Tabs
+        tabs={SOURCES.map(({ id: tabId, label, icon }) => ({ id: tabId, label, icon }))}
+        value={active.id}
+        onChange={(next) => router.replace(settingsSearchUrl(pathname, searchParams, { tab: 'integrations', source: next }), { scroll: false })}
+      />
       <Active key={active.id} />
     </div>
   );

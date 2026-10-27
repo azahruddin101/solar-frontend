@@ -1,7 +1,8 @@
 'use client';
 
 // One proposal: system summary, price breakdown, client response (accept / reject / changes), and billing when won.
-import { ArrowLeft, Box, Check, Download, MessageSquare, X } from 'lucide-react';
+import { ArrowLeft, Box, CalendarClock, Check, Download, MessageSquare, X } from 'lucide-react';
+import PortalAmcPackagesCard from './PortalAmcPackagesCard';
 import Link from 'next/link';
 import { useState } from 'react';
 import { PAYMENT_MODE_LABEL, generateInvoicePdf, generateReceiptPdf } from '@/lib/billingPdf';
@@ -10,7 +11,7 @@ import { formatMoney } from '@/lib/energy';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
-import { Alert, Badge, Button, Card, FormField, IconButton, LoadingBlock, Modal, Table, Td, Textarea, Th, Tr, buttonClass, formatDate, toast } from '../kit';
+import { Alert, Badge, Button, Card, FormField, IconButton, LoadingBlock, Modal, RichTextContent, Table, Td, Textarea, Th, Tr, buttonClass, formatDate, toast } from '../kit';
 import { DesignStatusBadge } from '../dashboard/shared';
 
 const RESPONSE_COPY = {
@@ -49,12 +50,13 @@ export default function PortalProposal({ id }) {
   const [responseModal, setResponseModal] = useState(null);
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [amcSavingPackage, setAmcSavingPackage] = useState(null);
 
   const money = (v) => formatMoney(v, company?.currency, { decimals: 2 });
   if (loading) return <LoadingBlock />;
   if (error || !data) return <Alert>{error || 'Not found'}</Alert>;
 
-  const { proposal: p, client, total, paid, balance, payments, invoice } = data;
+  const { proposal: p, client, total, paid, balance, payments, invoice, amc, amcPackages } = data;
   const currency = company?.currency || 'INR';
   const pricing = p.pricing;
   const tax = pricing ? invoiceTax(pricing, total) : null;
@@ -105,6 +107,23 @@ export default function PortalProposal({ id }) {
   };
 
   const modalCopy = responseModal ? RESPONSE_COPY[responseModal] : null;
+  const amcPriceLabel = (price) => (Number(price) > 0 ? money(price) : 'Free');
+  const hasAmcCatalog = Boolean(amcPackages?.hasCatalog);
+
+  const submitAmcRequest = async (packageName, requestedDate, note, requestId) => {
+    setAmcSavingPackage(packageName);
+    try {
+      const next = await api(`/api/portal/proposals/${id}/amc-requests`, {
+        method: 'POST',
+        body: { packageName, requestedDate, note, requestId },
+      });
+      setData(next);
+      toast.success(requestId ? 'Request updated' : 'AMC visit requested');
+    } catch (e) {
+      toast.error(e.message);
+    }
+    setAmcSavingPackage(null);
+  };
 
   return (
     <>
@@ -159,6 +178,16 @@ export default function PortalProposal({ id }) {
       </div>
       {p.summary?.address && <p className="mb-5 text-sm text-slate-500">Site: {p.summary.address}</p>}
 
+      {hasAmcCatalog && (
+        <PortalAmcPackagesCard
+          id="maintenance"
+          amcPackages={amcPackages}
+          amcPriceLabel={amcPriceLabel}
+          savingPackage={amcSavingPackage}
+          onSubmitRequest={submitAmcRequest}
+        />
+      )}
+
       <Card className="mb-5 overflow-hidden">
         <div className="border-b border-slate-200 px-6 py-3 text-sm font-semibold text-slate-900">Price breakdown</div>
         {!pricing?.lines?.length ? (
@@ -211,6 +240,42 @@ export default function PortalProposal({ id }) {
               </Table>
             )}
           </Card>
+          {amc?.visits?.length > 0 && (
+            <Card className="mb-5 overflow-hidden">
+              <div className="flex items-center gap-2 border-b border-slate-200 px-6 py-3">
+                <CalendarClock className="h-4 w-4 text-slate-500" />
+                <span className="text-sm font-semibold text-slate-900">AMC maintenance schedule</span>
+              </div>
+              <ul className="divide-y divide-slate-100">
+                {amc.visits.map((v) => (
+                  <li key={v.id} className="px-6 py-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-slate-900">{v.name}</span>
+                      <Badge tone={v.kind === 'optional' ? 'brand' : 'slate'}>{v.kind === 'optional' ? 'Optional' : 'Mandatory'}</Badge>
+                      <span className="text-xs font-medium text-slate-600">{amcPriceLabel(v.price)}</span>
+                      <Badge tone={v.status === 'completed' ? 'green' : 'slate'}>
+                        {v.status === 'completed' ? 'Completed' : (v.dueDate ? `Due ${formatDate(v.dueDate)}` : 'Unscheduled')}
+                      </Badge>
+                    </div>
+                    <RichTextContent html={v.description} className="mt-1" />
+                    {v.criteria?.length > 0 && (
+                      <ul className="mt-2 space-y-1 text-sm text-slate-700">
+                        {v.criteria.map((c) => (
+                          <li key={c.id} className="flex gap-2">
+                            <span className={c.checked ? 'text-emerald-600' : 'text-slate-400'}>{c.checked ? '✓' : '○'}</span>
+                            <span>{c.label}{c.note ? ` — ${c.note}` : ''}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {v.status === 'completed' && v.completedAt && (
+                      <p className="mt-2 text-xs text-slate-500">Completed {formatDate(v.completedAt)}{v.completionNote ? ` · ${v.completionNote}` : ''}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
         </>
       )}
       {!canRespond && !won && (

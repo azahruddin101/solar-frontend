@@ -109,7 +109,12 @@ export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-
           value={tab}
           onChange={setPicked}
           tabs={[
-            ...shown.map((c) => ({ id: c.id, label: c.name, icon: c.type === 'panels' ? PanelsTopLeft : c.type === 'poles' ? Boxes : Package, count: c.products })),
+            ...shown.map((c) => ({
+              id: c.id,
+              label: c.name,
+              icon: c.type === 'panels' ? PanelsTopLeft : c.type === 'poles' ? Boxes : Package,
+              count: c.products,
+            })),
             // { id: 'packages', label: 'Packages', icon: PackageCheck },
             // { id: 'pricing', label: 'Pricing', icon: Wallet },
           ]}

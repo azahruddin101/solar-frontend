@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/useCan';
 import { usePagedResource } from '@/lib/useResource';
-import { Alert, Avatar, Badge, Button, Card, ConfirmDialog, EmptyState, Input, LoadingBlock, LoadMoreRow, PageHeader, Table, Td, Th, Tr, formatDate, toast, RowMenu } from '../kit';
+import { Alert, Avatar, Badge, Button, Card, ConfirmDialog, DateRangeFilter, EmptyState, Input, LoadingBlock, LoadMoreRow, PageHeader, Table, Td, Th, Tr, formatDate, toast, RowMenu } from '../kit';
 import ClientCredentials from './ClientCredentials';
 import ClientForm from './ClientForm';
 
@@ -17,12 +17,26 @@ export default function Clients({ basePath = '/dashboard/clients' }) {
   const designsPath = basePath.replace(/clients$/, 'designs');
   const router = useRouter();
   const params = useSearchParams();
-  const { items: data, setItems: setData, total, loading, error, hasMore, loadingMore, loadMore } = usePagedResource('/api/clients', { limit: 100 });
   const [query, setQuery] = useState('');
+  const [addedFrom, setAddedFrom] = useState('');
+  const [addedTo, setAddedTo] = useState('');
+  const listPath = useMemo(() => {
+    const p = new URLSearchParams();
+    const q = query.trim();
+    if (q) p.set('q', q);
+    if (addedFrom && addedTo) {
+      p.set('from', addedFrom);
+      p.set('to', addedTo);
+    }
+    const qs = p.toString();
+    return `/api/clients${qs ? `?${qs}` : ''}`;
+  }, [query, addedFrom, addedTo]);
+  const { items: rows, setItems: setData, total, loading, error, hasMore, loadingMore, loadMore } = usePagedResource(listPath, { limit: 100 });
   const [modal, setModal] = useState(null);
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState('');
   const [creds, setCreds] = useState(null); // a client's fresh sign-in, shown once
+  const filtered = Boolean(query.trim() || (addedFrom && addedTo));
 
   useEffect(() => {
     if (params.get('new')) {
@@ -31,17 +45,6 @@ export default function Clients({ basePath = '/dashboard/clients' }) {
       router.replace(basePath);
     }
   }, [params, router, basePath]);
-
-  const rows = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return (data || []).filter(
-      (c) =>
-        !q ||
-        `${c.name} ${c.email} ${c.phone} ${c.address} ${c.consumerNumber || ''} ${c.source || ''} ${c.referredBy?.name || ''}`
-          .toLowerCase()
-          .includes(q)
-    );
-  }, [data, query]);
 
   const close = () => {
     setModal(null);
@@ -73,12 +76,13 @@ export default function Clients({ basePath = '/dashboard/clients' }) {
       {error && <Alert className="mb-6">{error}</Alert>}
 
       <Card className="overflow-hidden">
-        <div className="border-b border-slate-100 px-6 py-4">
-          <div className="relative max-w-md">
+        <div className="flex flex-col gap-4 border-b border-slate-100 px-6 py-4 lg:flex-row lg:items-end lg:justify-between">
+          <DateRangeFilter from={addedFrom} to={addedTo} onChange={({ from, to }) => { setAddedFrom(from); setAddedTo(to); }} />
+          <div className="relative w-full max-w-md lg:shrink-0">
             <Search className="pointer-events-none absolute top-3 left-3 h-4 w-4 text-slate-400" />
             <Input
               aria-label="Search clients"
-              placeholder="Search by name, email, phone, consumer no. or source"
+              placeholder="Search by name, email, phone, address, consumer no. or source"
               value={query}
               onValue={setQuery}
               className="pl-9"
@@ -90,10 +94,14 @@ export default function Clients({ basePath = '/dashboard/clients' }) {
         ) : !rows.length ? (
           <EmptyState
             icon={Users}
-            title={data?.length ? 'No clients match' : 'No clients yet'}
-            description={data?.length ? 'Try a different search.' : 'Add a client to start creating designs and proposals for them.'}
+            title={filtered ? 'No clients match' : 'No clients yet'}
+            description={
+              filtered
+                ? 'Try a different search or choose a wider date range.'
+                : 'Add a client to start creating designs and proposals for them.'
+            }
           >
-            {!data?.length && may('clients', 'create') && (
+            {!filtered && total === 0 && may('clients', 'create') && (
               <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'form' })}>
                 Add client
               </Button>
@@ -105,6 +113,7 @@ export default function Clients({ basePath = '/dashboard/clients' }) {
               <tr>
                 <Th>Client</Th>
                 <Th>Contact</Th>
+                <Th>Address</Th>
                 <Th>Requirement</Th>
                 <Th className="text-right">Proposals</Th>
                 <Th>Added</Th>
@@ -140,6 +149,11 @@ export default function Clients({ basePath = '/dashboard/clients' }) {
                     {c.phone && <div className="font-medium text-slate-800">{c.phone}</div>}
                     {c.email && <div className="text-xs text-slate-500">{c.email}</div>}
                     {!c.phone && !c.email && <span className="text-slate-400">—</span>}
+                  </Td>
+                  <Td className="text-[13px]">
+                    <div className="max-w-[240px] truncate text-slate-600" title={c.address || undefined}>
+                      {c.address || <span className="text-slate-400">—</span>}
+                    </div>
                   </Td>
                   <Td className="text-[13px]">
                     {c.kwRequired ? (
@@ -181,7 +195,7 @@ export default function Clients({ basePath = '/dashboard/clients' }) {
             </tbody>
           </Table>
         )}
-        <LoadMoreRow hasMore={hasMore} loadingMore={loadingMore} onClick={loadMore} loaded={data?.length || 0} total={total} />
+        <LoadMoreRow hasMore={hasMore} loadingMore={loadingMore} onClick={loadMore} loaded={rows?.length || 0} total={total} />
       </Card>
 
       {modal?.type === 'form' && (

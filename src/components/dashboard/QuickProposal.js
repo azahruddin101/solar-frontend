@@ -100,7 +100,7 @@ function Editor({ designId }) {
   const setMaterial = (cat, patch) => change({ materials: { ...quote.materials, [cat.id]: { ...(quote.materials[cat.id] || {}), ...patch } } });
   const chooseMaterial = (cat, productId) => {
     const p = cat.products.find((x) => x.id === productId);
-    setMaterial(cat, p ? { productId, name: p.name || [p.brand, p.model].filter(Boolean).join(' '), detail: [p.brand, p.model].filter(Boolean).join(' '), category: cat.name, hsn: p.hsnCode || '', panel: p.type === 'panels' || cat.type === 'panels' ? { brand: p.brand, model: p.model, watts: Number(p.watts) || wattsFrom(p.model, p.name), length: p.length, width: p.width, warrantyYears: p.warrantyYears, manufactureYear: p.manufactureYear } : undefined, unit: p.unit || 'Nos', qty: quote.materials[cat.id]?.qty || 1, price: num(p.price), gstPercent: quote.materials[cat.id]?.gstPercent ?? (num(p.gstPercent) || num(quote.gstPercent) || 18) } : { productId: '' });
+    setMaterial(cat, p ? { productId, name: p.name || [p.brand, p.model].filter(Boolean).join(' '), detail: [p.brand, p.model].filter(Boolean).join(' '), category: cat.name, hsn: p.hsnCode || '', panel: p.type === 'panels' || cat.type === 'panels' ? { brand: p.brand, model: p.model, watts: Number(p.watts) || wattsFrom(p.model, p.name), length: p.length, width: p.width, warrantyYears: p.warrantyMonths != null ? Math.floor(p.warrantyMonths / 12) : p.warrantyYears, manufactureYear: p.manufactureYear } : undefined, unit: p.unit || 'Nos', qty: quote.materials[cat.id]?.qty || 1, price: num(p.price), gstPercent: quote.materials[cat.id]?.gstPercent ?? (num(p.gstPercent) || num(quote.gstPercent) || 18) } : { productId: '' });
   };
 
   // debounced autosave

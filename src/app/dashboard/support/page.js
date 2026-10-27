@@ -1,5 +1,5 @@
-import TicketList from '@/components/tickets/TicketList';
+import { redirect } from 'next/navigation';
 
 export default function Page() {
-  return <TicketList />;
+  redirect('/dashboard/settings?tab=support');
 }

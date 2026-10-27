@@ -8,12 +8,14 @@ import ExportAllLeadsButton from '@/components/admin/leads/ExportAllLeadsButton'
 import ConvertToClient from '@/components/leads/ConvertToClient';
 import { useRouter } from 'next/navigation';
 import LeadLog from '@/components/leads/LeadLog';
-import { Megaphone, Search, Eye, X, ChevronLeft, ChevronRight, ChevronDown, UserPlus, ListChecks, Lock, MoreVertical, Users } from 'lucide-react';
-import { toast } from '@/components/kit';
+import { Megaphone, Eye, X, ChevronLeft, ChevronRight, ChevronDown, UserPlus, ListChecks, Lock, MoreVertical, Users } from 'lucide-react';
+import LeadListFilterBar from '@/components/leads/LeadListFilterBar';
+import { toast, FormField, Select } from '@/components/kit';
 import MetaLeadAssignModal from '@/components/admin/leads/MetaLeadAssignModal';
 import QuickAssign from '@/components/leads/QuickAssign';
 import PriorityToggle, { PRIORITY_FILTER_OPTIONS } from '@/components/admin/leads/PriorityToggle';
 import { statusBadgeClass, formatFieldLabel, formatFieldValue, isHiddenLeadField } from '@/lib/leads/metaLeadStatus';
+import { isLeadStatusLocked, LEAD_CONVERTED_LOCK_HINT } from '@/lib/leads';
 
 const PAGE_SIZES = [20, 50, 100];
 
@@ -48,7 +50,6 @@ export default function AdminMetaLeads() {
   const [priority, setPriority] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0]);
 
@@ -104,7 +105,7 @@ export default function AdminMetaLeads() {
 
   // staff a lead can be given to (only needed, and only allowed, with Leads › Assign)
   const fetchTelecallers = async () => {
-    if (!may.assign) return;
+    if (!may.all && !may.assign) return;
     try {
       const response = await api.get('/leads/assignees');
       setTelecallers(response.data);
@@ -148,17 +149,6 @@ export default function AdminMetaLeads() {
         setLoading(false);
       }
     }
-  };
-
-  const updateFilter = (setter) => (e) => {
-    setter(e.target.value);
-    setPage(1);
-  };
-
-  const handlePageFilter = (e) => {
-    setPageId(e.target.value);
-    setFormId('');
-    setPage(1);
   };
 
   const clearFilters = () => {
@@ -284,7 +274,8 @@ export default function AdminMetaLeads() {
   };
 
   const formOptions = pageId ? filterOptions.forms.filter((f) => f.pageId === pageId) : filterOptions.forms;
-  const hasFilters = searchInput || pageId || formId || assignedTo || statusId || priority || fromDate || toDate;
+  const extraFilterCount = [pageId, formId, assignedTo, statusId, priority, fromDate, toDate].filter(Boolean).length;
+  const hasFilters = Boolean(searchInput || extraFilterCount);
 
   return (
     <div className="space-y-6">
@@ -353,103 +344,55 @@ export default function AdminMetaLeads() {
         </div>}
       </div>
 
-      <div className="border-b border-slate-300 overflow-hidden">
-        <div className="flex items-center">
-          <div className="relative flex-1 min-w-0">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="h-4.5 w-4.5 text-ame-orange" />
-            </div>
-            <input
-              type="text"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search name, phone, form, assigned to, status or date (e.g. 16/10/2026)"
-              className="w-full bg-transparent border-0 rounded-none pl-10 pr-3 py-2.5 text-base text-slate-900 placeholder:text-slate-900 outline-none"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => setFiltersOpen((open) => !open)}
-            aria-expanded={filtersOpen}
-            className={`shrink-0 self-stretch inline-flex items-center gap-1.5 px-4 border-l border-slate-300 text-base font-semibold text-slate-900 hover:bg-slate-50 cursor-pointer ${filtersOpen ? 'bg-slate-50' : 'bg-white'}`}
-          >
-            Filter
-            {(pageId || formId || assignedTo || statusId || priority || fromDate || toDate) && (
-              <span className="min-w-5 h-5 px-1 rounded-full bg-primary text-white text-[11px] font-bold inline-flex items-center justify-center">
-                {[pageId, formId, assignedTo, statusId, priority, fromDate, toDate].filter(Boolean).length}
-              </span>
-            )}
-            <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${filtersOpen ? 'rotate-180' : ''}`} />
-          </button>
-        </div>
-        <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${filtersOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
-          <div className="overflow-hidden" inert={!filtersOpen}>
-            <div className={`border-t border-amber-200 bg-amber-50/80 p-4 space-y-4 transition-opacity duration-300 ${filtersOpen ? 'opacity-100' : 'opacity-0'}`}>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <label className="block">
-                  <span className="block text-xs font-bold uppercase tracking-wide text-slate-900 mb-1.5">Page</span>
-                  <select value={pageId} onChange={handlePageFilter} className="input-field rounded-md bg-white text-base text-slate-900 py-2">
-                    <option value="">All Pages</option>
-                    {filterOptions.pages.map((p) => (
-                      <option key={p.pageId} value={p.pageId}>{p.pageName}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="block text-xs font-bold uppercase tracking-wide text-slate-900 mb-1.5">Form</span>
-                  <select value={formId} onChange={updateFilter(setFormId)} className="input-field rounded-md bg-white text-base text-slate-900 py-2">
-                    <option value="">All Forms</option>
-                    {formOptions.map((f) => (
-                      <option key={f.formId} value={f.formId}>{f.formName}</option>
-                    ))}
-                  </select>
-                </label>
-                {may.all && <label className="block">
-                  <span className="block text-xs font-bold uppercase tracking-wide text-slate-900 mb-1.5">Assigned to</span>
-                  <select value={assignedTo} onChange={updateFilter(setAssignedTo)} className="input-field rounded-md bg-white text-base text-slate-900 py-2">
-                    <option value="">Everyone</option>
-                    <option value="unassigned">Unassigned</option>
-                    {telecallers.map((tc) => (
-                      <option key={tc._id} value={tc._id}>{tc.name}</option>
-                    ))}
-                  </select>
-                </label>}
-                <label className="block">
-                  <span className="block text-xs font-bold uppercase tracking-wide text-slate-900 mb-1.5">Status</span>
-                  <select value={statusId} onChange={updateFilter(setStatusId)} className="input-field rounded-md bg-white text-base text-slate-900 py-2">
-                    <option value="">All Statuses</option>
-                    <option value="none">Not started</option>
-                    {statuses.map((s) => (
-                      <option key={s._id} value={s._id}>{s.name}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="block text-xs font-bold uppercase tracking-wide text-slate-900 mb-1.5">Priority</span>
-                  <select value={priority} onChange={updateFilter(setPriority)} className="input-field rounded-md bg-white text-base text-slate-900 py-2">
-                    {PRIORITY_FILTER_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <div className="border-t border-slate-200 pt-4">
-                <span className="block text-xs font-bold uppercase tracking-wide text-slate-900 mb-1.5">Received</span>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                  <input type="date" aria-label="Received from" value={fromDate} max={toDate || undefined} onChange={updateFilter(setFromDate)} className="input-field rounded-md bg-white text-base text-slate-900 py-2 sm:max-w-[180px]" />
-                  <span className="text-sm font-semibold text-slate-900">to</span>
-                  <input type="date" aria-label="Received to" value={toDate} min={fromDate || undefined} onChange={updateFilter(setToDate)} className="input-field rounded-md bg-white text-base text-slate-900 py-2 sm:max-w-[180px]" />
-                  {hasFilters && (
-                    <button onClick={clearFilters} className="text-sm font-bold text-blue-700 hover:text-blue-800 shrink-0 sm:ml-auto">
-                      Clear filters
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <LeadListFilterBar
+        search={searchInput}
+        onSearchChange={setSearchInput}
+        placeholder="Search name, phone, form, assigned to, status or date (e.g. 16/10/2026)"
+        activeFilterCount={extraFilterCount}
+        showClear={hasFilters}
+        onClear={clearFilters}
+        fromDate={fromDate}
+        toDate={toDate}
+        onDateChange={({ from, to }) => {
+          setFromDate(from);
+          setToDate(to);
+          setPage(1);
+        }}
+      >
+        <FormField label="Meta page">
+          <Select aria-label="Meta page" value={pageId} onValue={(v) => { setPageId(v); setFormId(''); setPage(1); }}>
+            <option value="">All pages</option>
+            {filterOptions.pages.map((p) => <option key={p.pageId} value={p.pageId}>{p.pageName}</option>)}
+          </Select>
+        </FormField>
+        <FormField label="Meta form">
+          <Select aria-label="Meta form" value={formId} onValue={(v) => { setFormId(v); setPage(1); }}>
+            <option value="">All forms</option>
+            {formOptions.map((f) => <option key={f.formId} value={f.formId}>{f.formName}</option>)}
+          </Select>
+        </FormField>
+        {may.all && (
+          <FormField label="Assigned to">
+            <Select aria-label="Assigned to" value={assignedTo} onValue={(v) => { setAssignedTo(v); setPage(1); }}>
+              <option value="">Anyone</option>
+              <option value="unassigned">Unassigned</option>
+              {telecallers.map((tc) => <option key={tc._id} value={tc._id}>{tc.name}</option>)}
+            </Select>
+          </FormField>
+        )}
+        <FormField label="Status">
+          <Select aria-label="Status" value={statusId} onValue={(v) => { setStatusId(v); setPage(1); }}>
+            <option value="">Any status</option>
+            <option value="none">Not started</option>
+            {statuses.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
+          </Select>
+        </FormField>
+        <FormField label="Priority">
+          <Select aria-label="Priority" value={priority} onValue={(v) => { setPriority(v); setPage(1); }}>
+            {PRIORITY_FILTER_OPTIONS.map((option) => <option key={option.value || 'all'} value={option.value}>{option.label}</option>)}
+          </Select>
+        </FormField>
+      </LeadListFilterBar>
 
       <div>
         {loading ? (
@@ -597,7 +540,10 @@ export default function AdminMetaLeads() {
                   ))}
                 </div>
 
-                {may.assign && <div className="p-3 bg-amber-50">
+                {may.assign && isLeadStatusLocked(selectedLead, statuses) && (
+                  <p className="p-3 text-xs text-slate-600">{LEAD_CONVERTED_LOCK_HINT}</p>
+                )}
+                {may.assign && !isLeadStatusLocked(selectedLead, statuses) && <div className="p-3 bg-amber-50">
                   <label className="block text-xs font-semibold text-amber-800 uppercase tracking-wide mb-1.5">
                     {selectedLead.assignedTo ? `Reassign (currently with ${selectedLead.assignedTo.name})` : 'Assign to'}
                   </label>
@@ -625,7 +571,10 @@ export default function AdminMetaLeads() {
                   </div>
                 </div>}
 
-                {leadTracks !== null && may.status && (
+                {leadTracks !== null && may.status && isLeadStatusLocked(selectedLead, statuses) && (
+                  <p className="p-3 text-xs text-slate-600">{LEAD_CONVERTED_LOCK_HINT}</p>
+                )}
+                {leadTracks !== null && may.status && !isLeadStatusLocked(selectedLead, statuses) && (
                   <div className="p-3 bg-emerald-50 space-y-3">
                     <label className="block text-xs font-semibold text-emerald-800 uppercase tracking-wide">Lead status</label>
                     <select

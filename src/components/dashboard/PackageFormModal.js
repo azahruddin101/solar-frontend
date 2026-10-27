@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { capFirst } from '@/lib/catalog';
 import { useResource } from '@/lib/useResource';
 import { Button, FormField, FormModal, IconButton, Input, Select, toast } from '../kit';
+import { attributeRows } from './attributes';
 
 export const PACKAGE_ITEM_TYPES = [
   { id: 'panel', label: 'Solar Panel', defaultUnit: 'Nos', defaultSpec: '550W Mono PERC' },
@@ -78,8 +79,9 @@ export default function PackageFormModal({ pkg, onClose, onSaved, currency }) {
     else if (catNameLower.includes('acdb')) inferredType = 'acdb';
     else if (catNameLower.includes('dcdb')) inferredType = 'dcdb';
 
-    const specsStr = Array.isArray(p.specs) && p.specs.length > 0
-      ? p.specs.map((s) => `${s.key}: ${s.value}`).join(', ')
+    const attrs = attributeRows(cat, p.attributes);
+    const specsStr = attrs.length > 0
+      ? attrs.map((a) => `${a.label}: ${a.value}`).join(', ')
       : p.watts
       ? `${p.watts}W Mono PERC (${p.length}x${p.width}m)`
       : p.description || '';

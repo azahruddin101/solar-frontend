@@ -1,7 +1,12 @@
 'use client';
 
 // Company profile, theme colours, logo, e-signature, QR code and proposal text.
-import { Building2, Check, FileText, Hash, Image as ImageIcon, Palette, PenLine, QrCode, Trash2, Upload, UserCog } from 'lucide-react';
+import { Suspense } from 'react';
+import { Building2, Check, CreditCard, FileText, Hash, Image as ImageIcon, LifeBuoy, Palette, PenLine, Plug, QrCode, Trash2, Upload, UserCog } from 'lucide-react';
+import AdminLeadIntegrations from '../admin/leads/AdminLeadIntegrations';
+import PlanBilling from './PlanBilling';
+import TicketList from '../tickets/TicketList';
+import { resolveSettingsTab } from '@/lib/settingsQuery';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { api, assetUrl } from '@/lib/api';
@@ -370,21 +375,36 @@ const TABS = [
   { id: 'branding', label: 'Branding', icon: Palette },
   { id: 'proposal', label: 'Proposal PDF', icon: FileText },
   { id: 'invoices', label: 'Invoice numbering', icon: Hash },
+  { id: 'plan', label: 'Plan & billing', icon: CreditCard },
+  { id: 'support', label: 'Platform support', icon: LifeBuoy },
+  { id: 'integrations', label: 'Lead integrations', icon: Plug },
   { id: 'account', label: 'My account', icon: UserCog },
 ];
+
+function settingsTabUrl(tab) {
+  return tab === 'profile' ? '/dashboard/settings' : `/dashboard/settings?tab=${tab}`;
+}
 
 export default function Settings() {
   const router = useRouter();
   const params = useSearchParams();
-  const tab = TABS.some((t) => t.id === params.get('tab')) ? params.get('tab') : 'profile';
+  const tab = resolveSettingsTab(params.get('tab'), params);
   return (
     <>
-      <PageHeader title="Settings & branding" description="How your company appears in the workspace and on client proposals." />
-      <Tabs className="mb-6" tabs={TABS} value={tab} onChange={(t) => router.replace(t === 'profile' ? '/dashboard/settings' : `/dashboard/settings?tab=${t}`)} />
+      <PageHeader title="Settings" description="Company profile, branding, billing, support and integrations." />
+      <Tabs className="mb-6 flex-wrap" tabs={TABS} value={tab} onChange={(t) => router.replace(settingsTabUrl(t), { scroll: false })} />
       {tab === 'profile' && <Profile />}
       {tab === 'branding' && <Branding />}
       {tab === 'proposal' && <Proposal />}
       {tab === 'invoices' && <InvoiceNumbering />}
+      {tab === 'plan' && <PlanBilling embedded />}
+      {tab === 'support' && <TicketList embedded basePath="/dashboard/support" />}
+      {tab === 'integrations' && (
+        <Suspense fallback={null}>
+          <p className="mb-4 text-sm text-slate-600">Connect Facebook, Instagram and Google Ads so leads land in your CRM automatically.</p>
+          <AdminLeadIntegrations />
+        </Suspense>
+      )}
       {tab === 'account' && <AccountSettings />}
     </>
   );

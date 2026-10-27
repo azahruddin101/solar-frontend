@@ -2,7 +2,6 @@
 
 // The signed-in user's notification inbox, newest first.
 import { Bell, CheckCheck } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { useCallback } from 'react';
 import { api } from '@/lib/api';
 import { usePaginatedResource, useResource } from '@/lib/useResource';
@@ -12,7 +11,6 @@ import { Alert, Button, Card, EmptyState, LoadingBlock, PageHeader, TablePaginat
 const PAGE_SIZE = 10;
 
 export default function Notifications() {
-  const router = useRouter();
   const setUnread = useUnread((s) => s.set);
   const { items, total, page, setPage, totalPages, loading, error, setItems } = usePaginatedResource('/api/notifications', { limit: PAGE_SIZE });
   const { data: unreadData, reload: reloadUnread } = useResource('/api/notifications/unread-count');
@@ -23,13 +21,11 @@ export default function Notifications() {
     reloadUnread();
   }, [setUnread, reloadUnread]);
 
-  const open = async (n) => {
-    if (!n.readAt) {
-      setItems((cur) => cur.map((x) => (x.id === n.id ? { ...x, readAt: new Date().toISOString() } : x)));
-      syncUnread(Math.max(0, unread - 1));
-      api(`/api/notifications/${n.id}/read`, { method: 'POST' }).catch(() => {});
-    }
-    if (n.path) router.push(n.path);
+  const markRead = (n) => {
+    if (n.readAt) return;
+    setItems((cur) => cur.map((x) => (x.id === n.id ? { ...x, readAt: new Date().toISOString() } : x)));
+    syncUnread(Math.max(0, unread - 1));
+    api(`/api/notifications/${n.id}/read`, { method: 'POST' }).catch(() => {});
   };
 
   const readAll = async () => {
@@ -53,16 +49,35 @@ export default function Notifications() {
       ) : (
         <Card className="overflow-hidden">
           <div className="divide-y divide-slate-100">
-            {items.map((n) => (
-              <button key={n.id} type="button" onClick={() => open(n)} className={cx('flex w-full items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-slate-50', !n.readAt && 'bg-brand-soft/40')}>
-                <span className={cx('mt-1.5 h-2 w-2 shrink-0 rounded-full', n.readAt ? 'bg-transparent' : 'bg-brand')} aria-label={n.readAt ? undefined : 'Unread'} />
-                <span className="min-w-0 flex-1">
-                  <span className={cx('block text-sm text-slate-900', !n.readAt && 'font-semibold')}>{n.title}</span>
-                  <span className="mt-0.5 block text-[13px] text-slate-600">{n.body}</span>
-                </span>
-                <span className="shrink-0 text-xs text-slate-400" title={new Date(n.createdAt).toLocaleString()}>{timeAgo(n.createdAt)}</span>
-              </button>
-            ))}
+            {items.map((n, index) => {
+              const num = (page - 1) * PAGE_SIZE + index + 1;
+              return (
+                <div
+                  key={n.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => markRead(n)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      markRead(n);
+                    }
+                  }}
+                  className={cx(
+                    'flex w-full cursor-default items-start gap-3 px-5 py-4 text-left transition-colors',
+                    !n.readAt && 'bg-brand-soft/30 hover:bg-brand-soft/45',
+                  )}
+                >
+                  <span className="w-7 shrink-0 pt-0.5 text-right text-sm font-semibold tabular-nums text-slate-400">{num}</span>
+                  <span className={cx('mt-1.5 h-2 w-2 shrink-0 rounded-full', n.readAt ? 'bg-transparent' : 'bg-brand')} aria-label={n.readAt ? undefined : 'Unread'} />
+                  <span className="min-w-0 flex-1">
+                    <span className={cx('block text-sm font-semibold text-brand', n.readAt && 'text-slate-700')}>{n.title}</span>
+                    <span className="mt-1 block text-[13px] leading-relaxed text-slate-600">{n.body}</span>
+                  </span>
+                  <span className="shrink-0 pt-0.5 text-xs text-slate-400" title={new Date(n.createdAt).toLocaleString()}>{timeAgo(n.createdAt)}</span>
+                </div>
+              );
+            })}
           </div>
           <TablePagination page={page} totalPages={totalPages} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} />
         </Card>

@@ -138,13 +138,20 @@ export function catalogMaterialLineTotal({ qty = 1, rate = 0, gstPercent = 0 }) 
   return lineTotalWithGst({ qty, rate, gstPercent, gstIncluded: false });
 }
 
+/** A line sold from stock keeps its product link, price type and batch / serial choice (the server prices it). */
+const stockFields = (l) => (l.productId
+  ? { productId: l.productId, priceType: l.priceType, batch: l.batch || '', serials: Array.isArray(l.serials) ? l.serials : [], ...(l.batchNo ? { batchNo: l.batchNo } : {}), ...(l.issueId ? { issueId: l.issueId } : {}) }
+  : {});
+
 function normalizeLine(l) {
   const qty = n(l.qty) || 1;
   const rate = round2(l.rate);
   const amount = lineAmount(l);
   return {
+    ...stockFields(l),
     name: String(l.name || '').slice(0, 160),
-    detail: String(l.detail || '').slice(0, 300),
+    detail: String(l.detail || '').slice(0, 600),
+    ...(Array.isArray(l.serials) && l.serials.length ? { serials: l.serials.map(String) } : {}),
     hsn: String(l.hsn || l.hsnCode || '').slice(0, 20),
     qty,
     unit: l.unit || 'Nos',

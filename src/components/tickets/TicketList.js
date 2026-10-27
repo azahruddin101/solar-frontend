@@ -65,7 +65,7 @@ function NewTicket({ c, withClient, onClose, onCreated }) {
   );
 }
 
-export default function TicketList({ admin = false, basePath, channel = 'platform' }) {
+export default function TicketList({ admin = false, basePath, channel = 'platform', embedded = false }) {
   const router = useRouter();
   const c = channelOf(channel, admin);
   const may = useCan();
@@ -81,12 +81,20 @@ export default function TicketList({ admin = false, basePath, channel = 'platfor
 
   const refresh = async () => { await reload(); refreshBadge(); };
 
+  const actions = (
+    <>
+      <Button icon={RefreshCw} onClick={refresh}>Refresh</Button>
+      {canCreate && <Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>{c.newLabel}</Button>}
+    </>
+  );
+
   return (
     <>
-      <PageHeader title={c.title} description={c.description}>
-        <Button icon={RefreshCw} onClick={refresh}>Refresh</Button>
-        {canCreate && <Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>{c.newLabel}</Button>}
-      </PageHeader>
+      {embedded ? (
+        <div className="mb-4 flex flex-wrap justify-end gap-2">{actions}</div>
+      ) : (
+        <PageHeader title={c.title} description={c.description}>{actions}</PageHeader>
+      )}
 
       <form className="mb-4 flex max-w-md gap-2" role="search" onSubmit={(e) => { e.preventDefault(); setQ(query.trim()); }}>
         <Input value={query} onValue={setQuery} placeholder={c.search} aria-label="Search tickets" />

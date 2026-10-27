@@ -16,7 +16,16 @@ export default function PortalProposals() {
 
   return (
     <>
-      <PageHeader title={`Welcome, ${user?.name || 'there'}`} description={`Your solar proposals from ${company?.name || 'your provider'}. When a proposal is marked “Proposed”, you can accept it, decline it, or request changes — with a short note each time.`} />
+      <PageHeader
+        title={`Welcome, ${user?.name || 'there'}`}
+        description={`Your solar proposals from ${company?.name || 'your provider'}. Free maintenance visits are scheduled automatically; extra AMC packages can be booked under Maintenance (AMC).`}
+      />
+      {!loading && data?.some((p) => p.amcPackages) && (
+        <p className="mb-6 text-sm text-slate-600">
+          <Link href="/portal/maintenance" className="font-semibold text-brand hover:underline">Maintenance (AMC)</Link>
+          {' — see upcoming free visits or book a package.'}
+        </p>
+      )}
       {error && <Alert className="mb-6">{error}</Alert>}
       <Card className="overflow-hidden">
         {loading ? <LoadingBlock /> : !data?.length ? (

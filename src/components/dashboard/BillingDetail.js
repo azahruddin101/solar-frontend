@@ -1,15 +1,15 @@
 'use client';
 
 // One won proposal's money: payments received (each with a receipt), the balance still to pay, and the invoice.
-import { ArrowLeft, Download, MessageCircle, PenLine, Plus, ReceiptText, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, Eye, MessageCircle, PenLine, Plus, ReceiptText, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import { PAYMENT_MODE_LABEL, generateInvoicePdf, generateReceiptPdf } from '@/lib/billingPdf';
+import { PAYMENT_MODE_LABEL } from '@/lib/billingPdf';
 import { buildInvoicePdfBlob } from '@/lib/invoicePdf';
+import { downloadInvoiceDocument, downloadReceiptDocument, viewInvoiceDocument, viewReceiptDocument } from '@/lib/billingDocuments';
 import { shareInvoiceOnWhatsApp, shareReceiptOnWhatsApp } from '@/lib/billingWhatsApp';
-import { openFile } from '@/lib/files';
 import { formatMoney } from '@/lib/energy';
 import { useCan } from '@/lib/useCan';
 import { useSession } from '@/lib/session';
@@ -61,7 +61,8 @@ export default function BillingDetail({ designId, basePath = '/dashboard/billing
   const { data: catalog } = useResource('/api/catalog');
   const { data: packages } = useResource('/api/packages');
   // `?invoice=1` (from the Billing page's client → proposal picker) opens the invoice form as soon as the page is ready
-  const [autoOpenUsed, setAutoOpenUsed] = useState(false);
+  const [autoInvoiceUsed, setAutoInvoiceUsed] = useState(false);
+  const [autoPayUsed, setAutoPayUsed] = useState(false);
   const [modalState, setModalState] = useState(null);
   const [busy, setBusy] = useState(false);
   const money = (v) => formatMoney(v, company?.currency);
@@ -70,25 +71,49 @@ export default function BillingDetail({ designId, basePath = '/dashboard/billing
   if (error || !data) return <Alert>{error || 'Not found'}</Alert>;
   const { design, total, paid, balance, payments, invoices = [], invoice } = data;
   const won = design.status === 'won';
-  const autoOpen = params.get('invoice') === '1' && !autoOpenUsed && won && total > 0;
-  const modal = modalState ?? (autoOpen ? { type: 'invoice' } : null);
+  const autoOpenInvoice = params.get('invoice') === '1' && !autoInvoiceUsed && won && total > 0;
+  const autoOpenPay = params.get('pay') === '1' && !autoPayUsed && won && balance > 0;
+  const modal = modalState ?? (autoOpenInvoice ? { type: 'invoice' } : autoOpenPay ? { type: 'pay' } : null);
   const setModal = (m) => {
-    if (autoOpen) setAutoOpenUsed(true);
+    if (autoOpenInvoice) setAutoInvoiceUsed(true);
+    if (autoOpenPay) setAutoPayUsed(true);
     setModalState(m);
   };
   const settled = total > 0 && balance <= 0.001;
   const currency = company?.currency || 'INR';
 
-  const downloadReceipt = async (p, i) => {
+  const receiptPdfParams = (p, i) => ({
+    payment: p,
+    pdfName: p.pdfName,
+    proposalName: design.name,
+    total,
+    history: payments.slice(0, i + 1),
+    company,
+    client: design.client,
+    currency,
+  });
+
+  const viewReceipt = async (p, i) => {
     try {
-      await generateReceiptPdf({ payment: p, proposalName: design.name, total, history: payments.slice(0, i + 1), company, client: design.client, currency });
+      await viewReceiptDocument(receiptPdfParams(p, i));
     } catch (e) {
       console.error(e);
-      toast.error('The receipt could not be created. Please try again.');
+      toast.error('The receipt could not be opened. Please try again.');
     }
   };
+
+  const downloadReceipt = async (p, i) => {
+    try {
+      await downloadReceiptDocument(receiptPdfParams(p, i));
+    } catch (e) {
+      console.error(e);
+      toast.error('The receipt could not be downloaded. Please try again.');
+    }
+  };
+
   const invoicePdfParams = (inv) => ({
     invoice: inv,
+    pdfName: inv?.pdfName,
     payments,
     company,
     client: design.client,
@@ -99,18 +124,25 @@ export default function BillingDetail({ designId, basePath = '/dashboard/billing
     packages,
   });
 
+  const viewInvoice = async (inv) => {
+    const row = inv || invoice;
+    if (!row) return;
+    try {
+      await viewInvoiceDocument(invoicePdfParams(row));
+    } catch (e) {
+      console.error(e);
+      toast.error('The invoice could not be opened. Please try again.');
+    }
+  };
+
   const downloadInvoice = async (inv) => {
     const row = inv || invoice;
     if (!row) return;
     try {
-      if (row.pdfName) {
-        await openFile(`/uploads/${row.pdfName}`);
-        return;
-      }
-      await generateInvoicePdf(invoicePdfParams(row));
+      await downloadInvoiceDocument(invoicePdfParams(row));
     } catch (e) {
       console.error(e);
-      toast.error('The invoice could not be opened. Please try again.');
+      toast.error('The invoice could not be downloaded. Please try again.');
     }
   };
 
@@ -148,10 +180,10 @@ export default function BillingDetail({ designId, basePath = '/dashboard/billing
     const all = res.payments;
     downloadReceipt(all.find((x) => x.id === res.payment.id) || res.payment, all.findIndex((x) => x.id === res.payment.id));
   };
-  const generateInvoice = async (pricing, termsAndConditions) => {
+  const generateInvoice = async (pricing, termsAndConditions, extra = {}) => {
     setBusy(true);
     try {
-      const res = await api(`/api/billing/designs/${designId}/invoice`, { method: 'POST', body: { pricing, termsAndConditions } });
+      const res = await api(`/api/billing/designs/${designId}/invoice`, { method: 'POST', body: { pricing, termsAndConditions, details: extra.details, billToCompany: extra.billToCompany } });
       const created = res.createdInvoice || res.invoice;
       const { blob, filename } = await buildInvoicePdfBlob(invoicePdfParams(created));
       const form = new FormData();
@@ -162,7 +194,7 @@ export default function BillingDetail({ designId, basePath = '/dashboard/billing
       await reload();
       downloadBlobLocal(blob, filename);
     } catch (e) {
-      showError(e, 'Invoice was not generated');
+      showError(e, e?.status === 409 ? 'Stock not available' : 'Invoice was not generated'); // 409: not enough stock, or a unit was just sold
     }
     setBusy(false);
   };
@@ -233,7 +265,8 @@ export default function BillingDetail({ designId, basePath = '/dashboard/billing
                       <RowMenu
                         label="Receipt actions"
                         items={[
-                          { key: 'download', icon: Download, label: 'Download receipt', onClick: () => downloadReceipt(p, i) },
+                          { key: 'view', icon: Eye, label: 'View PDF', onClick: () => viewReceipt(p, i) },
+                          { key: 'download', icon: Download, label: 'Download PDF', onClick: () => downloadReceipt(p, i) },
                           // sharing archives the PDF the first time, which is part of recording the payment
                           (p.pdfName || canReceipt) && { key: 'whatsapp', icon: MessageCircle, label: 'Share on WhatsApp', onClick: () => shareReceipt(p, i) },
                           may('finances', 'remove_receipt') && i === payments.length - 1 && { key: 'remove', icon: Trash2, label: 'Remove receipt', tone: 'danger', onClick: () => setModal({ type: 'remove', item: p }) },
@@ -273,7 +306,8 @@ export default function BillingDetail({ designId, basePath = '/dashboard/billing
                       <RowMenu
                         label="Invoice actions"
                         items={[
-                          { key: 'download', icon: Download, label: inv.pdfName ? 'Open PDF' : 'Download PDF', onClick: () => downloadInvoice(inv) },
+                          { key: 'view', icon: Eye, label: 'View PDF', onClick: () => viewInvoice(inv) },
+                          { key: 'download', icon: Download, label: 'Download PDF', onClick: () => downloadInvoice(inv) },
                           (inv.pdfName || canInvoice) && { key: 'whatsapp', icon: MessageCircle, label: 'Share on WhatsApp', onClick: () => shareInvoice(inv) },
                         ]}
                       />
@@ -297,7 +331,7 @@ export default function BillingDetail({ designId, basePath = '/dashboard/billing
           contractTotal={total}
           currency={currency}
           busy={busy}
-          onSubmit={(p, t) => generateInvoice(p, t)}
+          onSubmit={(p, t, x) => generateInvoice(p, t, x)}
         />
       )}
       {modal?.type === 'pay' && <PaymentForm designId={designId} balance={balance} money={money} onClose={() => setModal(null)} onSaved={saved} />}

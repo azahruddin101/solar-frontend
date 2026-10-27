@@ -8,6 +8,7 @@ import { pdfKit } from './pdf.js';
 import { enrichLinesGst, enrichLinesHsn, expandCollapsedPackageLines, gstSupplyType, invoiceTax, resolveProposalPricing, stateFromGstin, summarizeLinePricing } from './pricing.js';
 import { drawRichText, richTextIsEmpty } from './pdfRichText.js';
 import { amountInWords, amountInWordsInr, fmtPdfDate, pdfSlug } from './billingPdfShared.js';
+import { invoiceDetailRows } from './invoiceDetails.js';
 
 const { text, clip, wrap, tableStyle, placeImage } = pdfKit;
 const { W, H } = pdfKit.pageSize;
@@ -56,7 +57,7 @@ function companyLines(co, coState) {
 function clientLines(cl, clState) {
   const name = cl.billingName || cl.name;
   return [
-    name,
+    ...(cl.company && cl.company !== name ? [cl.company, name] : [name]), // a company is the bold heading, the contact person below it
     cl.address,
     [cl.phone && `Mob: ${cl.phone}`, cl.email].filter(Boolean).join('  |  '),
     cl.gstNumber ? `GSTIN/UIN: ${cl.gstNumber}` : '',
@@ -101,7 +102,9 @@ export function downloadBlob(blob, filename) {
 /** Build invoice PDF bytes (for S3 upload or preview). */
 export async function buildInvoicePdfBlob({ invoice, company = {}, client = {}, currency = 'INR', quote = null, proposalPricing = null, catalog = null, packages = null }) {
   const brand = await loadBranding(company);
-  const { company: co, client: cl, money } = ctx(company, client, currency);
+  const { company: co, client: clientBase, money } = ctx(company, client, currency);
+  // an invoice on a proposal can carry the buyer's company name; a direct invoice has it in its Bill to
+  const cl = invoice.billToCompany ? { ...clientBase, company: invoice.billToCompany } : clientBase;
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
   doc.setProperties({ title: `Invoice ${invoice.invoiceNo}`, author: co.name, subject: `Tax invoice for ${cl.name || 'client'}`, creator: co.name });
 
@@ -122,7 +125,9 @@ export async function buildInvoicePdfBlob({ invoice, company = {}, client = {}, 
   const priced = summarizeLinePricing({
     lines: (pricingRaw?.lines || []).filter((l) => l?.name).map((l) => ({
       name: l.name,
-      detail: l.detail,
+      // material issued to the installation (invoices from before issuing was removed) prints as a plain line: no batch or serial numbers
+      detail: l.issueId ? String(l.detail || '').replace(/\s*·?\s*S\/N:.*$/s, '').trim() : [l.batchNo ? `Batch ${l.batchNo}` : '', l.detail].filter(Boolean).join(' · '), // stock lines carry their batch
+      serials: l.issueId ? [] : l.serials,
       hsn: l.hsn,
       qty: l.qty,
       unit: l.unit,
@@ -173,6 +178,7 @@ export async function buildInvoicePdfBlob({ invoice, company = {}, client = {}, 
   if (withGst && supply) {
     metaRows.push(['Supply type', supply === 'igst' ? 'Inter-state (IGST)' : 'Intra-state (CGST/SGST)']);
   }
+
   const LINE_H = 3.6;
   const wrappedCount = (ls) => ls.slice(1).reduce((n, l) => n + wrap(doc, l, sellerW - 5, 7.5).length, 0);
   const coLines = companyLines(co, coState);
@@ -241,6 +247,32 @@ export async function buildInvoicePdfBlob({ invoice, company = {}, client = {}, 
   });
   y = doc.lastAutoTable.finalY;
 
+  // the optional reference & delivery details that were filled in: a two-column grid, terms of delivery across the row
+  const detailRows = invoiceDetailRows(invoice.details, fmtDate);
+  if (detailRows.length) {
+    const terms = detailRows.find(([label]) => label === 'Terms of Delivery');
+    const pairs = detailRows.filter((r) => r !== terms);
+    const labelW = IW * 0.17;
+    const valueW = IW * 0.33;
+    const labelStyle = { fontStyle: 'bold', fillColor: [252, 252, 253] };
+    const body = [];
+    for (let i = 0; i < pairs.length; i += 2) {
+      const [l1, v1] = pairs[i];
+      if (!pairs[i + 1]) { // an odd one out takes the whole row
+        body.push([{ content: l1, styles: labelStyle }, { content: v1, colSpan: 3 }]);
+        break;
+      }
+      const [l2, v2] = pairs[i + 1];
+      body.push([{ content: l1, styles: labelStyle }, v1, { content: l2, styles: labelStyle }, v2]);
+    }
+    if (terms) body.push([{ content: terms[0], styles: labelStyle }, { content: terms[1], colSpan: 3 }]);
+    y = baseTable(doc, brand, {
+      startY: y,
+      body,
+      columnStyles: { 0: { cellWidth: labelW }, 1: { cellWidth: valueW }, 2: { cellWidth: labelW }, 3: { cellWidth: valueW } },
+    });
+  }
+
   const gstColW = withGst ? 16 : 0;
   const descW = IW - 11 - 18 - 20 - 20 - 12 - gstColW - 24;
   const invoiceTotal = priced.total;
@@ -250,8 +282,10 @@ export async function buildInvoicePdfBlob({ invoice, company = {}, client = {}, 
     return `${pct}%`;
   };
   const lineRow = (l, i) => {
-    const detail = String(l.detail || '').trim();
-    const desc = detail ? `${l.name}\n${detail}` : l.name;
+    const serials = Array.isArray(l.serials) ? l.serials.filter(Boolean) : [];
+    // invoices issued before serials were stored separately carry "S/N: …" inside the detail: print it once
+    const detail = (serials.length ? String(l.detail || '').replace(/\s*·?\s*S\/N:.*$/s, '') : String(l.detail || '')).trim();
+    const desc = [l.name, detail, serials.length ? `S/N: ${serials.join(', ')}` : ''].filter(Boolean).join('\n');
     const lineAmt = l.lineTotal ?? l.amount ?? (l.qty ?? 1) * (l.rate ?? 0);
     const base = [String(i + 1), desc, l.hsn || '-', `${l.qty ?? 1} ${l.unit || 'Nos'}`, amt(l.rate), l.unit || 'Nos'];
     return withGst ? [...base, gstCell(l), amt(lineAmt)] : [...base, amt(lineAmt)];

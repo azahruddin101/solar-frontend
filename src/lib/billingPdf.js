@@ -23,8 +23,11 @@ function context(company, client, currency) {
   return { company: { name: 'Company', ...company }, client: client || {}, money: (v) => formatMoney(v, currency, { pdf: true, decimals: 2 }), currency };
 }
 
-/** Letterhead: logo / name and contact on the left, document title and number on the right. Returns the next y. */
-function letterhead(doc, brand, company, { title, no, date }) {
+/**
+ * Letterhead: logo / name and contact on the left, document title and number (or a `subtitle` instead) on the right.
+ * Returns the next y.
+ */
+function letterhead(doc, brand, company, { title, no, subtitle, date, dateLabel = 'Date' }) {
   logoOrName(doc, { brand, company }, M, 12, 52, 14, 15);
   const contact = [company.address, [company.phone, company.email].filter(Boolean).join('  |  '), company.website, company.taxId && `GSTIN: ${company.taxId}`].filter(Boolean);
   let y = 32;
@@ -34,8 +37,9 @@ function letterhead(doc, brand, company, { title, no, date }) {
     y += Math.min(lines.length, 2) * 4;
   }
   text(doc, title, W - M, 18, { size: 20, style: 'bold', color: INK, align: 'right' });
-  text(doc, `No. ${no}`, W - M, 26, { size: 10, style: 'bold', color: brand.primary, align: 'right' });
-  text(doc, `Date: ${fmtDate(date)}`, W - M, 31.5, { size: 9, color: BODY, align: 'right' });
+  const sub = subtitle ? clip(doc, subtitle, 92, 10, 'bold') : `No. ${no}`;
+  text(doc, sub, W - M, 26, { size: 10, style: 'bold', color: brand.primary, align: 'right' });
+  text(doc, `${dateLabel}: ${fmtDate(date)}`, W - M, 31.5, { size: 9, color: BODY, align: 'right' });
   y = Math.max(y, 40) + 3;
   doc.setDrawColor(...LINE);
   doc.setLineWidth(0.3);
@@ -104,6 +108,9 @@ function detailRows(doc, x, y, w, rows) {
 }
 
 const slug = pdfSlug;
+
+/** The letterhead, section labels and footer, for other company documents in the same style (e.g. lib/pnlPdf.js). */
+export const documentParts = { context, letterhead, label, party, pageFooter };
 
 /* ───────────── receipt ───────────── */
 
@@ -200,8 +207,8 @@ export async function buildReceiptPdfBlob({ payment, proposalName, total, histor
 }
 
 export async function generateReceiptPdf(params) {
-  const { blob, filename } = await buildReceiptPdfBlob(params);
-  downloadBlob(blob, filename);
+  const { downloadReceiptDocument } = await import('./billingDocuments.js');
+  await downloadReceiptDocument(params);
 }
 
 export { invoiceTax } from './pricing.js';

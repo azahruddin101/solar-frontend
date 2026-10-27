@@ -455,12 +455,12 @@ export function CardHeader({ title, description, action, className }) {
 
 export function PageHeader({ title, description, children }) {
   return (
-    <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
-      <div className="min-w-0">
+    <div className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className="min-w-0 flex-1">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
-        {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
+        {description && <p className="mt-1 max-w-2xl text-sm text-slate-500">{description}</p>}
       </div>
-      {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
+      {children && <div className="shrink-0 lg:max-w-[min(100%,520px)]">{children}</div>}
     </div>
   );
 }
@@ -560,18 +560,33 @@ export function LoadMoreRow({ hasMore, loadingMore, onClick, loaded, total }) {
   );
 }
 
-/** Prev / next footer for `usePaginatedResource` or client-sliced lists. */
-export function TablePagination({ page, totalPages, total, pageSize, onPageChange, className }) {
+/**
+ * Prev / next footer for `usePaginatedResource` or client-sliced lists. Pass `pageSizeOptions` + `onPageSizeChange`
+ * to also offer "Rows per page" (then the footer stays while the list is longer than the smallest option, so the
+ * size can be changed back).
+ */
+export function TablePagination({ page, totalPages, total, pageSize, onPageChange, pageSizeOptions, onPageSizeChange, className }) {
   if (total <= 0) return null;
   const pages = Math.max(1, totalPages || Math.ceil(total / pageSize) || 1);
-  if (pages <= 1 && total <= pageSize) return null;
+  const sizes = onPageSizeChange && pageSizeOptions?.length ? pageSizeOptions : null;
+  if (pages <= 1 && total <= (sizes ? Math.min(...sizes) : pageSize)) return null;
   const start = (page - 1) * pageSize + 1;
   const end = Math.min(page * pageSize, total);
   return (
     <div className={cx('flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-6 py-3', className)}>
-      <span className="text-xs text-slate-500">
-        Showing <b className="font-medium text-slate-700">{start}–{end}</b> of <b className="font-medium text-slate-700">{total}</b>
-      </span>
+      <div className="flex flex-wrap items-center gap-4">
+        <span className="text-xs text-slate-500">
+          Showing <b className="font-medium text-slate-700">{start}–{end}</b> of <b className="font-medium text-slate-700">{total}</b>
+        </span>
+        {sizes && (
+          <label className="flex items-center gap-2 text-xs text-slate-500">
+            Rows per page
+            <Select aria-label="Rows per page" value={String(pageSize)} onValue={(v) => onPageSizeChange(Number(v))} className="w-20 text-xs">
+              {sizes.map((n) => <option key={n} value={n}>{n}</option>)}
+            </Select>
+          </label>
+        )}
+      </div>
       <div className="flex items-center gap-2">
         <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>Previous</Button>
         <span className="min-w-[5.5rem] text-center text-xs text-slate-600">Page {page} of {pages}</span>
@@ -625,7 +640,7 @@ export function Tabs({ tabs, value, onChange, className }) {
           onClick={() => onChange(t.id)}
           className={cx('-mb-px flex items-center gap-2 border-b-2 px-3.5 py-2.5 text-sm font-medium whitespace-nowrap transition-colors', value === t.id ? 'border-brand text-brand-ink' : 'border-transparent text-slate-500 hover:text-slate-800')}
         >
-          {t.icon && <t.icon className="h-4 w-4" />}
+          {t.image ? <ImageFrame src={t.image} alt="" className="h-4 w-4 shrink-0 rounded object-cover" /> : t.icon && <t.icon className="h-4 w-4 shrink-0" />}
           {t.label}
           {t.count !== undefined && <span className="rounded-full bg-slate-100 px-2 py-px text-xs text-slate-600">{t.count}</span>}
         </button>
@@ -638,21 +653,17 @@ export function Tabs({ tabs, value, onChange, className }) {
 /** A slim progress track with the step names as labels — no numbered circles. */
 export function Stepper({ steps, current }) {
   return (
-    <div role="list" aria-label="Steps">
-      <div className="flex items-center gap-1.5">
-        {steps.map((label, i) => (
-          <div key={label} className={cx('h-1 flex-1 rounded-full transition-colors', i <= current ? 'bg-brand' : 'bg-slate-200')} />
-        ))}
-      </div>
-      <div className="mt-2 flex justify-between">
-        {steps.map((label, i) => (
-          <span key={label} className={cx('flex items-center gap-1 text-[12px] font-medium', i === current ? 'text-brand-ink' : i < current ? 'text-slate-500' : 'text-slate-400')}>
-            {i < current && <CheckCircle2 className="h-3.5 w-3.5" />}
-            {label}
+    <ol aria-label="Steps" className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
+      {steps.map((label, i) => (
+        <li key={label} aria-current={i === current ? 'step' : undefined} className="min-w-0">
+          <div className={cx('h-1 rounded-full transition-colors', i <= current ? 'bg-brand' : 'bg-slate-200')} />
+          <span className={cx('mt-2 flex items-center gap-1 text-[12px] font-medium', i === current ? 'text-brand-ink' : i < current ? 'text-slate-500' : 'text-slate-400')}>
+            {i < current && <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />}
+            <span className="truncate">{label}</span>
           </span>
-        ))}
-      </div>
-    </div>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -665,13 +676,13 @@ export function Table({ children, className }) {
     </div>
   );
 }
-export const Th = ({ children, className }) => <th className={cx('border-b border-slate-200 bg-slate-50/70 px-4 py-3 text-xs font-semibold tracking-wide whitespace-nowrap text-slate-500 uppercase first:pl-6 last:pr-6', className)}>{children}</th>;
+export const Th = ({ children, className, ...props }) => <th className={cx('border-b border-slate-200 bg-slate-50/70 px-4 py-3 text-xs font-semibold tracking-wide whitespace-nowrap text-slate-500 uppercase first:pl-6 last:pr-6', className)} {...props}>{children}</th>;
 export const Td = ({ children, className }) => <td className={cx('border-b border-slate-100 px-4 py-3.5 align-middle text-slate-700 first:pl-6 last:pr-6', className)}>{children}</td>;
 export const Tr = ({ children, className, ...props }) => <tr className={cx('transition-colors last:[&>td]:border-0 hover:bg-slate-50/60', className)} {...props}>{children}</tr>;
 
 /* ───────────── Modal ───────────── */
 
-export function Modal({ open, onClose, title, description, size = 'md', children, footer }) {
+export function Modal({ open, onClose, title, description, size = 'md', children, footer, scrollBody = true, bodyClassName, panelClassName }) {
   const ref = useRef(null);
   useEffect(() => {
     if (!open) return undefined;
@@ -686,11 +697,11 @@ export function Modal({ open, onClose, title, description, size = 'md', children
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   if (!open) return null;
-  const sizes = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl', xl: 'max-w-5xl', '2xl': 'max-w-6xl' };
+  const sizes = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl', xl: 'max-w-5xl', '2xl': 'max-w-6xl', '7xl': 'max-w-7xl', '96': 'w-[96vw] max-w-[96vw]' };
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6">
+    <div className={cx('fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center', size === '96' ? 'sm:p-2' : 'sm:p-6')}>
       <div className="absolute inset-0 animate-fade bg-slate-950/50 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
-      <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className={cx('relative flex max-h-[92dvh] w-full animate-pop flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl', sizes[size])}>
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className={cx('relative flex max-h-[92dvh] w-full animate-pop flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl', sizes[size], panelClassName)}>
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-4">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-slate-900">{title}</h2>
@@ -698,7 +709,7 @@ export function Modal({ open, onClose, title, description, size = 'md', children
           </div>
           <IconButton icon={X} label="Close" onClick={onClose} className="-mr-2" />
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        <div className={cx('min-h-0 flex-1 px-6 py-5', scrollBody ? 'overflow-y-auto' : 'flex flex-col overflow-hidden', bodyClassName)}>{children}</div>
         {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 bg-slate-50/70 px-6 py-3.5">{footer}</div>}
       </div>
     </div>
@@ -707,7 +718,7 @@ export function Modal({ open, onClose, title, description, size = 'md', children
 
 /** Modal wrapping a form: Enter submits, footer has Cancel + submit. A failed save (`error`) opens the error dialog. */
 /** `noValidate`: skip the browser's own checks (the form validates itself with zod and shows field messages). */
-export function FormModal({ open, onClose, title, description, size, submitLabel = 'Save', busy, error, onSubmit, onInvalid, children, danger, noValidate }) {
+export function FormModal({ open, onClose, title, description, size, submitLabel = 'Save', busy, error, onSubmit, onInvalid, children, danger, noValidate, scrollBody, bodyClassName, panelClassName }) {
   const id = useId();
   useErrorDialog(error);
   return (
@@ -717,6 +728,9 @@ export function FormModal({ open, onClose, title, description, size, submitLabel
       title={title}
       description={description}
       size={size}
+      scrollBody={scrollBody}
+      bodyClassName={bodyClassName}
+      panelClassName={panelClassName}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -724,7 +738,7 @@ export function FormModal({ open, onClose, title, description, size, submitLabel
         </>
       }
     >
-      <form id={id} noValidate={noValidate} className="space-y-4" onInvalidCapture={onInvalid} onSubmit={(e) => { e.preventDefault(); onSubmit?.(e); }}>
+      <form id={id} noValidate={noValidate} className={cx('space-y-4', !scrollBody && 'flex min-h-0 flex-1 flex-col')} onInvalidCapture={onInvalid} onSubmit={(e) => { e.preventDefault(); onSubmit?.(e); }}>
         {children}
       </form>
     </Modal>
@@ -873,4 +887,9 @@ export function timeAgo(d) {
   return formatDate(d);
 }
 
-export { RichTextEditor };
+export { default as RichTextEditor } from './RichTextEditor';
+export { default as RichTextContent } from './RichTextContent';
+export { DateRangeFilter } from './DateRangeFilter';
+export { PdfViewerHost, openPdfViewer } from './PdfViewer';
+export { UploadProgress, useUploadQueue } from './UploadProgress';
+export { MultiSelect } from './MultiSelect';

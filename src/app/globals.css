@@ -191,6 +191,87 @@ button:disabled {
   box-shadow: 0 10px 25px rgba(15, 23, 42, 0.12);
 }
 
+/* Read-only rich text (portal, tables) */
+.rich-content {
+  line-height: 1.6;
+  color: #475569;
+  font-size: 14px;
+}
+.rich-content h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0.5em 0 0.25em;
+}
+.rich-content h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0.5em 0 0.2em;
+}
+.rich-content p {
+  margin: 0.35em 0;
+}
+.rich-content ol,
+.rich-content ul {
+  margin: 0.35em 0;
+  padding-left: 1.25rem;
+}
+.rich-content a {
+  color: var(--brand);
+  text-decoration: underline;
+}
+
+/* AMC visit modal — compact Quill */
+.amc-desc-editor .ql-toolbar.ql-snow {
+  padding: 4px 6px;
+}
+.amc-desc-editor .ql-container.ql-snow {
+  font-size: 13px;
+}
+.amc-desc-editor .ql-editor {
+  max-height: 5.25rem;
+  padding: 8px 12px;
+  line-height: 1.45;
+}
+.amc-desc-editor--stretch.rich-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.amc-desc-editor--stretch > div:first-of-type {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.amc-desc-editor--stretch .ql-toolbar.ql-snow {
+  flex-shrink: 0;
+}
+.amc-desc-editor--stretch .ql-container.ql-snow {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.amc-desc-editor--stretch .ql-editor {
+  flex: 1;
+  max-height: none;
+  min-height: var(--editor-min-height, 120px);
+  overflow-y: auto;
+}
+.amc-desc-editor--stretch > div:last-of-type {
+  flex-shrink: 0;
+}
+.amc-desc-editor .ql-editor h2 {
+  font-size: 1rem;
+  margin: 0.35em 0 0.15em;
+}
+.amc-desc-editor .ql-editor h3 {
+  font-size: 0.9rem;
+  margin: 0.35em 0 0.15em;
+}
+
 /* ───────── Landing page ───────── */
 @keyframes float {
   0%, 100% { transform: translateY(0); }
@@ -204,12 +285,6 @@ button:disabled {
 .animate-float-slow { animation: float 8s ease-in-out -2s infinite; }
 .animate-sun { animation: sun-sweep 10s ease-in-out infinite; }
 
-/* scroll reveal (see components/marketing/Reveal.js) */
-.reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.16, 1, 0.3, 1); transition-delay: var(--reveal-delay, 0ms); }
-.reveal.is-visible { opacity: 1; transform: none; }
-@media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; } }
-
-.bg-grid { background-image: linear-gradient(to right, rgb(15 23 42 / 0.05) 1px, transparent 1px), linear-gradient(to bottom, rgb(15 23 42 / 0.05) 1px, transparent 1px); background-size: 44px 44px; }
 .mask-fade-b { mask-image: linear-gradient(to bottom, black 55%, transparent); }
 .mask-radial { mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 40%, transparent 100%); }
 

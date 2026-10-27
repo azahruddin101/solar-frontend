@@ -14,10 +14,14 @@ import LeadFormBuilder from './LeadFormBuilder';
 import LeadStatuses from './LeadStatuses';
 import ProductUnits from './ProductUnits';
 import Workflow from './Workflow';
+import AmcTemplates from './AmcTemplates';
+import LoanSteps from './LoanSteps';
 
 const TABS = [
   { id: 'agent-roles', label: 'Job titles', count: 'agentRoles', Page: AgentRoles },
   { id: 'installation-steps', label: 'Installation steps', count: 'installationSteps', Page: Workflow },
+  { id: 'amc-schedule', label: 'AMC schedule', count: 'amcTemplates', Page: AmcTemplates },
+  { id: 'loan-steps', label: 'Loan steps', count: 'loanSteps', Page: LoanSteps },
   { id: 'installation-charges', label: 'Installation charges', count: 'installationCharges', Page: InstallationCharges },
   { id: 'catalog-categories', label: 'Catalog categories', count: 'categories', Page: Categories },
   { id: 'product-units', label: 'Product units', count: 'productUnits', Page: ProductUnits },

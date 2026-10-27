@@ -56,11 +56,13 @@ const ACTIONS = {
   step_added: (l) => `added the step “${l.stepName}”`,
   step_removed: (l) => `removed the step “${l.stepName}”`,
   step_renamed: (l) => `renamed a step to “${l.stepName}”`,
+  materials_issued: () => 'issued material from stock',
+  amc_parts_invoiced: (l) => `invoiced parts used on an AMC visit — ${l.message}`,
   note: (l) => (l.stepName ? `left a note on “${l.stepName}”` : 'left a note'),
 };
 const SYSTEM = ['completed', 'reopened'];
 // actions whose `message` is a free-text note rather than part of the sentence
-const WITH_NOTE = ['note', 'step_started', 'step_completed', 'step_reopened', 'step_renamed'];
+const WITH_NOTE = ['note', 'step_started', 'step_completed', 'step_reopened', 'step_renamed', 'materials_issued'];
 
 export const describeLog = (l) => ({
   who: SYSTEM.includes(l.action) ? '' : l.byName || 'Someone',

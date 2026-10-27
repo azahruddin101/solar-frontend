@@ -1,17 +1,24 @@
 'use client';
 
-// Marketing site. Every claim on this page describes something the product actually does —
-// no invented customers, reviews or numbers.
-import { ArrowRight, BadgeCheck, Box, Building2, Check, ChevronDown, FileSpreadsheet, FileText, Gauge, LineChart, MapPin, Menu, Palette, PanelsTopLeft, PenLine, QrCode, ShieldCheck, Signature, Sun, SunMedium, Users, Wallet, X, Zap } from 'lucide-react';
+// Marketing site. Every claim on this page describes something the product actually does — no invented customers,
+// reviews or results. The impact estimate is labelled as rough and shows how it is worked out.
+//
+// Design: one typeface (Geist, with Geist Mono for labels), a 12-column grid, hairline rules, white and paper
+// surfaces, near-black ink and a single green. The product is shown large; the drawings are engineering sheets.
+import { ArrowRight, ArrowUpRight, ChevronDown, Menu, X } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { THEME_PRESETS, hexToRgb } from '@/lib/theme';
-import { buttonClass, cx } from '../kit';
-import { BrandLogo, PRODUCT_NAME } from '../layout/Brand';
+import { cx } from '../kit';
+import { BrandMark, PRODUCT_NAME } from '../layout/Brand';
 import Reveal from './Reveal';
-import { DesignerMock, ProposalMock, RoofIllustration } from './visuals';
+import { ArrayPlan, ModuleDrawing, PortalPhone, SunPathDiagram } from './scenes';
+import { DesignerMock, ProposalMock } from './visuals';
 
-const NAV = [['Features', '#features'], ['How it works', '#how'], ['Your brand', '#brand'], ['FAQ', '#faq']];
+// the landing page's own palette (the product mocks follow it); workspaces use each company's theme
+const PAGE_THEME = { '--brand': '#0F6E56', '--brand-fg': '#ffffff', '--accent': '#F5B82E', '--accent-fg': '#1c1917' };
+
+const NAV = [['Product', '#product'], ['Design', '#design'], ['Proposals', '#proposals'], ['Operations', '#operations'], ['Portal', '#portal'], ['FAQ', '#faq']];
 
 const mix = (a, b, t) => a.map((c, i) => Math.round(c + (b[i] - c) * t));
 const rgb = (c) => `rgb(${c.join(',')})`;
@@ -22,35 +29,42 @@ function proposalVars(primaryHex, accentHex) {
   return { '--p': rgb(p), '--a': rgb(a), '--ink': rgb(mix(p, [6, 12, 20], 0.72)), '--deep': rgb(mix(p, [0, 0, 0], 0.45)), '--panel': rgb(mix(p, [244, 246, 248], 0.94)), '--cream': rgb(mix(a, [255, 255, 255], 0.9)) };
 }
 
-function SectionHeading({ eyebrow, title, text, center, dark }) {
-  return (
-    <Reveal className={cx('max-w-2xl', center && 'mx-auto text-center')}>
-      <p className={cx('text-sm font-semibold tracking-wide', dark ? 'text-accent' : 'text-brand')}>{eyebrow}</p>
-      <h2 className={cx('mt-3 text-3xl leading-[1.12] font-semibold tracking-tight text-balance sm:text-[2.6rem]', dark ? 'text-white' : 'text-slate-950')}>{title}</h2>
-      {text && <p className={cx('mt-4 text-lg leading-relaxed text-pretty', dark ? 'text-slate-400' : 'text-slate-600')}>{text}</p>}
-    </Reveal>
-  );
-}
+const Container = ({ className, children }) => <div className={cx('mx-auto max-w-[1200px] px-6 sm:px-10', className)}>{children}</div>;
+
+/** "01 — Design": the small mono label that opens every section. */
+const Label = ({ n, children, className }) => (
+  <p className={cx('font-mono text-[11px] tracking-[0.14em] text-stone-500 uppercase', className)}>
+    {n && <span className="mr-3 text-stone-950">{n}</span>}{children}
+  </p>
+);
+
+const Title = ({ children, className }) => <h2 className={cx('text-[2rem] leading-[1.08] font-medium tracking-[-0.025em] text-balance text-stone-950 sm:text-[2.75rem]', className)}>{children}</h2>;
+const Lede = ({ children, className }) => <p className={cx('text-[17px] leading-relaxed text-pretty text-stone-600', className)}>{children}</p>;
+
+const PRIMARY = 'inline-flex h-11 items-center gap-2 rounded-md bg-stone-950 px-5 text-[14px] font-medium text-white transition hover:bg-stone-800';
+const SECONDARY = 'inline-flex h-11 items-center gap-2 rounded-md border border-stone-300 bg-white px-5 text-[14px] font-medium text-stone-900 transition hover:border-stone-400 hover:bg-stone-50';
 
 /* ───────────── header ───────────── */
 
 function Header({ scrolled }) {
   const [open, setOpen] = useState(false);
   return (
-    <header className={cx('sticky top-0 z-40 transition-all duration-300', scrolled || open ? 'border-b border-slate-200/70 bg-white/80 backdrop-blur-xl' : 'border-b border-transparent')}>
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 sm:px-8">
-        <Link href="/" aria-label={`${PRODUCT_NAME} home`}><BrandLogo /></Link>
-        <nav aria-label="Main" className="hidden items-center gap-1 md:flex">
-          {NAV.map(([label, href]) => <a key={href} href={href} className="rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-950">{label}</a>)}
+    <header className={cx('fixed inset-x-0 top-0 z-40 border-b transition-colors duration-300', scrolled || open ? 'border-stone-200 bg-white/90 backdrop-blur-md' : 'border-transparent')}>
+      <Container className="flex h-16 items-center justify-between">
+        <Link href="/" aria-label={`${PRODUCT_NAME} home`} className="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight text-stone-950"><BrandMark size={28} /> {PRODUCT_NAME}</Link>
+        <nav aria-label="Main" className="hidden items-center gap-7 md:flex">
+          {NAV.map(([label, href]) => <a key={href} href={href} className="text-[14px] text-stone-600 transition hover:text-stone-950">{label}</a>)}
         </nav>
-        <div className="flex items-center gap-2">
-          <Link href="/login" className={buttonClass({ variant: 'primary', className: 'rounded-full px-5' })}>Sign in</Link>
-          <button type="button" aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open} onClick={() => setOpen(!open)} className="grid h-10 w-10 place-items-center rounded-full text-slate-700 hover:bg-slate-100 md:hidden">{open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>
+        <div className="flex items-center gap-5">
+          <Link href="/login" className="hidden text-[14px] text-stone-600 hover:text-stone-950 sm:inline">Sign in</Link>
+          <Link href="/login" className={cx(PRIMARY, 'h-9 px-4')}>Open workspace</Link>
+          <button type="button" aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open} onClick={() => setOpen(!open)} className="grid h-9 w-9 place-items-center rounded-md text-stone-800 hover:bg-stone-100 md:hidden">{open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>
         </div>
-      </div>
+      </Container>
       {open && (
-        <nav aria-label="Mobile" className="animate-fade border-t border-slate-200 px-5 py-3 md:hidden">
-          {NAV.map(([label, href]) => <a key={href} href={href} onClick={() => setOpen(false)} className="block rounded-lg px-3 py-3 text-base font-medium text-slate-700 hover:bg-slate-100">{label}</a>)}
+        <nav aria-label="Mobile" className="animate-fade border-t border-stone-200 bg-white px-6 py-2 md:hidden">
+          {NAV.map(([label, href]) => <a key={href} href={href} onClick={() => setOpen(false)} className="block border-b border-stone-100 py-3.5 text-[15px] text-stone-800 last:border-0">{label}</a>)}
+          <Link href="/login" className="block py-3.5 text-[15px] text-stone-800">Sign in</Link>
         </nav>
       )}
     </header>
@@ -59,244 +73,373 @@ function Header({ scrolled }) {
 
 /* ───────────── hero ───────────── */
 
-function FloatingCard({ icon: Icon, label, value, className, accent }) {
-  return (
-    <div className={cx('absolute hidden items-center gap-3 rounded-2xl border border-slate-200 bg-white/95 px-4 py-3 text-left shadow-xl shadow-slate-900/10 backdrop-blur lg:flex', className)}>
-      <span className={cx('grid h-10 w-10 place-items-center rounded-xl', accent ? 'bg-accent text-accent-fg' : 'bg-brand text-brand-fg')}><Icon className="h-5 w-5" /></span>
-      <div><div className="text-xs text-slate-500">{label}</div><div className="text-base leading-tight font-semibold text-slate-950">{value}</div></div>
-    </div>
-  );
-}
+const HERO_FACTS = [['3D design', 'Shading modelled hour by hour'], ['9-page proposal', 'Branded A4, accepted online'], ['Loans & billing', 'Loan steps, GST invoices, receipts'], ['25-year care', 'Installations and AMC visits']];
 
 function Hero() {
   return (
-    <section className="relative overflow-hidden">
-      <div aria-hidden className="mask-radial absolute inset-0 bg-grid" />
-      <div aria-hidden className="absolute -top-40 left-1/2 h-[520px] w-[820px] -translate-x-1/2 rounded-full bg-brand opacity-[0.13] blur-[110px]" />
-      <div aria-hidden className="absolute top-40 -right-32 h-[380px] w-[380px] rounded-full bg-accent opacity-[0.16] blur-[110px]" />
-
-      <div className="relative mx-auto max-w-7xl px-5 pt-14 pb-10 text-center sm:px-8 sm:pt-20">
-        <Reveal>
-          <a href="#brand" className="group inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 py-1.5 pr-4 pl-1.5 text-sm font-medium text-slate-700 shadow-sm backdrop-blur transition hover:border-slate-300">
-            <span className="rounded-full bg-brand px-2.5 py-0.5 text-xs font-semibold text-brand-fg">New</span> Proposals in your own brand colours <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
-          </a>
-        </Reveal>
-        <Reveal delay={80}>
-          <h1 className="mx-auto mt-7 max-w-4xl text-[2.6rem] leading-[1.04] font-semibold tracking-[-0.03em] text-balance text-slate-950 sm:text-6xl lg:text-7xl">
-            From a rooftop to a <span className="bg-gradient-to-r from-brand via-brand to-accent bg-clip-text text-transparent">signed solar proposal</span>
-          </h1>
-        </Reveal>
-        <Reveal delay={160}>
-          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-pretty text-slate-600 sm:text-xl">{PRODUCT_NAME} is the workspace for solar installers: keep your clients, design their roof in 3D, and hand over a priced, branded PDF — in minutes, not days.</p>
-        </Reveal>
-        <Reveal delay={240} className="mt-9 flex flex-wrap justify-center gap-3">
-          <Link href="/login" className={buttonClass({ variant: 'primary', size: 'lg', className: 'rounded-full px-7 shadow-lg shadow-brand/25' })}>Open your workspace <ArrowRight className="h-4 w-4" /></Link>
-          <a href="#how" className={buttonClass({ size: 'lg', className: 'rounded-full px-7' })}>See how it works</a>
-        </Reveal>
-        <Reveal delay={300}>
-          <ul className="mt-7 flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm text-slate-500">
-            {['No software to install', 'Clients need no login', 'A4 proposal, ready to print'].map((t) => <li key={t} className="flex items-center gap-1.5"><Check className="h-4 w-4 text-brand" /> {t}</li>)}
-          </ul>
-        </Reveal>
-
-        <Reveal delay={200} className="relative mx-auto mt-14 max-w-5xl">
-          <DesignerMock />
-          <FloatingCard icon={Wallet} label="Year-1 savings" value="₹1,31,000" className="animate-float top-44 -left-24 xl:-left-32" />
-          <FloatingCard icon={SunMedium} label="Shading loss" value="0.4 %" accent className="animate-float-slow -right-24 bottom-10 xl:-right-44" />
-        </Reveal>
-      </div>
-    </section>
-  );
-}
-
-/* ───────────── facts strip ───────────── */
-
-const FACTS = [['3 steps', 'Location, roof, solar plan'], ['9 pages', 'In every A4 proposal'], ['25 years', 'Savings and payback outlook'], ['Hour by hour', 'Shading from walls, tanks and trees']];
-
-function Facts() {
-  return (
-    <section aria-label="At a glance" className="border-y border-slate-200 bg-white">
-      <dl className="mx-auto grid max-w-7xl grid-cols-2 px-5 sm:px-8 lg:grid-cols-4">
-        {FACTS.map(([value, label], i) => (
-          <Reveal key={value} delay={i * 70} className={cx('px-2 py-8 text-center sm:py-10', i % 2 === 1 && 'border-l border-slate-200', i >= 2 && 'border-t border-slate-200 lg:border-t-0', i === 2 && 'lg:border-l')}>
-            <dt className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">{value}</dt>
-            <dd className="mt-1 text-sm text-slate-500">{label}</dd>
+    <section className="bg-[#f6f6f3] pt-32 pb-0 sm:pt-40">
+      <Container>
+        <div className="grid gap-12 lg:grid-cols-12 lg:items-center">
+          <div className="lg:col-span-7">
+            <Reveal><Label>Software for rooftop solar companies</Label></Reveal>
+            <Reveal delay={60}>
+              <h1 className="mt-6 max-w-[14ch] text-[2.75rem] leading-[1.02] font-medium tracking-[-0.035em] text-balance text-stone-950 sm:text-[4rem] lg:text-[4.5rem]">
+                Every solar project, from the first enquiry to the last service visit.
+              </h1>
+            </Reveal>
+            <Reveal delay={120}>
+              <Lede className="mt-8 max-w-[46ch]">{PRODUCT_NAME} is the one workspace for solar installers: leads, clients, 3D design, proposals, loans, invoicing, installation and maintenance — with a portal where your clients follow it all.</Lede>
+            </Reveal>
+            <Reveal delay={180} className="mt-8 flex flex-wrap gap-3">
+              <Link href="/login" className={PRIMARY}>Open your workspace <ArrowRight className="h-4 w-4" /></Link>
+              <a href="#product" className={SECONDARY}>What’s inside</a>
+            </Reveal>
+          </div>
+          <Reveal delay={140} className="hidden lg:col-span-5 lg:block">
+            <ModuleDrawing className="w-full" />
           </Reveal>
-        ))}
-      </dl>
-    </section>
-  );
-}
-
-/* ───────────── features (bento) ───────────── */
-
-function Bento({ className, icon: Icon, title, text, children, delay }) {
-  return (
-    <Reveal delay={delay} className={cx('group relative flex flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white p-7 transition duration-300 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-xl hover:shadow-slate-900/5', className)}>
-      <span className="grid h-11 w-11 place-items-center rounded-xl bg-brand-soft text-brand transition group-hover:bg-brand group-hover:text-brand-fg"><Icon className="h-5 w-5" /></span>
-      <h3 className="mt-5 text-lg font-semibold text-slate-950">{title}</h3>
-      <p className="mt-2 text-[15px] leading-relaxed text-slate-600">{text}</p>
-      <div className="mt-auto pt-6">{children}</div>
-    </Reveal>
-  );
-}
-
-function Features() {
-  const bars = [46, 58, 74, 86, 100, 90, 72, 68, 80, 74, 56, 44];
-  return (
-    <section id="features" className="scroll-mt-20 bg-slate-50 py-24 sm:py-32">
-      <div className="mx-auto max-w-7xl px-5 sm:px-8">
-        <SectionHeading eyebrow="Everything in one place" title="The whole job, from first call to signature" text="Stop stitching together spreadsheets, drawing tools and document templates. One workspace carries a client from enquiry to a proposal they can sign." />
-        <div className="mt-14 grid gap-5 md:grid-cols-6">
-          <Bento className="md:col-span-4" icon={Box} title="Design on the real roof, in 3D" text="Find the building on satellite imagery, trace the roof and its obstacles, and panels are arranged for you — around water tanks, staircase rooms and parapets. Drag the sun through the day to see every shadow.">
-            <div className="relative -mb-7 h-56 overflow-hidden rounded-t-2xl bg-gradient-to-br from-sky-100 via-slate-100 to-emerald-50 sm:h-64"><div className="absolute inset-0 bg-grid opacity-60" /><RoofIllustration className="relative mx-auto h-full w-full max-w-md" /></div>
-          </Bento>
-          <Bento className="md:col-span-2" delay={80} icon={Gauge} title="Size it your way" text="Start from the client’s monthly bill or from the kilowatts they asked for. The panel count, price and payback update as you type.">
-            <div className="space-y-2 text-sm">
-              <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 text-center text-xs font-medium"><span className="rounded-md bg-white py-1.5 text-slate-900 shadow-sm">Monthly bill</span><span className="py-1.5 text-slate-500">Kilowatt (kW)</span></div>
-              <div className="flex items-center justify-between rounded-lg border-2 border-brand px-3 py-2 font-semibold">6,500 <span className="text-xs font-medium text-slate-400">INR</span></div>
-              <p className="text-xs text-slate-500">About 684 units/month → <b className="text-slate-800">24 panels</b> of 540 W</p>
-            </div>
-          </Bento>
-          <Bento className="md:col-span-2" delay={0} icon={Users} title="Clients, organised" text="Name, email, phone and address in one list, with every design filed under the right person. Your clients never need an account.">
-            <ul className="space-y-2">
-              {[['RK', 'Ravi Kumar', '2 designs'], ['GV', 'Green Valley School', '1 design'], ['MT', 'Mehta Textiles', '1 design']].map(([i, n, d]) => <li key={n} className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2 text-sm"><span className="grid h-8 w-8 place-items-center rounded-full bg-brand-soft text-xs font-semibold text-brand-ink">{i}</span><span className="flex-1 truncate font-medium text-slate-800">{n}</span><span className="text-xs text-slate-400">{d}</span></li>)}
-            </ul>
-          </Bento>
-          <Bento className="md:col-span-2" delay={80} icon={PanelsTopLeft} title="Your own product catalog" text="List the panels you sell — brand, model, watt, manufacture year, warranty and your price — plus mounting poles per foot.">
-            <ul className="space-y-2 text-sm">
-              {[['Waaree', 'Ahnay 540 W', '25 yr'], ['Adani Solar', 'TOPCon 575 W', '30 yr']].map(([b, m, w]) => <li key={b} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2"><span className="min-w-0"><span className="block truncate font-medium text-slate-800">{b}</span><span className="block truncate text-xs text-slate-400">{m}</span></span><span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">{w} warranty</span></li>)}
-              <li className="flex items-center gap-2 rounded-xl border border-dashed border-slate-300 px-3 py-2.5 text-slate-600"><FileSpreadsheet className="h-4 w-4 shrink-0 text-emerald-600" /> Import the whole list from Excel</li>
-            </ul>
-          </Bento>
-          <Bento className="md:col-span-2" delay={160} icon={LineChart} title="Numbers clients understand" text="Monthly generation, year-one savings, payback and a 25-year outlook — with shading and panel ageing already accounted for.">
-            <div className="flex h-16 items-end gap-1">{bars.map((h, i) => <span key={i} className="flex-1 rounded-t bg-accent/85" style={{ height: `${h}%` }} />)}</div>
-          </Bento>
         </div>
+        <Reveal delay={240} className="mt-16 sm:mt-20">
+          <div className="rounded-t-xl border border-b-0 border-stone-300 bg-white p-1.5 shadow-[0_-1px_0_0_#fff_inset]">
+            <DesignerMock flat />
+          </div>
+        </Reveal>
+      </Container>
+      <div className="border-y border-stone-200 bg-white">
+        <Container>
+          <dl className="grid divide-y divide-stone-200 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
+            {HERO_FACTS.map(([t, d], i) => (
+              <div key={t} className={cx('py-5 sm:pr-8', i > 0 && 'lg:pl-8', i % 2 === 1 && 'sm:pl-8 lg:pl-8', i >= 2 && 'sm:border-t sm:border-stone-200 lg:border-t-0')}>
+                <dt className="text-[15px] font-medium text-stone-950">{t}</dt>
+                <dd className="mt-0.5 text-[14px] text-stone-500">{d}</dd>
+              </div>
+            ))}
+          </dl>
+        </Container>
       </div>
     </section>
   );
 }
 
-/* ───────────── how it works ───────────── */
+/* ───────────── index of modules ───────────── */
 
-const STEPS = [
-  [Users, 'Add the client', 'Save their name, email and address once. Pick them whenever you start a design.'],
-  [MapPin, 'Find the building', 'Search the address and confirm the rooftop on satellite imagery.'],
-  [PenLine, 'Mark the roof', 'Trace the outline, then drag over tanks, staircase rooms and trees.'],
-  [FileText, 'Download the proposal', 'Choose the panel, check the price and export a branded A4 PDF.'],
+const MODULES = [
+  ['Leads', 'Meta Lead Ads, Google Ads and Google Sheets connect once; walk-ins go on your own form. Statuses, priority, assignment, Excel export.'],
+  ['Clients', 'Contact details, consumer number, sanctioned load, referrer and documents — bills, ID proofs, roof photos — in one record.'],
+  ['3D designer', 'Satellite roof tracing, automatic panel layout around obstacles, hour-by-hour shading, a 25-year financial outlook.'],
+  ['Quick proposals', 'A priced proposal from your packages and catalog in a minute, when a full design isn’t needed.'],
+  ['Proposals', 'Nine A4 pages in your brand, with version history, a share link and QR code, WhatsApp sharing and online acceptance.'],
+  ['Loans', 'Your own loan steps. A proposal bought on a loan follows them, with remarks the client sees.'],
+  ['Billing', 'GST invoices with your own numbering, receipts for cash, UPI, cheque, card or transfer, and the balance due on every deal.'],
+  ['Inventory', 'Categories with custom attributes, batches with base, wholesale and retail prices, suppliers, serial numbers and warranties.'],
+  ['Installations', 'Steps from your template, assigned by job title and priority; photos and notes from site.'],
+  ['Maintenance', 'Free AMC visits scheduled from the installation date; paid visits booked by the client and assigned to technicians.'],
+  ['Helpdesk', 'Clients raise requests with photos and PDFs from their portal; your team replies and tracks every thread.'],
+  ['Team', 'Roles such as telecaller, accountant or supervisor — or your own. Staff see only what their role allows.'],
 ];
 
-function HowItWorks() {
+function ModuleIndex() {
   return (
-    <section id="how" className="scroll-mt-20 py-24 sm:py-32">
-      <div className="mx-auto max-w-7xl px-5 sm:px-8">
-        <SectionHeading center eyebrow="How it works" title="A proposal in four steps" text="Most designs take a few minutes. Everything is saved as you go, so you can pick up where you left off." />
-        <ol className="relative mt-16 grid gap-10 md:grid-cols-2 lg:grid-cols-4 lg:gap-6">
-          <div aria-hidden className="absolute top-7 right-[12.5%] left-[12.5%] hidden h-px bg-gradient-to-r from-transparent via-slate-300 to-transparent lg:block" />
-          {STEPS.map(([Icon, title, text], i) => (
-            <Reveal as="li" key={title} delay={i * 90} className="relative text-center">
-              <span className="relative mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-slate-950 text-white shadow-lg shadow-slate-900/20"><Icon className="h-6 w-6" /><span className="absolute -top-2 -right-2 grid h-6 w-6 place-items-center rounded-full bg-accent text-xs font-bold text-accent-fg ring-4 ring-white">{i + 1}</span></span>
-              <h3 className="mt-6 text-lg font-semibold text-slate-950">{title}</h3>
-              <p className="mx-auto mt-2 max-w-[260px] text-[15px] leading-relaxed text-slate-600">{text}</p>
-            </Reveal>
-          ))}
-        </ol>
-      </div>
+    <section id="product" className="scroll-mt-16 py-24 sm:py-32">
+      <Container>
+        <div className="grid gap-10 lg:grid-cols-12">
+          <Reveal className="lg:col-span-4">
+            <Label n="01">What’s inside</Label>
+            <Title className="mt-5">Twelve modules, one client record.</Title>
+            <Lede className="mt-5">Nothing is retyped between stages. The address from the lead becomes the site of the design, the price on the proposal becomes the invoice, the installation date schedules the maintenance.</Lede>
+          </Reveal>
+          <Reveal delay={100} className="lg:col-span-8">
+            <ol className="grid border-t border-stone-200 sm:grid-cols-2 sm:gap-x-10">
+              {MODULES.map(([name, text], i) => (
+                <li key={name} className="grid grid-cols-[2.5rem_1fr] gap-x-2 border-b border-stone-200 py-5">
+                  <span className="pt-0.5 font-mono text-[11px] text-stone-400">{String(i + 1).padStart(2, '0')}</span>
+                  <div>
+                    <h3 className="text-[15px] font-medium text-stone-950">{name}</h3>
+                    <p className="mt-1 text-[14px] leading-relaxed text-stone-600">{text}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </Reveal>
+        </div>
+      </Container>
     </section>
   );
 }
 
-/* ───────────── your brand (interactive) ───────────── */
+/* ───────────── design ───────────── */
 
-const BRAND_POINTS = [[Palette, 'Theme colours', 'Across your workspace and every page of the PDF.'], [Sun, 'Your logo', 'On the cover, page headers and the sidebar.'], [Signature, 'E-signature', 'Signed by your director on the acceptance page.'], [QrCode, 'QR code', 'For UPI payment, your website or a contact card.']];
+const DESIGN_POINTS = [
+  ['Roof from satellite', 'Search the address, trace the outline and mark parapets, tanks, staircase rooms and trees.'],
+  ['Layout, automatically', 'Panels are placed in rows around every obstacle, with the clearances you set.'],
+  ['Shading, hour by hour', 'Shadows from walls, obstacles and neighbouring rows are sampled through every day of the year.'],
+  ['Sized from the bill', 'Start from the monthly bill or the kilowatts asked for; panel count, price and payback update as you type.'],
+];
 
-function BrandSection() {
+function Design() {
+  return (
+    <section id="design" className="scroll-mt-16 border-t border-stone-200 bg-[#f6f6f3] py-24 sm:py-32">
+      <Container>
+        <div className="grid gap-12 lg:grid-cols-12">
+          <div className="lg:col-span-5">
+            <Reveal>
+              <Label n="02">Design</Label>
+              <Title className="mt-5">Designed on the real roof, not a sketch.</Title>
+              <Lede className="mt-5">The designer works from satellite imagery and the sun’s actual path over the site. What it draws is what gets installed.</Lede>
+            </Reveal>
+            <dl className="mt-10 border-t border-stone-200">
+              {DESIGN_POINTS.map(([t, d], i) => (
+                <Reveal key={t} delay={i * 60} className="border-b border-stone-200 py-4">
+                  <dt className="text-[15px] font-medium text-stone-950">{t}</dt>
+                  <dd className="mt-1 text-[14px] leading-relaxed text-stone-600">{d}</dd>
+                </Reveal>
+              ))}
+            </dl>
+          </div>
+          <div className="grid gap-6 lg:col-span-7">
+            <Reveal delay={80} className="border border-stone-300 bg-white p-6 sm:p-8">
+              <ArrayPlan className="w-full" />
+            </Reveal>
+            <Reveal delay={140} className="border border-stone-300 bg-white p-6 sm:p-8">
+              <SunPathDiagram className="w-full" />
+            </Reveal>
+          </div>
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+/* ───────────── proposals ───────────── */
+
+const PAGES = ['Cover with the 3D model', 'Summary letter and key figures', 'Panel, roof and structure details', 'Panel layout drawing', 'String layout drawing', 'Electrical design', 'Bill of materials', 'Energy and 25-year financials', 'Price, terms and sign-off'];
+
+function Proposals() {
   const [preset, setPreset] = useState(THEME_PRESETS[1]);
   return (
-    <section id="brand" className="relative scroll-mt-20 overflow-hidden bg-slate-950 py-24 text-white sm:py-32">
-      <div aria-hidden className="absolute -top-40 right-0 h-[480px] w-[480px] rounded-full opacity-30 blur-[130px] transition-colors duration-700" style={{ background: preset.primary }} />
-      <div aria-hidden className="absolute -bottom-40 -left-20 h-[420px] w-[420px] rounded-full opacity-20 blur-[130px] transition-colors duration-700" style={{ background: preset.accent }} />
-      <div className="relative mx-auto grid max-w-7xl items-center gap-14 px-5 sm:px-8 lg:grid-cols-2">
-        <div>
-          <SectionHeading dark eyebrow="Your brand, not ours" title="Every proposal looks like it came from your design team" text="Set your colours once. The cover, tables, charts and sign-off all follow — and your client sees only your company." />
-          <Reveal delay={120} className="mt-9">
-            <div className="text-sm font-medium text-slate-300">Try a palette</div>
-            <div className="mt-3 flex flex-wrap gap-2.5" role="radiogroup" aria-label="Theme palette">
-              {THEME_PRESETS.map((p) => (
-                <button key={p.name} type="button" role="radio" aria-checked={preset.name === p.name} aria-label={p.name} title={p.name} onClick={() => setPreset(p)} className={cx('flex h-10 w-10 overflow-hidden rounded-full ring-2 ring-offset-2 ring-offset-slate-950 transition', preset.name === p.name ? 'scale-110 ring-white' : 'ring-transparent hover:ring-white/40')}>
-                  <span className="h-full w-1/2" style={{ background: p.primary }} /><span className="h-full w-1/2" style={{ background: p.accent }} />
-                </button>
-              ))}
+    <section id="proposals" className="scroll-mt-16 border-t border-stone-200 py-24 sm:py-32">
+      <Container>
+        <div className="grid gap-12 lg:grid-cols-12 lg:items-start">
+          <Reveal className="order-2 lg:order-1 lg:col-span-5">
+            <div className="mx-auto max-w-[380px] lg:mx-0">
+              <ProposalMock flat company={`${preset.name} Solar`} style={proposalVars(preset.primary, preset.accent)} />
             </div>
           </Reveal>
-          <ul className="mt-10 grid gap-5 sm:grid-cols-2">
-            {BRAND_POINTS.map(([Icon, title, text], i) => (
-              <Reveal as="li" key={title} delay={i * 70} className="flex gap-3.5">
-                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/10 ring-1 ring-white/10"><Icon className="h-5 w-5 text-accent" /></span>
-                <div><div className="font-medium">{title}</div><div className="mt-0.5 text-sm leading-relaxed text-slate-400">{text}</div></div>
-              </Reveal>
-            ))}
-          </ul>
-        </div>
-        <Reveal delay={150} className="relative mx-auto w-full max-w-[420px]">
-          <ProposalMock company={`${preset.name} Solar`} style={proposalVars(preset.primary, preset.accent)} />
-          <div className="animate-float absolute -bottom-5 -left-6 hidden items-center gap-2.5 rounded-2xl bg-white px-4 py-3 text-slate-900 shadow-2xl sm:flex"><FileText className="h-5 w-5" style={{ color: preset.primary }} /><div className="text-sm leading-tight"><b className="block">ravi-kumar_proposal.pdf</b><span className="text-xs text-slate-500">9 pages · A4</span></div></div>
-        </Reveal>
-      </div>
-    </section>
-  );
-}
-
-/* ───────────── inside the proposal ───────────── */
-
-const PAGES = ['Cover with the 3D model', 'Summary letter and key figures', 'Panel, roof and structure details', 'Panel layout drawing', 'String layout drawing', 'Electrical design', 'Bill of materials', 'Energy and 25-year financials', 'Price, your terms and sign-off'];
-
-function ProposalContents() {
-  return (
-    <section className="py-24 sm:py-32">
-      <div className="mx-auto grid max-w-7xl items-center gap-14 px-5 sm:px-8 lg:grid-cols-[1fr_1.1fr]">
-        <div>
-          <SectionHeading eyebrow="Inside the PDF" title="Nine pages that answer every question" text="Written for the homeowner, detailed enough for the engineer. Your terms and conditions are formatted in a rich text editor and carried over exactly." />
-          <Reveal delay={100}><Link href="/login" className={buttonClass({ variant: 'primary', size: 'lg', className: 'mt-9 rounded-full px-7' })}>Create a proposal <ArrowRight className="h-4 w-4" /></Link></Reveal>
-        </div>
-        <ol className="grid gap-3 sm:grid-cols-2">
-          {PAGES.map((p, i) => (
-            <Reveal as="li" key={p} delay={i * 45} className={cx('flex items-center gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 transition hover:border-slate-300 hover:shadow-md', i === PAGES.length - 1 && 'sm:col-span-2')}>
-              <span className="text-2xl font-semibold text-slate-300 tabular-nums">{String(i + 1).padStart(2, '0')}</span>
-              <span className="text-[15px] font-medium text-slate-800">{p}</span>
+          <div className="order-1 lg:order-2 lg:col-span-6 lg:col-start-7">
+            <Reveal>
+              <Label n="03">Proposals</Label>
+              <Title className="mt-5">Nine pages your client can sign.</Title>
+              <Lede className="mt-5">Written for the homeowner and detailed enough for the engineer. Your colours, logo, signature and QR code are on every page; your terms are carried over exactly.</Lede>
             </Reveal>
-          ))}
-        </ol>
-      </div>
+            <Reveal delay={80} className="mt-8">
+              <div className="flex items-center justify-between"><span className="text-[13px] text-stone-500">Preview in a palette</span><span className="font-mono text-[11px] text-stone-400 uppercase">{preset.name}</span></div>
+              <div className="mt-3 flex gap-2" role="radiogroup" aria-label="Theme palette">
+                {THEME_PRESETS.map((p) => (
+                  <button key={p.name} type="button" role="radio" aria-checked={preset.name === p.name} aria-label={p.name} title={p.name} onClick={() => setPreset(p)} className={cx('flex h-7 w-7 overflow-hidden rounded-sm ring-1 ring-stone-300 ring-offset-2 transition', preset.name === p.name ? 'ring-stone-950' : 'hover:ring-stone-500')}>
+                    <span className="h-full w-1/2" style={{ background: p.primary }} /><span className="h-full w-1/2" style={{ background: p.accent }} />
+                  </button>
+                ))}
+              </div>
+            </Reveal>
+            <Reveal delay={120}>
+              <ol className="mt-10 border-t border-stone-200">
+                {PAGES.map((p, i) => <li key={p} className="grid grid-cols-[2.5rem_1fr] border-b border-stone-200 py-3 text-[14px]"><span className="font-mono text-[11px] text-stone-400">{String(i + 1).padStart(2, '0')}</span><span className="text-stone-800">{p}</span></li>)}
+              </ol>
+            </Reveal>
+            <Reveal delay={160} className="mt-8 flex flex-wrap gap-x-8 gap-y-2 text-[14px] text-stone-600">
+              {['Version history', 'Share link & QR code', 'WhatsApp', 'Accept, decline or request changes'].map((t) => <span key={t}>{t}</span>)}
+            </Reveal>
+          </div>
+        </div>
+      </Container>
     </section>
   );
 }
 
-/* ───────────── roles ───────────── */
+/* ───────────── operations ───────────── */
 
-const ROLES = [
-  [ShieldCheck, 'Platform admin', 'Runs the platform', ['Adds solar companies', 'Sets plans and usage limits', 'Turns features on or off', 'Suspends access when needed']],
-  [Building2, 'Solar company', 'Does the work', ['Profile, colours, logo, signature, QR', 'Own panel and pole catalog with prices', 'Clients and their designs', 'Branded proposals'], true],
-  [BadgeCheck, 'Client', 'Receives the proposal', ['No account or password', 'Details kept by the company', 'Named on every page', 'Signs the acceptance block']],
+const INSTALLS = [
+  ['Mehta Textiles', '48 kW', ['done', 'done', 'done', 'current', 'todo'], 'Panel & electrical · Electrician'],
+  ['Kumar residence', '5 kW', ['done', 'done', 'current', 'todo', 'todo'], 'Structure · Installer'],
+  ['Green Valley School', '32 kW', ['done', 'current', 'todo', 'todo', 'todo'], 'Material procurement · Supervisor'],
+];
+const AMC = [['Kumar residence', 'AMC 1 · free', '14 Nov 2026', 'Scheduled'], ['Shree Hospital', 'Panel cleaning · ₹9,000', '20 Nov 2026', 'Technician assigned'], ['Mehta Textiles', 'Annual check · ₹1,500', '02 Dec 2026', 'Requested']];
+const OPS_POINTS = [
+  ['Installations', 'Every installation starts from your step template. Steps are assigned by job title and priority; the field team updates them with photos and notes from site, and material is issued from stock.'],
+  ['Maintenance', 'Free visits are scheduled from the installation date and the client is reminded a week before. Paid visits are booked by the client — optional ones as often as they like — and assigned to technicians.'],
+  ['Billing', 'GST invoices with your own numbering; receipts for every payment; the balance still due on each deal. Nothing booked can be silently changed.'],
 ];
 
-function Roles() {
+const Dot = ({ s }) => <span className={cx('h-1.5 w-5', s === 'done' ? 'bg-[#0F6E56]' : s === 'current' ? 'bg-[#F5B82E]' : 'bg-stone-200')} />;
+
+function Operations() {
   return (
-    <section className="bg-slate-50 py-24 sm:py-32">
-      <div className="mx-auto max-w-7xl px-5 sm:px-8">
-        <SectionHeading center eyebrow="Built for teams" title="The right access for everyone" text="Each company works in its own private workspace. One company can never see another’s clients, prices or designs." />
-        <div className="mt-14 grid gap-5 lg:grid-cols-3">
-          {ROLES.map(([Icon, title, sub, points, featured], i) => (
-            <Reveal key={title} delay={i * 90} className={cx('rounded-3xl border p-8', featured ? 'border-slate-950 bg-slate-950 text-white shadow-2xl shadow-slate-900/20' : 'border-slate-200 bg-white')}>
-              <span className={cx('grid h-12 w-12 place-items-center rounded-2xl', featured ? 'bg-accent text-accent-fg' : 'bg-brand-soft text-brand')}><Icon className="h-6 w-6" /></span>
-              <h3 className="mt-6 text-xl font-semibold">{title}</h3>
-              <p className={cx('mt-1 text-sm', featured ? 'text-slate-400' : 'text-slate-500')}>{sub}</p>
-              <ul className="mt-6 space-y-3">{points.map((p) => <li key={p} className={cx('flex gap-2.5 text-[15px]', featured ? 'text-slate-200' : 'text-slate-700')}><Check className={cx('mt-0.5 h-4 w-4 shrink-0', featured ? 'text-accent' : 'text-brand')} /> {p}</li>)}</ul>
+    <section id="operations" className="scroll-mt-16 border-t border-stone-200 bg-[#f6f6f3] py-24 sm:py-32">
+      <Container>
+        <Reveal className="max-w-2xl">
+          <Label n="04">Operations</Label>
+          <Title className="mt-5">After the sale, the work.</Title>
+          <Lede className="mt-5">The part of the business that usually lives in WhatsApp groups and notebooks — tracked, assigned and visible to the client.</Lede>
+        </Reveal>
+        <div className="mt-12 grid gap-6 lg:grid-cols-2">
+          <Reveal delay={60} className="border border-stone-300 bg-white">
+            <div className="flex items-center justify-between border-b border-stone-200 px-5 py-3"><span className="text-[13px] font-medium text-stone-950">Installations</span><span className="font-mono text-[11px] text-stone-400 uppercase">3 active</span></div>
+            <table className="w-full text-[13px]">
+              <tbody className="divide-y divide-stone-200">
+                {INSTALLS.map(([name, kw, steps, cur]) => (
+                  <tr key={name}>
+                    <td className="px-5 py-3.5"><div className="font-medium text-stone-950">{name}</div><div className="text-stone-500">{cur}</div></td>
+                    <td className="px-3 py-3.5 text-right font-mono text-[11px] text-stone-500">{kw}</td>
+                    <td className="px-5 py-3.5"><div className="flex justify-end gap-1">{steps.map((s, i) => <Dot key={i} s={s} />)}</div></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Reveal>
+          <Reveal delay={120} className="border border-stone-300 bg-white">
+            <div className="flex items-center justify-between border-b border-stone-200 px-5 py-3"><span className="text-[13px] font-medium text-stone-950">AMC visits</span><span className="font-mono text-[11px] text-stone-400 uppercase">Next 30 days</span></div>
+            <table className="w-full text-[13px]">
+              <tbody className="divide-y divide-stone-200">
+                {AMC.map(([name, pkg, date, st]) => (
+                  <tr key={name + pkg}>
+                    <td className="px-5 py-3.5"><div className="font-medium text-stone-950">{name}</div><div className="text-stone-500">{pkg}</div></td>
+                    <td className="px-3 py-3.5 text-right font-mono text-[11px] whitespace-nowrap text-stone-500">{date}</td>
+                    <td className="px-5 py-3.5 text-right whitespace-nowrap text-stone-700">{st}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Reveal>
+        </div>
+        <dl className="mt-12 grid gap-x-10 border-t border-stone-200 sm:grid-cols-3">
+          {OPS_POINTS.map(([t, d], i) => (
+            <Reveal key={t} delay={i * 60} className="border-b border-stone-200 py-5 sm:border-b-0">
+              <dt className="text-[15px] font-medium text-stone-950">{t}</dt>
+              <dd className="mt-1.5 text-[14px] leading-relaxed text-stone-600">{d}</dd>
+            </Reveal>
+          ))}
+        </dl>
+      </Container>
+    </section>
+  );
+}
+
+/* ───────────── client portal ───────────── */
+
+const PORTAL_POINTS = [
+  ['Proposals', 'Read the proposal and the 3D design; accept it, decline it or ask for changes.'],
+  ['Loan', 'Every step of the loan with your remarks — the bank, the amount, what comes next.'],
+  ['Maintenance', 'Free visits with their dates; paid visits booked with a preferred date, again whenever needed.'],
+  ['Support', 'Help requests with photos or PDFs, and your replies.'],
+];
+
+function Portal() {
+  return (
+    <section id="portal" className="scroll-mt-16 border-t border-stone-200 py-24 sm:py-32">
+      <Container>
+        <div className="grid gap-12 lg:grid-cols-12 lg:items-center">
+          <div className="lg:col-span-6">
+            <Reveal>
+              <Label n="05">Client portal</Label>
+              <Title className="mt-5">Your clients see where things stand.</Title>
+              <Lede className="mt-5">Every client with an email address gets a sign-in. They follow their own system from proposal to loan to maintenance, and stop phoning to ask.</Lede>
+            </Reveal>
+            <dl className="mt-10 grid border-t border-stone-200 sm:grid-cols-2 sm:gap-x-10">
+              {PORTAL_POINTS.map(([t, d], i) => (
+                <Reveal key={t} delay={i * 60} className="border-b border-stone-200 py-4">
+                  <dt className="text-[15px] font-medium text-stone-950">{t}</dt>
+                  <dd className="mt-1 text-[14px] leading-relaxed text-stone-600">{d}</dd>
+                </Reveal>
+              ))}
+            </dl>
+          </div>
+          <Reveal delay={100} className="lg:col-span-5 lg:col-start-8"><PortalPhone /></Reveal>
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+/* ───────────── impact ───────────── */
+
+// Rough figures for India, for this illustration only: ~1,450 kWh a year per kW installed, ~0.71 kg CO₂ per grid kWh
+// (CEA baseline), ~21 kg CO₂ absorbed by a grown tree each year. Proposals model each site on its own.
+const KWH_PER_KW = 1450;
+const CO2_PER_KWH = 0.71;
+const CO2_PER_TREE = 21;
+const fmt = (n) => Math.round(n).toLocaleString('en-IN');
+
+function Impact() {
+  const [kw, setKw] = useState(10);
+  const kwh = kw * KWH_PER_KW;
+  const co2 = (kwh * CO2_PER_KWH) / 1000;
+  const rows = [
+    ['Generation', fmt(kwh), 'kWh / year'],
+    ['CO₂ avoided', co2.toFixed(1), 't / year'],
+    ['Equivalent trees', fmt((kwh * CO2_PER_KWH) / CO2_PER_TREE), 'growing all year'],
+    ['Over 25 years', fmt(co2 * 25), 't CO₂'],
+  ];
+  return (
+    <section className="border-t border-stone-200 bg-[#f6f6f3] py-24 sm:py-32">
+      <Container>
+        <div className="grid gap-12 lg:grid-cols-12">
+          <Reveal className="lg:col-span-5">
+            <Label n="06">Why it matters</Label>
+            <Title className="mt-5">Each system you install keeps working for decades.</Title>
+            <Lede className="mt-5">Move the slider to size a rooftop and see roughly what it does for the grid and the air.</Lede>
+            <p className="mt-6 text-[13px] leading-relaxed text-stone-500">Estimate for India: {fmt(KWH_PER_KW)} kWh a year per kW, {CO2_PER_KWH} kg CO₂ per grid kWh, {CO2_PER_TREE} kg CO₂ absorbed by a tree each year. Your proposals model each site’s own sunlight and shading.</p>
+          </Reveal>
+          <Reveal delay={100} className="border border-stone-300 bg-white lg:col-span-7">
+            <div className="flex items-end justify-between border-b border-stone-200 px-6 py-5">
+              <label htmlFor="impact-kw" className="text-[13px] text-stone-500">System size</label>
+              <div className="font-mono text-4xl tracking-tight text-stone-950 tabular-nums">{kw} <span className="text-base text-stone-500">kW</span></div>
+            </div>
+            <div className="px-6 py-5">
+              <input id="impact-kw" type="range" min={1} max={100} value={kw} onChange={(e) => setKw(Number(e.target.value))} className="w-full accent-stone-950" />
+              <div className="mt-1 flex justify-between font-mono text-[11px] text-stone-400 uppercase"><span>1 kW · a home</span><span>100 kW · a factory roof</span></div>
+            </div>
+            <dl className="divide-y divide-stone-200 border-t border-stone-200">
+              {rows.map(([k, v, u]) => (
+                <div key={k} className="flex items-baseline justify-between px-6 py-3.5">
+                  <dt className="text-[14px] text-stone-600">{k}</dt>
+                  <dd className="font-mono text-[15px] text-stone-950 tabular-nums">{v} <span className="text-stone-400">{u}</span></dd>
+                </div>
+              ))}
+            </dl>
+          </Reveal>
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+/* ───────────── access ───────────── */
+
+const ROLES = [
+  ['Platform admin', ['Creates solar companies', 'Plans, limits and subscriptions', 'Upgrade requests', 'Platform support']],
+  ['Solar company', ['Every module and setting', 'Brand, masters, integrations', 'Staff accounts and roles', 'Pipeline dashboard']],
+  ['Staff', ['What their role allows', 'Their leads, steps and visits', 'Photos and notes from site', 'Works on a phone']],
+  ['Client', ['Proposals and acceptance', 'Loan progress', 'AMC visits and bookings', 'Help requests']],
+];
+
+function Access() {
+  return (
+    <section className="border-t border-stone-200 py-24 sm:py-32">
+      <Container>
+        <Reveal className="max-w-2xl">
+          <Label n="07">Access</Label>
+          <Title className="mt-5">The right view for each person.</Title>
+          <Lede className="mt-5">Each company works in its own private workspace; one company can never see another’s clients, prices or designs.</Lede>
+        </Reveal>
+        <div className="mt-12 grid border-t border-stone-200 sm:grid-cols-2 lg:grid-cols-4">
+          {ROLES.map(([title, points], i) => (
+            <Reveal key={title} delay={i * 60} className={cx('border-b border-stone-200 py-6 lg:border-b-0', i > 0 && 'lg:border-l lg:border-stone-200 lg:pl-8', i < 3 && 'lg:pr-8')}>
+              <h3 className="text-[15px] font-medium text-stone-950">{title}</h3>
+              <ul className="mt-4 space-y-2 text-[14px] text-stone-600">{points.map((p) => <li key={p}>{p}</li>)}</ul>
             </Reveal>
           ))}
         </div>
-      </div>
+      </Container>
     </section>
   );
 }
@@ -305,29 +448,32 @@ function Roles() {
 
 const FAQ = [
   ['How do I get a workspace?', 'Company workspaces are created by the platform administrator, who gives you a sign-in email and a temporary password. You can change the password after your first sign-in.'],
-  ['Do my clients need to create an account?', 'No. You keep their name, email, phone and address in your workspace, and they simply receive the PDF proposal from you.'],
-  ['How accurate are the energy figures?', 'Sunlight is modelled for the building’s location and calibrated with Google’s Solar API where it has data. Shading from parapets, raised roofs, tanks, trees and neighbouring panel rows is calculated hour by hour. Figures are indicative and should be confirmed with a site visit — the proposal says so too.'],
-  ['Can I use my own panels and prices?', 'Yes. Your catalog holds the panels you sell with brand, model, watt, manufacture year, warranty and price, plus mounting poles priced per foot. You can import panels from an Excel sheet.'],
+  ['Can my leads come in automatically?', 'Yes. Connect Meta Lead Ads, Google Ads or a Google Sheet once and new leads arrive in your workspace on their own. You can still add walk-ins by hand with your own lead form.'],
+  ['Do my clients get an account?', 'Every client with an email address can get a portal sign-in. There they read their proposals, respond to them, follow their loan, book maintenance visits and ask for help. Clients without one simply receive the PDF.'],
+  ['How do loans work?', 'You set your own loan steps once. Mark a proposal as bought on a loan and it starts on those steps; your team updates each one with a remark, and the client sees the progress in their portal.'],
+  ['How accurate are the energy figures?', 'Sunlight is modelled for the building’s location and calibrated with Google’s Solar API where it has data. Shading from parapets, tanks, trees and neighbouring panel rows is calculated hour by hour. Figures are indicative and should be confirmed with a site visit — the proposal says so too.'],
+  ['Can my staff only see their own work?', 'Yes. Staff always see the leads, installation steps and AMC visits assigned to them. Anything more — finances, inventory, loans, every installation — is granted through roles you define.'],
   ['Can other companies see my data?', 'No. Every client, product, design and image belongs to one company and is only ever loaded for that company’s sign-in.'],
-  ['What paper size is the proposal?', 'Every page is A4 portrait, so it prints cleanly and reads well on a phone.'],
 ];
 
 function Faq() {
   return (
-    <section id="faq" className="scroll-mt-20 py-24 sm:py-32">
-      <div className="mx-auto max-w-3xl px-5 sm:px-8">
-        <SectionHeading center eyebrow="Questions" title="Good to know" />
-        <div className="mt-12 divide-y divide-slate-200 border-y border-slate-200">
-          {FAQ.map(([q, a]) => (
-            <details key={q} className="group py-1">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-6 py-5 text-left text-[17px] font-medium text-slate-950 [&::-webkit-details-marker]:hidden">
-                {q} <ChevronDown className="h-5 w-5 shrink-0 text-slate-400 transition duration-300 group-open:rotate-180" />
-              </summary>
-              <p className="-mt-1 pr-10 pb-6 text-[15px] leading-relaxed text-slate-600">{a}</p>
-            </details>
-          ))}
+    <section id="faq" className="scroll-mt-16 border-t border-stone-200 bg-[#f6f6f3] py-24 sm:py-32">
+      <Container>
+        <div className="grid gap-10 lg:grid-cols-12">
+          <Reveal className="lg:col-span-4"><Label n="08">Questions</Label><Title className="mt-5">Good to know.</Title></Reveal>
+          <div className="border-t border-stone-200 lg:col-span-8">
+            {FAQ.map(([q, a]) => (
+              <details key={q} className="group border-b border-stone-200">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-6 py-5 text-left text-[16px] font-medium text-stone-950 [&::-webkit-details-marker]:hidden">
+                  {q} <ChevronDown className="h-4 w-4 shrink-0 text-stone-400 transition group-open:rotate-180" />
+                </summary>
+                <p className="max-w-[64ch] pb-6 text-[15px] leading-relaxed text-stone-600">{a}</p>
+              </details>
+            ))}
+          </div>
         </div>
-      </div>
+      </Container>
     </section>
   );
 }
@@ -336,37 +482,42 @@ function Faq() {
 
 function Cta() {
   return (
-    <section className="px-5 pb-24 sm:px-8">
-      <Reveal className="relative mx-auto max-w-7xl overflow-hidden rounded-[2rem] bg-slate-950 px-6 py-16 text-center text-white sm:px-16 sm:py-24">
-        <div aria-hidden className="mask-fade-b absolute inset-0 bg-grid opacity-[0.35] invert" />
-        <div aria-hidden className="absolute -top-32 left-1/4 h-80 w-80 rounded-full bg-brand opacity-50 blur-[110px]" />
-        <div aria-hidden className="absolute right-1/4 -bottom-32 h-80 w-80 rounded-full bg-accent opacity-30 blur-[110px]" />
-        <Zap aria-hidden className="relative mx-auto h-9 w-9 text-accent" />
-        <h2 className="relative mx-auto mt-5 max-w-2xl text-3xl leading-[1.1] font-semibold tracking-tight text-balance sm:text-5xl">Be ready before your next client calls</h2>
-        <p className="relative mx-auto mt-5 max-w-xl text-lg text-slate-400">Sign in to your company workspace, or ask your platform administrator to set one up.</p>
-        <Link href="/login" className={buttonClass({ variant: 'primary', size: 'lg', className: 'relative mt-9 rounded-full px-8 shadow-lg shadow-brand/30' })}>Sign in <ArrowRight className="h-4 w-4" /></Link>
-      </Reveal>
+    <section className="border-t border-stone-200 py-20 sm:py-28">
+      <Container>
+        <Reveal className="grid gap-8 lg:grid-cols-12 lg:items-end">
+          <div className="lg:col-span-8">
+            <Title>Ready before the next client calls.</Title>
+            <Lede className="mt-4">Sign in to your company workspace, or ask your platform administrator to set one up.</Lede>
+          </div>
+          <div className="flex flex-wrap gap-3 lg:col-span-4 lg:justify-end">
+            <Link href="/login" className={PRIMARY}>Sign in <ArrowUpRight className="h-4 w-4" /></Link>
+          </div>
+        </Reveal>
+      </Container>
     </section>
   );
 }
 
 function Footer() {
-  const cols = [['Product', [['Features', '#features'], ['How it works', '#how'], ['Your brand', '#brand'], ['FAQ', '#faq']]], ['Workspace', [['Sign in', '/login'], ['Company dashboard', '/dashboard'], ['Admin console', '/admin']]]];
+  const cols = [
+    ['Product', [['What’s inside', '#product'], ['Design', '#design'], ['Proposals', '#proposals'], ['Operations', '#operations'], ['Client portal', '#portal'], ['FAQ', '#faq']]],
+    ['Workspace', [['Sign in', '/login'], ['Company dashboard', '/dashboard'], ['Staff workspace', '/agent'], ['Client portal', '/portal']]],
+  ];
   return (
-    <footer className="border-t border-slate-200 bg-white">
-      <div className="mx-auto grid max-w-7xl gap-10 px-5 py-14 sm:px-8 md:grid-cols-[1.6fr_1fr_1fr]">
-        <div>
-          <BrandLogo />
-          <p className="mt-4 max-w-sm text-[15px] leading-relaxed text-slate-500">Rooftop solar design and branded proposals for installers — clients, 3D design, pricing and PDF in one workspace.</p>
+    <footer className="border-t border-stone-200 bg-[#f6f6f3]">
+      <Container className="grid gap-10 py-14 md:grid-cols-12">
+        <div className="md:col-span-6">
+          <span className="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight text-stone-950"><BrandMark size={28} /> {PRODUCT_NAME}</span>
+          <p className="mt-4 max-w-[40ch] text-[14px] leading-relaxed text-stone-500">The workspace for rooftop solar companies — leads, design, proposals, loans, billing, installations and maintenance.</p>
         </div>
         {cols.map(([title, links]) => (
-          <nav key={title} aria-label={title}>
-            <div className="text-sm font-semibold text-slate-950">{title}</div>
-            <ul className="mt-4 space-y-3 text-[15px]">{links.map(([label, href]) => <li key={label}>{href.startsWith('#') ? <a href={href} className="text-slate-500 hover:text-slate-950">{label}</a> : <Link href={href} className="text-slate-500 hover:text-slate-950">{label}</Link>}</li>)}</ul>
+          <nav key={title} aria-label={title} className="md:col-span-3">
+            <div className="font-mono text-[11px] tracking-[0.14em] text-stone-500 uppercase">{title}</div>
+            <ul className="mt-4 space-y-2.5 text-[14px]">{links.map(([label, href]) => <li key={label}>{href.startsWith('#') ? <a href={href} className="text-stone-700 hover:text-stone-950">{label}</a> : <Link href={href} className="text-stone-700 hover:text-stone-950">{label}</Link>}</li>)}</ul>
           </nav>
         ))}
-      </div>
-      <div className="border-t border-slate-200"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-5 py-6 text-sm text-slate-500 sm:px-8"><span>© {new Date().getFullYear()} {PRODUCT_NAME}</span><span>Made for solar installers</span></div></div>
+      </Container>
+      <div className="border-t border-stone-200"><Container className="flex flex-wrap items-center justify-between gap-3 py-5 font-mono text-[11px] tracking-wide text-stone-500 uppercase"><span>© {new Date().getFullYear()} {PRODUCT_NAME}</span><span>Made for solar installers</span></Container></div>
     </footer>
   );
 }
@@ -377,22 +528,23 @@ export default function Landing() {
   const [root, setRoot] = useState(null);
   useEffect(() => {
     if (!root) return undefined;
-    const onScroll = () => setScrolled(root.scrollTop > 12);
+    const onScroll = () => setScrolled(root.scrollTop > 24);
     root.addEventListener('scroll', onScroll, { passive: true });
     return () => root.removeEventListener('scroll', onScroll);
   }, [root]);
 
   return (
-    <div ref={setRoot} className="h-dvh overflow-x-hidden overflow-y-auto scroll-smooth bg-white text-slate-900">
+    <div ref={setRoot} style={PAGE_THEME} className="h-dvh overflow-x-hidden overflow-y-auto scroll-smooth bg-white text-stone-900 antialiased">
       <Header scrolled={scrolled} />
       <main>
         <Hero />
-        <Facts />
-        <Features />
-        <HowItWorks />
-        <BrandSection />
-        <ProposalContents />
-        <Roles />
+        <ModuleIndex />
+        <Design />
+        <Proposals />
+        <Operations />
+        <Portal />
+        <Impact />
+        <Access />
         <Faq />
         <Cta />
       </main>

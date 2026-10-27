@@ -14,8 +14,9 @@ import { useCan } from '@/lib/useCan';
 import { useSession } from '@/lib/session';
 import { useStore } from '@/lib/store';
 import { useResource } from '@/lib/useResource';
-import { Alert, Card, CardHeader, EmptyState, LoadingBlock, Modal, Table, Td, Th, Tr, formatDate, showError, toast, buttonClass } from '../kit';
-import { DesignStatusBadge, designHref } from './shared';
+import { Alert, Card, CardHeader, EmptyState, LoadingBlock, Modal, Table, Td, Th, Tr, Toggle, formatDate, showError, toast, buttonClass } from '../kit';
+import { LoanStatusBadge } from '../loans/shared';
+import { DesignStatusBadge, GRID_TYPE_LABEL, designHref } from './shared';
 
 const formatDateTime = (d) => (d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '—');
 
@@ -34,11 +35,44 @@ function PdfPreviewModal({ url, onClose }) {
   );
 }
 
-export default function DesignDetail({ designId, basePath = '/dashboard/designs' }) {
+/** Whether the proposal is on a loan (editable with Proposals › Edit), and a link to its loan with Loans › View. */
+function LoanField({ design, onChange, loansPath }) {
+  const may = useCan();
+  const canSeeLoan = may('loans', 'view');
+  const loan = useResource(canSeeLoan && design.loanRequired ? `/api/loans/proposal/${design.id}` : null);
+  const [busy, setBusy] = useState(false);
+  const toggle = async (on) => {
+    setBusy(true);
+    try {
+      const saved = await api(`/api/designs/${design.id}`, { method: 'PUT', body: { loanRequired: on } });
+      onChange(saved.loanRequired);
+      toast.success(on ? 'Proposal added to Loans' : 'Proposal removed from Loans');
+    } catch (e) {
+      showError(e, 'The loan option was not changed');
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="sm:col-span-2">
+      {may('proposals', 'update') ? (
+        <Toggle checked={Boolean(design.loanRequired)} disabled={busy} onChange={toggle} label="Loan" description="Bought on a loan: the proposal goes into Loans and follows your loan steps, which the client can see." />
+      ) : (
+        <><span className="text-slate-400">Loan</span><div className="text-slate-800">{design.loanRequired ? 'Yes' : 'No'}</div></>
+      )}
+      {loan.data && (
+        <Link href={`${loansPath}/${loan.data.id}`} className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-brand hover:underline">
+          Open loan <LoanStatusBadge status={loan.data.status} />
+        </Link>
+      )}
+    </div>
+  );
+}
+
+export default function DesignDetail({ designId, basePath = '/dashboard/designs', loansPath = '/dashboard/loans' }) {
   const router = useRouter();
   const company = useSession((s) => s.company);
   const may = useCan();
-  const { data: design, loading, error } = useResource(`/api/designs/${designId}`);
+  const { data: design, setData: setDesign, loading, error } = useResource(`/api/designs/${designId}`);
   const versions = useResource(`/api/designs/${designId}/versions`);
   const money = (v) => formatMoney(v || 0, company?.currency);
   const [preview, setPreview] = useState(null); // /uploads/<name> of the PDF being viewed
@@ -116,9 +150,9 @@ export default function DesignDetail({ designId, basePath = '/dashboard/designs'
           <div><span className="text-slate-400">Created</span><div className="text-slate-800">{formatDate(design.createdAt)}</div></div>
           <div><span className="text-slate-400">Last updated</span><div className="text-slate-800">{formatDate(design.updatedAt)}</div></div>
           <div><span className="text-slate-400">Billing name</span><div className="text-slate-800">{design.billingName || design.client?.name || '—'}</div></div>
-          <div><span className="text-slate-400">Grid type</span><div className="text-slate-800">{design.gridType === 'off_grid' ? 'Off Grid' : 'On Grid'}</div></div>
-          <div><span className="text-slate-400">Loan</span><div className="text-slate-800">{design.loanRequired ? 'Yes' : 'No'}</div></div>
+          <div><span className="text-slate-400">Grid type</span><div className="text-slate-800">{GRID_TYPE_LABEL[design.gridType] || GRID_TYPE_LABEL.on_grid}</div></div>
           <div><span className="text-slate-400">Cleaning</span><div className="text-slate-800">{design.cleaningFrequency ? `${design.cleaningFrequency}/year${design.cleaningCharge ? ` · ${money(design.cleaningCharge)} each` : ''}` : '—'}</div></div>
+          <LoanField design={design} loansPath={loansPath} onChange={(loanRequired) => setDesign((d) => ({ ...d, loanRequired }))} />
         </div>
       </Card>
 

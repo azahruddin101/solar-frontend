@@ -1,7 +1,7 @@
 'use client';
 
 // Category management: the company's own catalog categories — name, how the designer uses their products,
-// the usual specification names, and the order of the catalog tabs — and the parent categories they are
+// the attributes their products carry, and the order of the catalog tabs — and the parent categories they are
 // filed under (parent category → category → products), which group the proposal's bill of materials.
 import { ArrowDown, ArrowUp, Boxes, FolderPlus, FolderTree, Package, PanelsTopLeft, Pencil, Plus, Tags, Trash2, X } from 'lucide-react';
 import Link from 'next/link';
@@ -11,7 +11,8 @@ import { api } from '@/lib/api';
 import { useResource } from '@/lib/useResource';
 import { useCan } from '@/lib/useCan';
 import { Alert, Badge, Button, Card, CardHeader, ConfirmDialog, EmptyState, FormField, FormModal, IconButton, Input, LoadingBlock, PageHeader, Select, Table, Td, Th, Tr, buttonClass, cx, toast, RowMenu } from '../kit';
-import { MAX_SPECS, PRODUCT_TYPES, typeOf } from './CatalogProducts';
+import { PRODUCT_TYPES, typeOf } from './CatalogProducts';
+import { ATTRIBUTE_TYPES, MAX_ATTRIBUTES, sortedDefs } from './attributes';
 
 let seq = 0;
 const USE = {
@@ -19,6 +20,15 @@ const USE = {
   panels: { label: 'Solar panels', tone: 'brand', icon: PanelsTopLeft },
   poles: { label: 'Poles', tone: 'violet', icon: Boxes },
 };
+
+export function CategoryIconMark({ category, className = 'h-9 w-9' }) {
+  const use = USE[typeOf(category)];
+  return (
+    <span className={cx('grid shrink-0 place-items-center rounded-lg bg-brand-soft text-brand', className)}>
+      <use.icon className="h-[18px] w-[18px]" />
+    </span>
+  );
+}
 
 
 function ParentForm({ parent, onClose, onSaved }) {
@@ -52,11 +62,26 @@ function ParentForm({ parent, onClose, onSaved }) {
 function CategoryForm({ category, parents, onClose, onSaved }) {
   const editing = Boolean(category?.id);
   const [form, setForm] = useState({ name: category?.name || '', description: category?.description || '', type: typeOf(category), parent: category?.parent || '' });
-  const [keys, setKeys] = useState(() => (category?.specKeys || []).map((k) => ({ id: ++seq, key: k })));
+  // `key` is kept for existing attributes, so renaming a label never orphans the values products already store
+  const [attrs, setAttrs] = useState(() => sortedDefs(category).map((a) => ({ ...a, id: ++seq, optionsText: (a.options || []).join(', ') })));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const patchAttr = (id, p) => setAttrs((list) => list.map((a) => (a.id === id ? { ...a, ...p } : a)));
+  const moveAttr = (i, by) => setAttrs((list) => {
+    const next = [...list];
+    next.splice(i + by, 0, next.splice(i, 1)[0]);
+    return next;
+  });
 
-  const v = useValidation(categorySchema, { ...form, specKeys: keys.map((k) => k.key) });
+  const attributes = attrs.filter((a) => a.label.trim()).map((a, i) => ({
+    ...(a.key ? { key: a.key } : {}),
+    label: a.label.trim(),
+    dataType: a.dataType,
+    isRequired: Boolean(a.isRequired),
+    options: a.dataType === 'select' ? [...new Set(a.optionsText.split(',').map((o) => o.trim()).filter(Boolean))] : [],
+    sortOrder: i + 1,
+  }));
+  const v = useValidation(categorySchema, { ...form, attributes });
   const submit = async () => {
     const body = v.validate();
     if (!body) return;
@@ -92,17 +117,32 @@ function CategoryForm({ category, parents, onClose, onSaved }) {
       </div>
 
       <fieldset>
-        <legend className="mb-1.5 flex w-full items-baseline justify-between text-[13px] font-medium text-slate-700">Usual specifications <span className="text-xs font-normal text-slate-400">Optional</span></legend>
-        <p className="mb-2.5 text-xs text-slate-500">Names that most products here share. They are pre-filled when you add a product, so you only type the values.</p>
-        <div className="mb-2.5 flex flex-wrap gap-2">
-          {keys.map((k) => (
-            <div key={k.id} className="flex items-center">
-              <Input aria-label="Specification name" maxLength={60} value={k.key} onValue={(v) => setKeys(keys.map((x) => (x.id === k.id ? { ...x, key: v } : x)))} placeholder="e.g. Capacity (kW)" className="w-44 rounded-r-none" />
-              <button type="button" aria-label="Remove" onClick={() => setKeys(keys.filter((x) => x.id !== k.id))} className="grid h-10 w-9 place-items-center rounded-r-lg border border-l-0 border-slate-300 text-slate-400 hover:bg-red-50 hover:text-red-600"><X className="h-4 w-4" /></button>
-            </div>
-          ))}
-        </div>
-        <Button size="sm" icon={Plus} disabled={keys.length >= MAX_SPECS} onClick={() => setKeys([...keys, { id: ++seq, key: '' }])}>Add name</Button>
+        <legend className="mb-1.5 flex w-full items-baseline justify-between text-[13px] font-medium text-slate-700">Attributes <span className="text-xs font-normal text-slate-400">Optional</span></legend>
+        <p className="mb-2.5 text-xs text-slate-500">What every product here is described by — wattage, capacity, phase… Each product form asks for these. Products keep their values when you change this list; a new required attribute is asked for the next time a product is saved.</p>
+        {attrs.length > 0 && (
+          <div className="mb-2.5 space-y-2">
+            {attrs.map((a, i) => (
+              <div key={a.id} className="rounded-lg border border-slate-200 p-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input aria-label="Attribute name" maxLength={60} value={a.label} onValue={(x) => patchAttr(a.id, { label: x })} placeholder="e.g. Capacity (kW)" className="w-48 min-w-0 flex-1" />
+                  <Select aria-label="Type" value={a.dataType} onValue={(x) => patchAttr(a.id, { dataType: x })} className="w-36">
+                    {ATTRIBUTE_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                  </Select>
+                  <label className="flex items-center gap-1.5 text-xs text-slate-600"><input type="checkbox" checked={Boolean(a.isRequired)} onChange={(e) => patchAttr(a.id, { isRequired: e.target.checked })} /> Required</label>
+                  <IconButton icon={ArrowUp} label="Move up" disabled={i === 0} className="disabled:opacity-30" onClick={() => moveAttr(i, -1)} />
+                  <IconButton icon={ArrowDown} label="Move down" disabled={i === attrs.length - 1} className="disabled:opacity-30" onClick={() => moveAttr(i, 1)} />
+                  <IconButton icon={X} label="Remove attribute" tone="danger" onClick={() => setAttrs(attrs.filter((x) => x.id !== a.id))} />
+                </div>
+                {a.dataType === 'select' && (
+                  <Input aria-label={`Choices for ${a.label || 'attribute'}`} className="mt-2" value={a.optionsText} onValue={(x) => patchAttr(a.id, { optionsText: x })} placeholder="Choices, separated by commas — e.g. Single phase, Three phase" />
+                )}
+                {(v.error(`attributes.${i}.label`) || v.error(`attributes.${i}.options`)) && <p className="mt-1.5 text-xs text-red-600">{v.error(`attributes.${i}.label`) || v.error(`attributes.${i}.options`)}</p>}
+              </div>
+            ))}
+          </div>
+        )}
+        {v.error('attributes') && <p className="mb-2 text-xs text-red-600">{v.error('attributes')}</p>}
+        <Button size="sm" icon={Plus} disabled={attrs.length >= MAX_ATTRIBUTES} onClick={() => setAttrs([...attrs, { id: ++seq, key: '', label: '', dataType: 'text', isRequired: false, optionsText: '' }])}>Add attribute</Button>
       </fieldset>
     </FormModal>
   );
@@ -238,7 +278,7 @@ export default function Categories({ catalogPath = '/dashboard/catalog' }) {
           </EmptyState>
         ) : (
           <Table>
-            <thead><tr><Th className="w-10">#</Th><Th>Category</Th><Th>Parent category</Th><Th>Used in the designer as</Th><Th>Usual specifications</Th><Th className="text-right">Products</Th><Th className="text-right">Actions</Th></tr></thead>
+            <thead><tr><Th className="w-10">#</Th><Th>Category</Th><Th>Parent category</Th><Th>Used in the designer as</Th><Th>Attributes</Th><Th className="text-right">Products</Th><Th className="text-right">Actions</Th></tr></thead>
             <tbody>
               {data.map((c, i) => {
                 const use = USE[typeOf(c)];
@@ -247,14 +287,14 @@ export default function Categories({ catalogPath = '/dashboard/catalog' }) {
                     <Td className="text-slate-400 tabular-nums">{i + 1}</Td>
                     <Td>
                       <div className="flex items-center gap-3">
-                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-soft text-brand"><use.icon className="h-[18px] w-[18px]" /></span>
+                        <CategoryIconMark category={c} />
                         <div className="min-w-0"><div className="max-w-[240px] truncate font-medium text-slate-900">{c.name}</div>{c.description && <div className="max-w-[240px] truncate text-xs text-slate-500">{c.description}</div>}</div>
                       </div>
                     </Td>
                     <Td>{parentName.has(c.parent) ? <Badge tone="blue">{parentName.get(c.parent)}</Badge> : <span className="text-slate-400">—</span>}</Td>
                     <Td><Badge tone={use.tone}>{use.label}</Badge></Td>
                     <Td>
-                      {c.specKeys.length ? <div className="flex max-w-[320px] flex-wrap gap-1">{c.specKeys.slice(0, 4).map((k) => <Badge key={k}>{k}</Badge>)}{c.specKeys.length > 4 && <span title={c.specKeys.slice(4).join(', ')}><Badge>+{c.specKeys.length - 4}</Badge></span>}</div> : <span className="text-slate-400">—</span>}
+                      {c.attributes?.length ? <div className="flex max-w-[320px] flex-wrap gap-1">{sortedDefs(c).slice(0, 4).map((a) => <Badge key={a.key} tone={a.isRequired ? 'blue' : 'slate'}>{a.label}</Badge>)}{c.attributes.length > 4 && <span title={sortedDefs(c).slice(4).map((a) => a.label).join(', ')}><Badge>+{c.attributes.length - 4}</Badge></span>}</div> : <span className="text-slate-400">—</span>}
                     </Td>
                     <Td className="text-right tabular-nums"><Link href={`${catalogPath}?category=${c.id}`} className="font-medium text-brand hover:underline">{c.products}</Link></Td>
                     <Td>
@@ -306,7 +346,7 @@ export default function Categories({ catalogPath = '/dashboard/catalog' }) {
         <b className="text-slate-900">{modal?.item?.name}</b> will be deleted. Its categories and their products are kept — they just no longer sit under a parent category.
       </ConfirmDialog>
       <ConfirmDialog open={modal?.type === 'delete'} onClose={close} onConfirm={remove} busy={busy} error={modalError} title="Delete this category?" confirmLabel="Delete category">
-        <b className="text-slate-900">{modal?.item?.name}</b> will be deleted{modal?.item?.products ? <>, together with <b className="text-slate-900">its {modal.item.products} product{modal.item.products > 1 ? 's' : ''}</b></> : ''}.{typeOf(modal?.item) !== 'general' && ' Designs using its products fall back to another product.'}
+        <b className="text-slate-900">{modal?.item?.name}</b> will be deleted{modal?.item?.products ? <>, together with <b className="text-slate-900">its {modal.item.products} product{modal.item.products > 1 ? 's' : ''}</b></> : ''}. A category whose products have stock received can’t be deleted.{typeOf(modal?.item) !== 'general' && ' Designs using its products fall back to another product.'}
       </ConfirmDialog>
     </>
   );

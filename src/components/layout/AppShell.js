@@ -13,18 +13,39 @@ import { Avatar, ImageFrame, Toaster, cx } from '../kit';
 import { BrandMark, PRODUCT_NAME } from './Brand';
 import PushNotifications from './PushNotifications';
 
-/** Which count sits beside which sidebar link (company workspace and admin console). Zero is shown too. */
+/** Which count sits beside which sidebar link (company workspace, staff workspace and admin console). Zero is shown too. */
 const COUNT_FOR = {
   '/dashboard/clients': { key: 'clients' },
+  '/dashboard/loans': { key: 'loans' },
+  '/dashboard/expenses': { key: 'expenses' },
   '/dashboard/designs': { key: 'designs' },
   '/dashboard/billing': { key: 'billing' },
   '/dashboard/packages': { key: 'packages' },
   '/dashboard/installations': { key: 'installations' },
+  '/dashboard/amc': { key: 'amc' },
+  '/agent/amc': { key: 'amc' },
+  '/dashboard/client-support': { key: 'clientSupport' },
+  '/agent/client-support': { key: 'clientSupport' },
   '/dashboard/team': { key: 'team' },
   '/dashboard/catalog': { key: 'products' },
+  '/dashboard/suppliers': { key: 'suppliers' },
   '/dashboard/leads/meta': { key: 'metaLeads' },
   '/dashboard/leads/google': { key: 'googleLeads' },
   '/dashboard/leads/manual': { key: 'manualLeads' },
+  // staff workspace (/api/my/counts: only the areas they may view, their own leads unless they may view all)
+  '/agent': { key: 'myTasks' },
+  '/agent/clients': { key: 'clients' },
+  '/agent/loans': { key: 'loans' },
+  '/agent/expenses': { key: 'expenses' },
+  '/agent/designs': { key: 'designs' },
+  '/agent/billing': { key: 'billing' },
+  '/agent/packages': { key: 'packages' },
+  '/agent/installations': { key: 'installations' },
+  '/agent/catalog': { key: 'products' },
+  '/agent/suppliers': { key: 'suppliers' },
+  '/agent/leads/meta': { key: 'metaLeads' },
+  '/agent/leads/google': { key: 'googleLeads' },
+  '/agent/leads/manual': { key: 'manualLeads' },
   // admin console
   '/admin/companies': { key: 'companies' },
   '/admin/plans': { key: 'plans' },
@@ -69,33 +90,52 @@ function NavLink({ item, active, onNavigate, compact, nested, collapsed }) {
 
 function NavItem({ item, active, onNavigate, pathname, withBadge, collapsed }) {
   const childActive = item.children?.some((c) => (c.exact ? pathname === c.href : pathname === c.href || pathname.startsWith(`${c.href}/`)));
-  const [open, setOpen] = useState(Boolean(childActive));
+  const onAllLeads = item.href && pathname === item.href;
+  const groupActive = childActive || onAllLeads;
+  const [open, setOpen] = useState(Boolean(groupActive));
   useEffect(() => {
-    if (childActive) setOpen(true);
-  }, [childActive]);
+    if (groupActive) setOpen(true);
+  }, [groupActive]);
 
   if (!item.children?.length) {
     return <NavLink item={withBadge(item)} active={active} onNavigate={onNavigate} collapsed={collapsed} />;
   }
-  // collapsed sidebar: a group is one icon that opens its first page
+  // collapsed sidebar: parent href (all leads) or first child
   const groupBadge = withBadge(item).badge;
-  if (collapsed) return <NavLink item={{ ...item, href: item.children[0].href, badge: groupBadge }} active={childActive} onNavigate={onNavigate} collapsed />;
+  const groupHref = item.href || item.children[0].href;
+  if (collapsed) return <NavLink item={{ ...item, href: groupHref, badge: groupBadge }} active={groupActive} onNavigate={onNavigate} collapsed />;
 
   return (
     <div>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
+      <div
         className={cx(
-          'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-          childActive ? 'bg-white/5 text-white' : 'text-white hover:bg-white/5',
+          'flex w-full items-center gap-1 rounded-lg px-1 py-1 text-sm font-medium transition-colors',
+          groupActive ? 'bg-white/5 text-white' : 'text-white hover:bg-white/5',
         )}
       >
-        <item.icon className="h-[18px] w-[18px] shrink-0 text-white" />
-        <span className="flex-1 truncate text-left">{item.label}</span>
-        {groupBadge !== undefined && <span className="rounded-full bg-white/10 px-2 py-px text-xs text-white/70">{groupBadge}</span>}
-        <ChevronDown className={cx('h-4 w-4 shrink-0 text-white/70 transition', open && 'rotate-180')} />
-      </button>
+        <Link
+          href={groupHref}
+          onClick={onNavigate}
+          aria-current={onAllLeads ? 'page' : undefined}
+          className={cx(
+            'flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-1 transition-colors',
+            onAllLeads ? 'bg-white/10 text-white shadow-[inset_3px_0_0_#ffffff]' : 'hover:bg-white/5',
+          )}
+        >
+          <item.icon className="h-[18px] w-[18px] shrink-0 text-white" />
+          <span className="flex-1 truncate text-left">{item.label}</span>
+          {groupBadge !== undefined && <span className="rounded-full bg-white/10 px-2 py-px text-xs text-white/70">{groupBadge}</span>}
+        </Link>
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={`${open ? 'Collapse' : 'Expand'} ${item.label} menu`}
+          onClick={() => setOpen((v) => !v)}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-white/70 hover:bg-white/10 hover:text-white"
+        >
+          <ChevronDown className={cx('h-4 w-4 transition', open && 'rotate-180')} />
+        </button>
+      </div>
       {open && (
         <div className="mt-0.5 space-y-0.5">
           {item.children.map((child) => (
@@ -136,12 +176,11 @@ export default function AppShell({ nav, workspace, children }) {
   });
   const unread = useUnread((s) => s.count);
   const ticketsUnread = useUnread((s) => s.tickets);
-  const clientTicketsUnread = useUnread((s) => s.clientTickets);
+  const clientSupportOpen = useUnread((s) => s.clientSupportOpen);
   const refreshUnread = useUnread((s) => s.refresh);
-  const inboxUser = user?.role === 'company' || user?.role === 'agent';
-  const inboxLink = inboxUser ? nav.flatMap((g) => g.items).find((i) => i.href.endsWith('/notifications')) : null;
+  const notificationsHref = { agent: '/agent/notifications', company: '/dashboard/notifications', client: '/portal/notifications' }[user?.role] || null;
 
-  // Badges on Notifications and the support links; refreshed on navigation and every minute.
+  // Unread badges for the footer bell and support links; refreshed on navigation and every minute.
   useEffect(() => {
     if (!user) return undefined;
     const tick = () => refreshUnread(user);
@@ -153,11 +192,11 @@ export default function AppShell({ nav, workspace, children }) {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setOpen(false), [pathname]);
 
-  // the company workspace also shows how many clients, designs, products… there are
+  // the company and staff workspaces also show how many clients, designs, products… there are
   const counts = useCounts((s) => s.counts);
   const refreshCounts = useCounts((s) => s.refresh);
   const refreshCountsSoon = useCounts((s) => s.refreshSoon);
-  const countsPath = user?.role === 'company' ? '/api/dashboard/counts' : user?.role === 'superadmin' ? '/api/admin/counts' : '';
+  const countsPath = { company: '/api/dashboard/counts', agent: '/api/my/counts', superadmin: '/api/admin/counts' }[user?.role] || '';
   const showCounts = Boolean(countsPath);
   useEffect(() => {
     if (!showCounts) return undefined;
@@ -175,9 +214,16 @@ export default function AppShell({ nav, workspace, children }) {
   }, [showCounts, countsPath, refreshCounts, refreshCountsSoon, pathname]);
 
   const withBadge = (item) => {
-    if (item.href.endsWith('/notifications') || item.href.endsWith('/support') || item.href.endsWith('/client-support')) {
-      const n = item.href.endsWith('/notifications') ? unread : item.href.endsWith('/client-support') ? clientTicketsUnread : ticketsUnread;
+    if (item.href.endsWith('/support')) {
+      // company and staff workspaces: the open tickets with the platform (zero shown too); elsewhere, unread replies
+      if (showCounts && counts?.support != null) return { ...item, badge: counts.support > 99 ? '99+' : counts.support };
+      const n = ticketsUnread;
       return n ? { ...item, badge: n > 99 ? '99+' : n } : item;
+    }
+    if (item.href.endsWith('/client-support')) {
+      const n = showCounts && counts?.clientSupport != null ? counts.clientSupport : clientSupportOpen;
+      if (n === undefined) return item;
+      return { ...item, badge: n > 99 ? '99+' : n };
     }
     // a menu group names its own count (e.g. all leads), its pages use theirs
     const spec = !showCounts ? null : item.children ? (item.countKey ? { key: item.countKey } : null) : COUNT_FOR[item.href];
@@ -194,6 +240,18 @@ export default function AppShell({ nav, workspace, children }) {
     await stopImpersonating();
     router.replace('/admin/companies');
   };
+
+  const notificationsBell = notificationsHref ? (
+    <Link
+      href={notificationsHref}
+      aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}
+      title="Notifications"
+      className="relative grid h-8 w-8 shrink-0 place-items-center rounded-md text-white/50 hover:bg-white/10 hover:text-white"
+    >
+      <Bell className="h-4 w-4" />
+      {unread > 0 && <span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[10px] leading-none font-semibold text-white">{unread > 99 ? '99+' : unread}</span>}
+    </Link>
+  ) : null;
 
   // `rail`: the collapsed desktop sidebar (icons only). The mobile drawer is always the full sidebar.
   const renderSidebar = (rail) => (
@@ -235,9 +293,12 @@ export default function AppShell({ nav, workspace, children }) {
         {rail ? (
           <div className="flex flex-col items-center gap-2">
             <span title={`${user.name || user.email} · ${user.email}`}><Avatar name={user.name || user.email} size={34} /></span>
-            <button type="button" onClick={signOut} aria-label="Sign out" title="Sign out" className="grid h-8 w-8 place-items-center rounded-md text-white/50 hover:bg-white/10 hover:text-white">
-              <LogOut className="h-4 w-4" />
-            </button>
+            <div className="flex flex-col items-center gap-1">
+              {notificationsBell}
+              <button type="button" onClick={signOut} aria-label="Sign out" title="Sign out" className="grid h-8 w-8 place-items-center rounded-md text-white/50 hover:bg-white/10 hover:text-white">
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         ) : (
           <div className="flex items-center gap-3 rounded-lg px-2 py-2">
@@ -246,10 +307,13 @@ export default function AppShell({ nav, workspace, children }) {
               <div className="truncate text-[13px] font-medium text-white">{user.name || (user.role === 'superadmin' ? 'Super Admin' : 'Account')}</div>
               <div className="truncate text-xs text-slate-400">{user.email}</div>
             </div>
-            <PushNotifications />
-            <button type="button" onClick={signOut} aria-label="Sign out" title="Sign out" className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-white/50 hover:bg-white/10 hover:text-white">
-              <LogOut className="h-4 w-4" />
-            </button>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <PushNotifications />
+              {notificationsBell}
+              <button type="button" onClick={signOut} aria-label="Sign out" title="Sign out" className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-white/50 hover:bg-white/10 hover:text-white">
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -292,8 +356,8 @@ export default function AppShell({ nav, workspace, children }) {
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 lg:hidden">
           <button type="button" aria-label="Open menu" onClick={() => setOpen(true)} className="grid h-9 w-9 place-items-center rounded-md text-slate-600 hover:bg-slate-100"><Menu className="h-5 w-5" /></button>
           <span className="min-w-0 flex-1 truncate text-sm font-semibold">{company?.name || PRODUCT_NAME}</span>
-          {inboxLink && (
-            <Link href={inboxLink.href} aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'} className="relative grid h-9 w-9 shrink-0 place-items-center rounded-md text-slate-600 hover:bg-slate-100">
+          {notificationsHref && (
+            <Link href={notificationsHref} aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'} className="relative grid h-9 w-9 shrink-0 place-items-center rounded-md text-slate-600 hover:bg-slate-100">
               <Bell className="h-5 w-5" />
               {unread > 0 && <span className="absolute top-0.5 right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-red-600 px-1 text-[10px] leading-none font-semibold text-white">{unread > 99 ? '99+' : unread}</span>}
             </Link>

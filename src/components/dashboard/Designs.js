@@ -10,7 +10,8 @@ import { formatMoney } from '@/lib/energy';
 import { generateLifecyclePdf } from '@/lib/lifecyclePdf';
 import { useSession } from '@/lib/session';
 import { useResource, usePagedResource } from '@/lib/useResource';
-import { Alert, Button, Card, ConfirmDialog, EmptyState, Input, LoadingBlock, LoadMoreRow, PageHeader, Select, Table, Td, Th, Tr, buttonClass, timeAgo, toast, RowMenu } from '../kit';
+import { withDateRange } from '@/lib/listDates';
+import { Alert, Button, Card, ConfirmDialog, DateRangeFilter, EmptyState, Input, LoadingBlock, LoadMoreRow, PageHeader, Select, Table, Td, Th, Tr, buttonClass, timeAgo, toast, RowMenu } from '../kit';
 import { DESIGN_STATUSES, DesignStatusBadge, NewDesignModal, designHref } from './shared';
 import { ClientChangeRequestsSection } from './ClientChangeRequestPanel';
 
@@ -28,7 +29,15 @@ export default function Designs({ basePath = '/dashboard/designs', installations
   const canSeeBilling = can(me, 'finances', 'view');
   const canViewTasks = can(me, 'tasks', 'view');
   const canStartTask = can(me, 'tasks', 'create');
-  const { items: data, setItems: setData, loading, error, hasMore, loadingMore, loadMore, total } = usePagedResource('/api/designs', { limit: 100 });
+  const clientId = params.get('client') || 'all';
+  const [addedFrom, setAddedFrom] = useState('');
+  const [addedTo, setAddedTo] = useState('');
+  const listPath = useMemo(() => {
+    let path = '/api/designs';
+    if (clientId !== 'all') path += `?client=${encodeURIComponent(clientId)}`;
+    return withDateRange(path, addedFrom, addedTo);
+  }, [clientId, addedFrom, addedTo]);
+  const { items: data, setItems: setData, loading, error, hasMore, loadingMore, loadMore, total } = usePagedResource(listPath, { limit: 100 });
   const clients = useResource(canViewClients ? '/api/clients?limit=500' : null);
   const projects = useResource(canViewTasks ? '/api/projects?limit=1000' : null);
   const clientList = clients.data?.items || [];
@@ -38,7 +47,7 @@ export default function Designs({ basePath = '/dashboard/designs', installations
   const [modal, setModal] = useState(null);
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState('');
-  const clientId = params.get('client') || 'all';
+  const dateFiltered = Boolean(addedFrom && addedTo);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -103,7 +112,9 @@ export default function Designs({ basePath = '/dashboard/designs', installations
       {!loading && <ClientChangeRequestsSection designs={data} onSent={patchDesign} />}
 
       <Card className="overflow-hidden">
-        <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-6 py-4">
+        <div className="flex flex-col gap-4 border-b border-slate-100 px-6 py-4">
+          <DateRangeFilter from={addedFrom} to={addedTo} onChange={({ from, to }) => { setAddedFrom(from); setAddedTo(to); }} />
+          <div className="flex flex-wrap items-center gap-3">
           <div className="relative min-w-[220px] flex-1">
             <Search className="pointer-events-none absolute top-3 left-3 h-4 w-4 text-slate-400" />
             <Input aria-label="Search proposals" placeholder="Search by proposal, client or address" value={query} onValue={setQuery} className="pl-9" />
@@ -116,10 +127,11 @@ export default function Designs({ basePath = '/dashboard/designs', installations
             <option value="all">All statuses</option>
             {DESIGN_STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
           </Select>
+          </div>
         </div>
         {loading ? <LoadingBlock /> : !rows.length ? (
-          <EmptyState icon={PenTool} title={data?.length ? 'No proposals match' : 'No proposals yet'} description={data?.length ? 'Try a different search or filter.' : 'Pick a client, outline their roof and get a priced, branded proposal.'}>
-            {!data?.length && !clients.loading && canCreate && newButton}
+          <EmptyState icon={PenTool} title={dateFiltered || query.trim() || status !== 'all' || clientId !== 'all' ? 'No proposals match' : 'No proposals yet'} description={total ? 'Try a different search or filter.' : 'Pick a client, outline their roof and get a priced, branded proposal.'}>
+            {!dateFiltered && !query.trim() && status === 'all' && clientId === 'all' && total === 0 && !clients.loading && canCreate && newButton}
           </EmptyState>
         ) : (
           <Table>

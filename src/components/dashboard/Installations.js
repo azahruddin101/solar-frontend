@@ -6,10 +6,11 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
+import { withDateRange } from '@/lib/listDates';
 import { stepPriority } from '@/lib/steps';
 import { useResource, usePagedResource } from '@/lib/useResource';
 import { useCan } from '@/lib/useCan';
-import { Alert, Badge, Button, Card, EmptyState, FormField, FormModal, Input, LoadingBlock, LoadMoreRow, PageHeader, Select, Table, Td, Th, Tr, buttonClass, timeAgo } from '../kit';
+import { Alert, Badge, Button, Card, DateRangeFilter, EmptyState, FormField, FormModal, Input, LoadingBlock, LoadMoreRow, PageHeader, Select, Table, Td, Th, Tr, buttonClass, timeAgo } from '../kit';
 import { Progress, ProjectStatusBadge, currentStep } from '../installations/shared';
 
 /** Pick a design that has no installation yet; its steps come from the company's template. */
@@ -60,7 +61,10 @@ export default function Installations({ basePath = '/dashboard/installations', w
   const may = useCan();
   const router = useRouter();
   const params = useSearchParams();
-  const { items: data, loading, error, hasMore, loadingMore, loadMore, total } = usePagedResource('/api/projects', { limit: 100 });
+  const [updatedFrom, setUpdatedFrom] = useState('');
+  const [updatedTo, setUpdatedTo] = useState('');
+  const listPath = useMemo(() => withDateRange('/api/projects', updatedFrom, updatedTo), [updatedFrom, updatedTo]);
+  const { items: data, loading, error, hasMore, loadingMore, loadMore, total } = usePagedResource(listPath, { limit: 100 });
   const allProjects = useResource('/api/projects?limit=1000'); // for "which designs still need an installation", not the table below
   const designs = useResource('/api/designs?limit=500');
   const designList = designs.data?.items || [];
@@ -89,6 +93,7 @@ export default function Installations({ basePath = '/dashboard/installations', w
     return (designs.data?.items || []).filter((d) => !taken.has(d.id));
   }, [allProjects.data, designs.data]);
 
+  const filtered = Boolean(query.trim() || status !== 'all' || (updatedFrom && updatedTo));
   const ready = !loading && !designs.loading && !allProjects.loading && !steps.loading;
   const startButton = <Button variant="primary" icon={Plus} disabled={!free.length} title={free.length ? undefined : 'Every proposal already has an installation'} onClick={() => setStarting({})}>Start installation</Button>;
 
@@ -98,19 +103,28 @@ export default function Installations({ basePath = '/dashboard/installations', w
       {(error || designs.error) && <Alert className="mb-6">{error || designs.error}</Alert>}
 
       <Card className="overflow-hidden">
-        <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-6 py-4">
-          <div className="relative min-w-[220px] flex-1">
+        <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-6 py-4 xl:flex-nowrap">
+          <DateRangeFilter
+            className="shrink-0"
+            from={updatedFrom}
+            to={updatedTo}
+            onChange={({ from, to }) => {
+              setUpdatedFrom(from);
+              setUpdatedTo(to);
+            }}
+          />
+          <div className="relative min-w-[12rem] flex-1 basis-[200px]">
             <Search className="pointer-events-none absolute top-3 left-3 h-4 w-4 text-slate-400" />
             <Input aria-label="Search installations" placeholder="Search by proposal, client, address or agent" value={query} onValue={setQuery} className="pl-9" />
           </div>
-          <Select aria-label="Filter by status" value={status} onValue={setStatus} className="w-40">
+          <Select aria-label="Filter by status" value={status} onValue={setStatus} className="w-40 shrink-0">
             <option value="all">All</option>
             <option value="active">In progress</option>
             <option value="completed">Completed</option>
           </Select>
         </div>
         {loading ? <LoadingBlock /> : !rows.length ? (
-          <EmptyState icon={HardHat} title={data?.length ? 'No installations match' : 'No installations yet'} description={data?.length ? 'Try a different search or filter.' : 'When a client accepts a proposal, start its installation and assign each step to your team.'}>
+          <EmptyState icon={HardHat} title={filtered || data?.length ? 'No installations match' : 'No installations yet'} description={filtered || data?.length ? 'Try a different search, status or date range.' : 'When a client accepts a proposal, start its installation and assign each step to your team.'}>
             {!data?.length && ready && startButton}
           </EmptyState>
         ) : (

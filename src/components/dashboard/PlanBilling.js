@@ -72,7 +72,7 @@ function PresetCard({ plan, disabled, busy, onRequest }) {
   );
 }
 
-export default function PlanBilling() {
+export default function PlanBilling({ embedded = false }) {
   const { company } = useSession();
   const billing = company?.billing;
   const upgrades = useResource('/api/company/subscription/upgrades'); // 403 for companies on a custom plan → no preset options
@@ -117,11 +117,19 @@ export default function PlanBilling() {
     setBusy(null);
   };
 
+  const requestBtn = plan && (
+    <Button variant={open ? 'secondary' : 'primary'} icon={open ? undefined : ArrowUpCircle} disabled={pending && !open} onClick={() => setOpen((v) => !v)}>{open ? 'Close' : 'Request a plan change'}</Button>
+  );
+
   return (
     <>
-      <PageHeader title="Plan & usage" description="Your plan and its limits. Plan changes are approved by the platform administrator.">
-        {plan && <Button variant={open ? 'secondary' : 'primary'} icon={open ? undefined : ArrowUpCircle} disabled={pending && !open} onClick={() => setOpen((v) => !v)}>{open ? 'Close' : 'Request a plan change'}</Button>}
-      </PageHeader>
+      {embedded ? (
+        requestBtn && <div className="mb-4 flex justify-end">{requestBtn}</div>
+      ) : (
+        <PageHeader title="Plan & usage" description="Your plan and its limits. Plan changes are approved by the platform administrator.">
+          {requestBtn}
+        </PageHeader>
+      )}
 
       {!plan ? <LoadingBlock /> : (
         <div className="space-y-6">

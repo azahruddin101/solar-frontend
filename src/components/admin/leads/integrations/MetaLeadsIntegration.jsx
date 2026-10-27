@@ -8,6 +8,7 @@ import { Plug, Megaphone, CheckCircle2, AlertTriangle, RefreshCw, Unplug, Chevro
 import PasswordInput from '@/components/admin/leads/PasswordInput';
 import { toast } from '@/components/kit';
 import { CopyRow, Panel, MetricCard, SpinnerPanel } from './integrationUi';
+import { settingsSearchUrl } from '@/lib/settingsQuery';
 
 // Public address of this CRM's API - Meta needs it for the login redirect and the webhook
 const API_BASE_URL = api.defaults.baseURL.replace(/\/+$/, '');
@@ -67,7 +68,10 @@ const MetaLeadsIntegration = () => {
       toast.error(OAUTH_ERRORS[searchParams.get('reason')] || OAUTH_ERRORS.server_error, { id: 'meta-oauth-result', duration: 6000 });
     }
     if (result) {
-      router.replace(pathname);
+      router.replace(
+        settingsSearchUrl(pathname, searchParams, { tab: 'integrations', source: 'meta' }, { remove: ['meta', 'reason'] }),
+        { scroll: false },
+      );
     }
 
     fetchStatus();

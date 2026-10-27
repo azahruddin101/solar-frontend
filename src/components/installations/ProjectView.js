@@ -2,10 +2,10 @@
 
 // One installation: its steps (who does what, how far along) and the activity log.
 // The company owner (`mode="owner"`) manages every step; an agent (`mode="agent"`) works on their own.
-import { ArrowDown, ArrowLeft, ArrowUp, Check, CircleCheck, Download, MapPin, MessageSquare, Pencil, Phone, Play, Plus, RotateCcw, Trash2, User, Zap } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, CalendarClock, Check, ChevronDown, CircleCheck, Download, MapPin, MessageSquare, Pencil, Phone, Play, Plus, RotateCcw, Trash2, User, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { agentRolesFor, agentRolesLabel, agentsForStepRole } from '@/lib/agents';
 import { api, assetUrl } from '@/lib/api';
 import { importLibrary, MAPS_API_KEY } from '@/lib/googleMaps';
@@ -238,6 +238,31 @@ export default function ProjectView({ id, mode, basePath = '/dashboard/installat
   const [note, setNote] = useState({ step: '', message: '' });
   const [noting, setNoting] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [expandedIds, setExpandedIds] = useState(() => new Set());
+
+  useEffect(() => {
+    setExpandedIds(new Set());
+  }, [id]);
+
+  const displaySteps = useMemo(() => {
+    const list = project?.steps ?? [];
+    const active = [];
+    const done = [];
+    for (const s of list) {
+      if (s.status === 'done') done.push(s);
+      else active.push(s);
+    }
+    return [...active, ...done];
+  }, [project?.steps]);
+
+  const toggleStep = (stepId) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(stepId)) next.delete(stepId);
+      else next.add(stepId);
+      return next;
+    });
+  };
 
   const close = () => { setModal(null); setModalError(''); };
   /** Every change returns the whole project (steps + log). */
@@ -312,51 +337,86 @@ export default function ProjectView({ id, mode, basePath = '/dashboard/installat
         <Card className="overflow-hidden">
           <CardHeader title="Steps" description={<Progress project={project} className="mt-1.5 w-56" />} action={may.update && <Button size="sm" icon={Plus} onClick={() => setModal({ type: 'step' })}>Add step</Button>} />
           <ol>
-            {steps.map((s, i) => {
+            {displaySteps.map((s, displayIndex) => {
+              const i = steps.findIndex((x) => x.id === s.id);
+              const prev = displaySteps[displayIndex - 1];
+              const completedSectionStart = s.status === 'done' && prev && prev.status !== 'done';
               const mine = owner ? may.status : s.assignee?.id === me.id;
               const eligibleAgents = agentsForStepRole(activeAgents, s.role);
+              const open = expandedIds.has(s.id);
+              const assigneeLabel = s.assignee?.name || (s.role ? `Unassigned (${s.role})` : 'Unassigned');
               return (
-                <li key={s.id} style={{ borderLeftColor: stepColor(s) }} className={cx('flex gap-4 border-b border-l-4 border-slate-100 px-6 py-4 last:border-b-0', !owner && s.assignee?.id === me.id && s.status !== 'done' && 'bg-brand-soft/50')}>
-                  <StepMarker index={i} status={s.status} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <span className={cx('font-medium', s.status === 'done' ? 'text-slate-500' : 'text-slate-900')}>{s.name}</span>
-                      <StepStatusBadge status={s.status} />
-                      <StepPriorityBadge step={s} />
-                      {s.role && <Badge tone="slate">{s.role}</Badge>}
-                      {!owner && s.assignee?.id === me.id && <Badge tone="brand">Yours</Badge>}
-                    </div>
-                    {s.description && <p className="mt-1 text-[13px] leading-relaxed text-slate-500">{s.description}</p>}
-                    <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-slate-500">
-                      {may.assign ? (
-                        <Select aria-label={`Assign ${s.name}`} value={s.assignee?.id || ''} onValue={(v) => quick(`/steps/${s.id}`, { method: 'PUT', body: { assignee: v || null } })} className="h-8 min-w-[12rem] max-w-full text-[13px]">
-                          <option value="">{s.role ? `Unassigned (${s.role})` : 'Unassigned'}</option>
-                          {s.assignee && !s.assignee.active && !eligibleAgents.some((a) => a.id === s.assignee.id) && (
-                            <option value={s.assignee.id}>{s.assignee.name} (inactive)</option>
+                <li
+                  key={s.id}
+                  style={{ borderLeftColor: stepColor(s) }}
+                  className={cx(
+                    'border-b border-l-4 border-slate-100 last:border-b-0',
+                    completedSectionStart && 'border-t-2 border-t-slate-200',
+                    !owner && s.assignee?.id === me.id && s.status !== 'done' && 'bg-brand-soft/50',
+                  )}
+                >
+                  <div className="flex gap-3 px-4 py-3 sm:gap-4 sm:px-6">
+                    <StepMarker index={i} status={s.status} />
+                    <div className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        onClick={() => toggleStep(s.id)}
+                        aria-expanded={open}
+                        className="flex w-full items-start gap-2 rounded-md text-left outline-none hover:bg-slate-50/80 focus-visible:ring-2 focus-visible:ring-brand-muted -mx-1 px-1 py-0.5"
+                      >
+                        <ChevronDown className={cx('mt-1 h-4 w-4 shrink-0 text-slate-400 transition-transform', !open && '-rotate-90')} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className={cx('font-medium', s.status === 'done' ? 'text-slate-500' : 'text-slate-900')}>{s.name}</span>
+                            <StepStatusBadge status={s.status} />
+                            <StepPriorityBadge step={s} />
+                            {s.role && <Badge tone="slate">{s.role}</Badge>}
+                            {!owner && s.assignee?.id === me.id && <Badge tone="brand">Yours</Badge>}
+                          </div>
+                          {!open && (
+                            <p className="mt-1 truncate text-[12px] text-slate-500">
+                              {assigneeLabel}
+                              {s.completedAt ? ` · Done ${formatDateTime(s.completedAt)}` : s.startedAt ? ` · Started ${formatDateTime(s.startedAt)}` : ''}
+                            </p>
                           )}
-                          {eligibleAgents.map((a) => <option key={a.id} value={a.id}>{a.name}{agentRolesLabel(a) ? ` · ${agentRolesLabel(a)}` : ''}</option>)}
-                        </Select>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5">{s.assignee ? <><Avatar name={s.assignee.name} src={s.assignee.photo ? assetUrl(s.assignee.photo) : undefined} size={20} /> {s.assignee.name}</> : 'Unassigned'}</span>
+                        </div>
+                      </button>
+                      {open && (
+                        <div className="mt-2 pl-6">
+                          {s.description && <p className="text-[13px] leading-relaxed text-slate-500">{s.description}</p>}
+                          <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-slate-500">
+                            {may.assign ? (
+                              <Select aria-label={`Assign ${s.name}`} value={s.assignee?.id || ''} onValue={(v) => quick(`/steps/${s.id}`, { method: 'PUT', body: { assignee: v || null } })} className="h-8 min-w-[12rem] max-w-full text-[13px]">
+                                <option value="">{s.role ? `Unassigned (${s.role})` : 'Unassigned'}</option>
+                                {s.assignee && !s.assignee.active && !eligibleAgents.some((a) => a.id === s.assignee.id) && (
+                                  <option value={s.assignee.id}>{s.assignee.name} (inactive)</option>
+                                )}
+                                {eligibleAgents.map((a) => <option key={a.id} value={a.id}>{a.name}{agentRolesLabel(a) ? ` · ${agentRolesLabel(a)}` : ''}</option>)}
+                              </Select>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5">{s.assignee ? <><Avatar name={s.assignee.name} src={s.assignee.photo ? assetUrl(s.assignee.photo) : undefined} size={20} /> {s.assignee.name}</> : 'Unassigned'}</span>
+                            )}
+                            {s.completedAt ? <span>Done {formatDateTime(s.completedAt)}</span> : s.startedAt && <span>Started {formatDateTime(s.startedAt)}</span>}
+                          </div>
+                          {mine && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {s.status === 'pending' && <Button size="sm" icon={Play} onClick={() => setModal({ type: 'status', step: s, status: 'in_progress' })}>Start</Button>}
+                              {s.status !== 'done' && <Button size="sm" variant="primary" icon={CircleCheck} onClick={() => setModal({ type: 'status', step: s, status: 'done' })}>Mark done</Button>}
+                              {s.status === 'done' && <Button size="sm" variant="ghost" icon={RotateCcw} onClick={() => setModal({ type: 'status', step: s, status: 'in_progress' })}>Reopen</Button>}
+                            </div>
+                          )}
+                        </div>
                       )}
-                      {s.completedAt ? <span>Done {formatDateTime(s.completedAt)}</span> : s.startedAt && <span>Started {formatDateTime(s.startedAt)}</span>}
                     </div>
-                    {mine && (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {s.status === 'pending' && <Button size="sm" icon={Play} onClick={() => setModal({ type: 'status', step: s, status: 'in_progress' })}>Start</Button>}
-                        {s.status !== 'done' && <Button size="sm" variant="primary" icon={CircleCheck} onClick={() => setModal({ type: 'status', step: s, status: 'done' })}>Mark done</Button>}
-                        {s.status === 'done' && <Button size="sm" variant="ghost" icon={RotateCcw} onClick={() => setModal({ type: 'status', step: s, status: 'in_progress' })}>Reopen</Button>}
+                    {(may.update || may.del) && (
+                      <div className="flex shrink-0 items-start pt-0.5">
+                        {may.update && <IconButton icon={ArrowUp} label="Move up" disabled={i === 0 || s.status === 'done'} className="disabled:opacity-30" onClick={() => quick(`/steps/${s.id}`, { method: 'PUT', body: { move: 'up' } })} />}
+                        {may.update && <IconButton icon={ArrowDown} label="Move down" disabled={i === steps.length - 1 || s.status === 'done'} className="disabled:opacity-30" onClick={() => quick(`/steps/${s.id}`, { method: 'PUT', body: { move: 'down' } })} />}
+                        {may.update && <IconButton icon={Pencil} label="Edit step" onClick={() => setModal({ type: 'step', step: s })} />}
+                        {may.del && <IconButton icon={Trash2} label="Remove step" tone="danger" disabled={steps.length === 1} className="disabled:opacity-30" onClick={() => setModal({ type: 'removeStep', step: s })} />}
                       </div>
                     )}
                   </div>
-                  {(may.update || may.del) && (
-                    <div className="flex shrink-0 items-start">
-                      {may.update && <IconButton icon={ArrowUp} label="Move up" disabled={i === 0} className="disabled:opacity-30" onClick={() => quick(`/steps/${s.id}`, { method: 'PUT', body: { move: 'up' } })} />}
-                      {may.update && <IconButton icon={ArrowDown} label="Move down" disabled={i === steps.length - 1} className="disabled:opacity-30" onClick={() => quick(`/steps/${s.id}`, { method: 'PUT', body: { move: 'down' } })} />}
-                      {may.update && <IconButton icon={Pencil} label="Edit step" onClick={() => setModal({ type: 'step', step: s })} />}
-                      {may.del && <IconButton icon={Trash2} label="Remove step" tone="danger" disabled={steps.length === 1} className="disabled:opacity-30" onClick={() => setModal({ type: 'removeStep', step: s })} />}
-                    </div>
-                  )}
                 </li>
               );
             })}
@@ -403,6 +463,24 @@ export default function ProjectView({ id, mode, basePath = '/dashboard/installat
           )}
         </Card>
       </div>
+
+
+      {project.amcVisits?.length > 0 && (
+        <Card className="mt-6 flex flex-wrap items-center justify-between gap-3 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <CalendarClock className="h-5 w-5 text-slate-400" />
+            <div>
+              <p className="text-sm font-semibold text-slate-900">AMC visits</p>
+              <p className="text-xs text-slate-500">
+                {project.amcVisits.filter((v) => v.status !== 'completed').length} open of {project.amcVisits.length} — assign, track and complete them in the AMC tracker.
+              </p>
+            </div>
+          </div>
+          <Link href={`${basePath.startsWith('/agent') || !owner ? '/agent/amc' : '/dashboard/amc'}?project=${project.id}`} className="text-sm font-semibold text-brand hover:underline">
+            Open AMC tracker
+          </Link>
+        </Card>
+      )}
 
       {modal?.type === 'step' && (
         <StepForm

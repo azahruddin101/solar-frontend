@@ -56,18 +56,34 @@ let onForbidden = null;
 /** Called on every 403: the session's permissions may be out of date (the owner changed a role), so it refreshes them. */
 export const setForbiddenHandler = (fn) => (onForbidden = fn);
 
-/** JSON request with the session token. `form` sends multipart (uploads). */
-export async function api(path, { method = 'GET', body, form, signal, keepalive } = {}) {
+/** Sends an upload with XMLHttpRequest, which (unlike fetch) reports how many bytes have gone; answers like fetch. */
+function sendWithProgress(url, { method, headers, body, signal, onProgress }) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, url);
+    Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress({ loaded: e.loaded, total: e.total }); };
+    xhr.onload = () => resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, json: async () => JSON.parse(xhr.responseText) });
+    xhr.onerror = () => reject(new TypeError('Network request failed'));
+    xhr.onabort = () => reject(new DOMException('The upload was cancelled', 'AbortError'));
+    if (signal?.aborted) return xhr.abort();
+    signal?.addEventListener('abort', () => xhr.abort(), { once: true });
+    xhr.send(body);
+  });
+}
+
+/**
+ * JSON request with the session token. `form` sends multipart (uploads); with it, `onProgress({ loaded, total })` is
+ * told as the bytes go up.
+ */
+export async function api(path, { method = 'GET', body, form, signal, keepalive, onProgress } = {}) {
   const token = tokens.get();
+  const headers = { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) };
   let res;
   try {
-    res = await fetch(apiUrl(path), {
-      method,
-      signal,
-      keepalive,
-      headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: form || (body !== undefined ? JSON.stringify(body) : undefined),
-    });
+    res = form && onProgress
+      ? await sendWithProgress(apiUrl(path), { method, headers, body: form, signal, onProgress })
+      : await fetch(apiUrl(path), { method, signal, keepalive, headers, body: form || (body !== undefined ? JSON.stringify(body) : undefined) });
   } catch (e) {
     if (e.name === 'AbortError') throw e;
     throw new ApiError(0, 'Cannot reach the server. Check your connection and try again.');

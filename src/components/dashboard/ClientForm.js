@@ -5,10 +5,11 @@ import { Eye, FileText, FileUp, Loader2, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useSignedUrl } from '@/lib/files';
-import { clientSchema, useValidation } from '@/lib/validation';
+import { CLIENT_GRID_TYPES, clientSchema, useValidation } from '@/lib/validation';
 import { Alert, Button, CameraButton, FormField, IconButton, Input, NameInput, PhoneInput, LoadingBlock, Modal, Select, Textarea, toast } from '../kit';
 
 const SOURCES = ['Website', 'Referral', 'Field / Direct Visit', 'Social Media', 'Channel Partner', 'Advertisement', 'Exhibition / Event', 'Other'];
+const GRID_TYPE_LABEL = { on_grid: 'On Grid', off_grid: 'Off Grid', hybrid: 'Hybrid' };
 
 const BLANK = {
   name: '',
@@ -19,6 +20,7 @@ const BLANK = {
   address: '',
   consumerNumber: '',
   kwRequired: '',
+  gridType: 'on_grid',
   notes: '',
   source: 'Website',
   referredBy: { name: '', phone: '' },
@@ -159,6 +161,14 @@ export default function ClientForm({ client, onClose, onSaved }) {
               <Input type="number" min={0} step="any" value={form.kwRequired ?? ''} onValue={(x) => set({ kwRequired: x })} placeholder="e.g. 5" />
             </FormField>
           </div>
+
+          <FormField label="Grid type" error={v.error('gridType')}>
+            <Select value={form.gridType || 'on_grid'} onValue={(v) => set({ gridType: v })}>
+              {CLIENT_GRID_TYPES.map((t) => (
+                <option key={t} value={t}>{GRID_TYPE_LABEL[t]}</option>
+              ))}
+            </Select>
+          </FormField>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField label="PAN" optional hint="10-character Permanent Account Number." error={v.error('pan')}>

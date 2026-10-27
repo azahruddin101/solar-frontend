@@ -105,6 +105,7 @@ export { z };
 
 const common = { emailRequired, emailOptional, phoneOptional, panOptional, gstinOptional, websiteOptional, personNameRequired, personNameOptional, orgNameRequired, consumerNumberOptional, skuOptional, hsnOptional, hexColor, currencyCode, textOptional, textRequired, newPassword, optionalNewPassword, loginPassword, num, numOptional, lat, lng, objectIdString, objectIdOrBlank, z };
 const PRODUCT_TYPES = ['general', 'panels', 'poles'];
+const ATTRIBUTE_TYPES = ['text', 'number', 'select', 'boolean'];
 const PILLAR_SHAPES = ['l-shape', 'cylindrical', 'square'];
 const STEP_STATUS = ['pending', 'in_progress', 'done'];
 const STEP_PRIORITIES = ['low', 'medium', 'high', 'urgent'];
@@ -114,6 +115,7 @@ const CLIENT_TICKET_CATEGORIES = ['installation', 'service', 'billing', 'proposa
 const TICKET_STATUS = ['open', 'in_progress', 'resolved', 'closed'];
 export const CLIENT_PROJECT_TYPES = ['residential', 'industrial', 'commercial'];
 export const CLIENT_ROOF_TYPES = ['concrete', 'factory', 'tin_shed'];
+export const CLIENT_GRID_TYPES = ['on_grid', 'off_grid', 'hybrid'];
 
 const f = { ...common };
 // Request schemas, one per form/endpoint. Objects are "loose": fields not listed here pass through untouched
@@ -162,6 +164,7 @@ const companyProfile = {
 /** Who a direct invoice (no proposal, no client record) is addressed to. */
 export const invoiceBillToSchema = obj({
   name: orgNameRequired,
+  company: textOptional(120, 'Company name'),
   phone: phoneOptional,
   email: emailOptional,
   address: textOptional(400, 'Address'),
@@ -225,7 +228,14 @@ export const categorySchema = obj({
   name: f.textRequired(60, 'Category name'),
   description: f.textOptional(300, 'Description'),
   type: z.enum(PRODUCT_TYPES, 'Invalid category type').optional(),
-  specKeys: strArray(40).optional(),
+  attributes: z.array(obj({
+    key: f.textOptional(40, 'Attribute key'),
+    label: f.textRequired(60, 'Attribute label'),
+    dataType: z.enum(ATTRIBUTE_TYPES, 'Invalid attribute type').optional(),
+    isRequired: z.boolean().optional(),
+    options: strArray(50).optional(),
+    sortOrder: f.numOptional({ min: 0, max: 1000, label: 'Order' }),
+  })).max(40, 'A category can have up to 40 attributes').optional(),
   parent: z.string().optional(), // a parent category id, or '' for none
 });
 export const categoryUpdateSchema = categorySchema.partial();
@@ -235,9 +245,9 @@ export const parentCategorySchema = obj({
   description: f.textOptional(300, 'Description'),
 });
 
-const spec = obj({ key: z.string().trim().max(60, 'Specification name is too long'), value: z.string().trim().max(200, 'Specification value is too long').optional() });
-const year = new Date().getFullYear() + 1;
+const attributeValue = z.union([z.string().max(200, 'Attribute values can be at most 200 characters'), z.number(), z.boolean(), z.null()]);
 
+// No prices, stock or manufacture year here: those belong to batches (stockReceiveSchema)
 export const productSchema = obj({
   category: f.objectIdString,
   name: f.textOptional(120, 'Product name'),
@@ -246,19 +256,53 @@ export const productSchema = obj({
   sku: f.skuOptional,
   hsnCode: f.hsnOptional,
   unit: f.textOptional(20, 'Unit'),
-  price: f.numOptional({ min: 0, max: 1e9, label: 'Price' }),
   gstPercent: f.numOptional({ min: 0, max: 100, label: 'GST %' }),
-  quantity: f.numOptional({ min: 0, max: 1e9, label: 'Quantity' }),
-  warrantyYears: f.numOptional({ min: 0, max: 60, int: true, label: 'Warranty' }),
+  warrantyMonths: f.numOptional({ min: 0, max: 720, int: true, label: 'Warranty' }),
+  reorderLevel: f.numOptional({ min: 0, max: 1e9, label: 'Reorder level' }),
+  isSerialized: z.boolean().optional(),
   description: f.textOptional(1000, 'Description'),
+  attributes: z.record(z.string().max(40), attributeValue).optional(),
   watts: f.numOptional({ min: 1, max: 2000, label: 'Watt' }),
-  manufactureYear: f.numOptional({ min: 1990, max: year, int: true, label: 'Manufacture year' }),
   length: f.numOptional({ min: 0.2, max: 5, label: 'Length' }),
   width: f.numOptional({ min: 0.2, max: 5, label: 'Width' }),
   shape: z.enum(PILLAR_SHAPES, 'Invalid shape').optional(),
-  specs: z.array(spec).max(40, 'A product can have up to 40 specifications').optional(),
 });
 export const productUpdateSchema = productSchema.partial();
+
+/* ───────────── stock ───────────── */
+
+export const supplierSchema = obj({
+  name: f.orgNameRequired,
+  phone: f.phoneOptional,
+  email: f.emailOptional,
+  gstNumber: f.gstinOptional,
+  address: f.textOptional(400, 'Address'),
+  notes: f.textOptional(500, 'Notes'),
+  categories: z.array(f.objectIdString).max(100, 'Choose up to 100 categories').optional(),
+});
+export const supplierUpdateSchema = supplierSchema.partial();
+
+const maxMfgYear = new Date().getFullYear() + 1;
+const stockDate = z.preprocess((v) => (v === '' ? null : v), z.string().refine((v) => !Number.isNaN(new Date(v).getTime()), 'Invalid date').nullable().optional());
+const batchFields = {
+  supplier: z.string('Choose the supplier').regex(/^[0-9a-fA-F]{24}$/, 'Choose the supplier'),
+  batchNo: f.textOptional(60, 'Batch number'),
+  mfgDate: stockDate,
+  mfgYear: f.numOptional({ min: 1990, max: maxMfgYear, int: true, label: 'Manufacture year' }),
+  receivedDate: stockDate,
+  purchasePrice: f.numOptional({ min: 0, max: 1e10, label: 'Purchase price' }),
+  basePrice: f.num({ min: 0, max: 1e10, label: 'Base price' }),
+  wholesalePrice: f.num({ min: 0, max: 1e10, label: 'Wholesale price' }),
+  retailPrice: f.num({ min: 0, max: 1e10, label: 'Retail price' }),
+  note: f.textOptional(300, 'Note'),
+};
+/** Receiving stock: all three selling prices are required; serialized products send their serial numbers instead of a quantity. */
+export const stockReceiveSchema = obj({
+  ...batchFields,
+  qtyReceived: f.numOptional({ min: 0, max: 1e7, label: 'Quantity' }),
+  serials: strArray(2000, 80).optional(),
+});
+export const batchUpdateSchema = obj(batchFields).partial();
 
 const packageItem = obj({ productId: f.objectIdString, qty: f.num({ min: 0, max: 1e6, label: 'Quantity' }), unit: f.textOptional(20, 'Unit') });
 export const packageSchema = obj({

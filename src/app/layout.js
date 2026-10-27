@@ -1,5 +1,5 @@
 import { Geist, Geist_Mono } from 'next/font/google';
-import { LightboxHost } from '@/components/kit';
+import { LightboxHost, PdfViewerHost } from '@/components/kit';
 import RouteTracker from '@/components/RouteTracker';
 import './globals.css';
 
@@ -18,6 +18,7 @@ export default function RootLayout({ children }) {
         {children}
         <RouteTracker />
         <LightboxHost />
+        <PdfViewerHost />
       </body>
     </html>
   );

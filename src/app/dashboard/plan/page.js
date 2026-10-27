@@ -1,5 +1,5 @@
-import PlanBilling from '@/components/dashboard/PlanBilling';
+import { redirect } from 'next/navigation';
 
 export default function Page() {
-  return <PlanBilling />;
+  redirect('/dashboard/settings?tab=plan');
 }

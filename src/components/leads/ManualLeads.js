@@ -2,14 +2,17 @@
 
 // Manual leads: added by hand on the company's own lead form, or imported from CSV / Excel. Same pipeline as Meta and
 // Google leads — statuses, assignment, priority, own-vs-all visibility — and every control follows the Leads permissions.
-import { CircleCheck, Download, Eye, FileSpreadsheet, Pencil, Plus, Search, Star, Upload, UserPlus, Users } from 'lucide-react';
+import { CircleCheck, Download, Eye, FileSpreadsheet, Pencil, Plus, Star, Upload, UserPlus, Users } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, downloadApiFile } from '@/lib/api';
 import { leadValue, valueText } from '@/lib/leadForm';
+import { isLeadStatusLocked, LEAD_CONVERTED_LOCK_HINT } from '@/lib/leads';
 import { useCan } from '@/lib/useCan';
 import { useResource } from '@/lib/useResource';
 import { Alert, Badge, Button, Card, cx, EmptyState, FormField, FormModal, Input, LoadingBlock, Modal, PageHeader, Select, Table, TablePagination, Td, Textarea, Th, Tr, formatDate, timeAgo, toast } from '../kit';
+import { PRIORITY_FILTER_OPTIONS } from '@/components/admin/leads/PriorityToggle';
 import ExportAllLeadsButton from '../admin/leads/ExportAllLeadsButton';
+import LeadListFilterBar from './LeadListFilterBar';
 import LeadFields from './LeadFields';
 import LeadLog from './LeadLog';
 import ConvertToClient from './ConvertToClient';
@@ -150,6 +153,7 @@ function LeadDetail({ fields, lead, statuses, assignees, may, onClose, onChanged
     const res = await api(`/api/leads/manual?limit=1&search=${encodeURIComponent(lead.phone)}`);
     return res.leads.find((l) => l._id === lead._id) || lead;
   };
+  const leadLocked = isLeadStatusLocked(lead, statuses);
   return (
     <Modal
       open
@@ -187,29 +191,35 @@ function LeadDetail({ fields, lead, statuses, assignees, may, onClose, onChanged
                 <StatusBadge status={lead.currentStatus} />
               </div>
               {may.status ? (
-                <div className="space-y-2">
-                  <Select value={statusForm.statusId} onValue={(x) => setStatusForm({ ...statusForm, statusId: x })} aria-label="New status">
-                    <option value="">Choose a status…</option>
-                    {statuses.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
-                  </Select>
-                  <Textarea rows={2} maxLength={1000} placeholder="Remark (optional)" value={statusForm.remark} onValue={(x) => setStatusForm({ ...statusForm, remark: x })} />
-                  <Button size="sm" variant="primary" disabled={!statusForm.statusId} loading={busy === 'status'} onClick={saveStatus}>Update status</Button>
-                </div>
-              ) : <p className="text-xs text-slate-500">You can see the status but not change it.</p>}
+                !leadLocked && (
+                  <div className="space-y-2">
+                    <Select value={statusForm.statusId} onValue={(x) => setStatusForm({ ...statusForm, statusId: x })} aria-label="New status">
+                      <option value="">Choose a status…</option>
+                      {statuses.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
+                    </Select>
+                    <Textarea rows={2} maxLength={1000} placeholder="Remark (optional)" value={statusForm.remark} onValue={(x) => setStatusForm({ ...statusForm, remark: x })} />
+                    <Button size="sm" variant="primary" disabled={!statusForm.statusId} loading={busy === 'status'} onClick={saveStatus}>Update status</Button>
+                  </div>
+                )
+              ) : !leadLocked ? <p className="text-xs text-slate-500">You can see the status but not change it.</p> : null}
             </div>
 
             <div className="rounded-lg border border-slate-200 p-4">
               <div className="mb-2 text-[13px] font-semibold text-slate-900">Assigned to</div>
               <div className="text-sm text-slate-700">{lead.assignedTo?.name || 'Nobody yet'}</div>
               {may.assign ? (
-                <div className="mt-2.5 space-y-2">
-                  <Select value={assignee} onValue={setAssignee} aria-label="Assign to">
-                    <option value="">Choose a staff member…</option>
-                    {assignees.filter((a) => a._id !== lead.assignedTo?._id).map((a) => <option key={a._id} value={a._id}>{a.name}</option>)}
-                    {lead.assignedTo && <option value="unassign">Remove assignment</option>}
-                  </Select>
-                  <Button size="sm" icon={UserPlus} disabled={!assignee} loading={busy === 'assign'} onClick={() => run('assign', async () => { await api('/api/leads/manual/assign', { method: 'POST', body: { leadIds: [lead._id], counsellorId: assignee === 'unassign' ? null : assignee } }); setAssignee(''); return reload(); }, 'Assignment saved')}>Assign</Button>
-                </div>
+                leadLocked ? (
+                  <p className="mt-1 text-xs text-slate-500">{LEAD_CONVERTED_LOCK_HINT}</p>
+                ) : (
+                  <div className="mt-2.5 space-y-2">
+                    <Select value={assignee} onValue={setAssignee} aria-label="Assign to">
+                      <option value="">Choose a staff member…</option>
+                      {assignees.filter((a) => a._id !== lead.assignedTo?._id).map((a) => <option key={a._id} value={a._id}>{a.name}</option>)}
+                      {lead.assignedTo && <option value="unassign">Remove assignment</option>}
+                    </Select>
+                    <Button size="sm" icon={UserPlus} disabled={!assignee} loading={busy === 'assign'} onClick={() => run('assign', async () => { await api('/api/leads/manual/assign', { method: 'POST', body: { leadIds: [lead._id], counsellorId: assignee === 'unassign' ? null : assignee } }); setAssignee(''); return reload(); }, 'Assignment saved')}>Assign</Button>
+                  </div>
+                )
               ) : <p className="mt-1 text-xs text-slate-500">You can’t change who has this lead.</p>}
             </div>
           </div>
@@ -235,12 +245,13 @@ export default function ManualLeads() {
   const may = { all: can('leads', 'view_all'), create: can('leads', 'create'), update: can('leads', 'update'), status: can('leads', 'change_status'), assign: can('leads', 'assign'), export: can('leads', 'export') };
   const form = useResource('/api/leads/form');
   const statusesRes = useResource('/api/leads/statuses');
-  const assigneesRes = useResource(may.assign ? '/api/leads/assignees' : null);
+  const assigneesRes = useResource(may.all || may.assign ? '/api/leads/assignees' : null);
   const fields = useMemo(() => form.data?.fields || [], [form.data]);
   const statuses = statusesRes.data || [];
   const assignees = assigneesRes.data || [];
 
-  const [filters, setFilters] = useState({ search: '', assignedTo: '', statusId: '', source: '', priority: '' });
+  const EMPTY_FILTERS = { search: '', assignedTo: '', statusId: '', source: '', priority: '', fromDate: '', toDate: '' };
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [state, setState] = useState({ leads: [], total: 0, totalPages: 1, loading: true, error: '' });
@@ -253,7 +264,13 @@ export default function ManualLeads() {
 
   const load = useCallback(async () => {
     const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
-    Object.entries(filters).forEach(([k, v]) => v && params.set(k, v));
+    if (filters.search) params.set('search', filters.search);
+    if (filters.assignedTo) params.set('assignedTo', filters.assignedTo);
+    if (filters.statusId) params.set('statusId', filters.statusId);
+    if (filters.source) params.set('source', filters.source);
+    if (filters.priority) params.set('priority', filters.priority);
+    if (filters.fromDate) params.set('from', filters.fromDate);
+    if (filters.toDate) params.set('to', filters.toDate);
     try {
       const res = await api(`/api/leads/manual?${params}`);
       setState({ leads: res.leads, total: res.total, totalPages: res.totalPages, loading: false, error: '' });
@@ -264,6 +281,8 @@ export default function ManualLeads() {
   useEffect(() => { load(); }, [load]);
 
   const setFilter = (k) => (v) => { setFilters((f) => ({ ...f, [k]: v })); setPage(1); };
+  const clearFilters = () => { setQuery(''); setFilters(EMPTY_FILTERS); setPage(1); };
+  const extraFilterCount = [filters.assignedTo, filters.statusId, filters.source, filters.priority, filters.fromDate, filters.toDate].filter(Boolean).length;
   const replaceLead = (lead) => {
     setState((s) => ({ ...s, leads: s.leads.map((l) => (l._id === lead._id ? lead : l)) }));
     setModal((m) => (m?.lead?._id === lead._id ? { ...m, lead } : m));
@@ -277,7 +296,7 @@ export default function ManualLeads() {
     }
   };
   const extra = fields.filter((f) => !['name', 'phone', 'address'].includes(f.key)).slice(0, 2); // first two of the company's own fields, as columns
-  const hasFilters = Object.values(filters).some(Boolean);
+  const hasFilters = Boolean(filters.search || extraFilterCount);
 
   return (
     <>
@@ -290,36 +309,48 @@ export default function ManualLeads() {
         </div>
       </PageHeader>
 
-      <Card className="mb-4 p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[16rem] flex-1">
-            <Search className="pointer-events-none absolute top-3 left-3 h-4 w-4 text-slate-400" />
-            <Input aria-label="Search leads" placeholder="Search name, phone, assigned to, status or date (e.g. 16/10/2026)" value={query} onValue={setQuery} className="pl-9" />
-          </div>
-          {may.all && (
-            <Select aria-label="Assigned to" value={filters.assignedTo} onValue={setFilter('assignedTo')} className="w-44">
+      <LeadListFilterBar
+        search={query}
+        onSearchChange={setQuery}
+        activeFilterCount={extraFilterCount}
+        showClear={hasFilters}
+        onClear={clearFilters}
+        fromDate={filters.fromDate}
+        toDate={filters.toDate}
+        onDateChange={({ from, to }) => {
+          setFilters((f) => ({ ...f, fromDate: from, toDate: to }));
+          setPage(1);
+        }}
+      >
+        <FormField label="Added or imported">
+          <Select aria-label="Source" value={filters.source} onValue={setFilter('source')}>
+            <option value="">All</option>
+            <option value="manual">Added</option>
+            <option value="import">Imported</option>
+          </Select>
+        </FormField>
+        {may.all && (
+          <FormField label="Assigned to">
+            <Select aria-label="Assigned to" value={filters.assignedTo} onValue={setFilter('assignedTo')}>
               <option value="">Anyone</option>
               <option value="unassigned">Unassigned</option>
               {assignees.map((a) => <option key={a._id} value={a._id}>{a.name}</option>)}
             </Select>
-          )}
-          <Select aria-label="Status" value={filters.statusId} onValue={setFilter('statusId')} className="w-40">
+          </FormField>
+        )}
+        <FormField label="Status">
+          <Select aria-label="Status" value={filters.statusId} onValue={setFilter('statusId')}>
             <option value="">Any status</option>
             <option value="none">Not started</option>
             {statuses.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
           </Select>
-          <Select aria-label="Source" value={filters.source} onValue={setFilter('source')} className="w-48">
-            <option value="">Added or imported</option>
-            <option value="manual">Added</option>
-            <option value="import">Imported</option>
+        </FormField>
+        <FormField label="Priority">
+          <Select aria-label="Priority" value={filters.priority} onValue={setFilter('priority')}>
+            {PRIORITY_FILTER_OPTIONS.map((o) => <option key={o.value || 'all'} value={o.value}>{o.label}</option>)}
           </Select>
-          <Select aria-label="Priority" value={filters.priority} onValue={setFilter('priority')} className="w-36">
-            <option value="">Any priority</option>
-            <option value="true">Priority</option>
-            <option value="false">Not priority</option>
-          </Select>
-        </div>
-      </Card>
+        </FormField>
+      </LeadListFilterBar>
 
       {state.error && <Alert className="mb-4">{state.error}</Alert>}
       <Card className="overflow-hidden">
@@ -357,7 +388,16 @@ export default function ManualLeads() {
                     </Td>
                     <Td><div className="max-w-[240px] truncate text-slate-600" title={l.address}>{l.address || '—'}</div></Td>
                     {extra.map((f) => <Td key={f.key}><div className="max-w-[180px] truncate text-slate-600">{valueText(f, l.fields?.[f.key]) || '—'}</div></Td>)}
-                    <Td className="text-slate-700">{l.assignedTo?.name || <span className="text-slate-400">—</span>}</Td>
+                    <Td className="whitespace-nowrap text-slate-700">
+                      {l.assignedTo?.name ? (
+                        <>
+                          <div>{l.assignedTo.name}</div>
+                          {l.assignedAt && <div className="text-xs text-slate-500">{formatDate(l.assignedAt)}</div>}
+                        </>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </Td>
                     <Td><StatusBadge status={l.currentStatus} /></Td>
                     <Td className="whitespace-nowrap text-slate-500"><div>{formatDate(l.createdAt)}</div><div className="text-xs">{l.source === 'import' ? 'Imported' : 'Added'}</div></Td>
                     <Td><div className="flex justify-end"><Button size="sm" variant="ghost" icon={Eye} onClick={(e) => { e.stopPropagation(); setModal({ type: 'detail', lead: l }); }}>View</Button></div></Td>

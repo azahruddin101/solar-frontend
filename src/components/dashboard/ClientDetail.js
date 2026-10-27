@@ -11,7 +11,7 @@ import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { Alert, Avatar, Badge, Button, Card, ConfirmDialog, EmptyState, FormField, IconButton, Input, LoadingBlock, PageHeader, Select, Table, Td, Textarea, Th, Tr, buttonClass, cx, formatDate, openStoredFile, timeAgo, toast, RowMenu } from '@/components/kit';
 import ClientCredentials from './ClientCredentials';
-import { DESIGN_STATUSES, NewDesignModal, PROJECT_TYPE_LABEL, ROOF_TYPE_LABEL, designHref } from './shared';
+import { DESIGN_STATUSES, GRID_TYPE_LABEL, NewDesignModal, PROJECT_TYPE_LABEL, ROOF_TYPE_LABEL, designHref } from './shared';
 
 function formatFileSize(bytes) {
   if (!bytes) return '0 B';
@@ -180,6 +180,11 @@ export default function ClientDetail({ id, basePath = '/dashboard/clients', bill
               </div>
 
               <div>
+                <span className="text-xs text-slate-400">Grid type</span>
+                <p className="mt-0.5 text-sm font-medium text-slate-900">{GRID_TYPE_LABEL[client.gridType] || '—'}</p>
+              </div>
+
+              <div>
                 <span className="text-xs text-slate-400">Roof Type</span>
                 <p className="mt-0.5 text-sm font-medium text-slate-900">{ROOF_TYPE_LABEL[client.roofType] || '—'}</p>
               </div>
@@ -235,7 +240,11 @@ export default function ClientDetail({ id, basePath = '/dashboard/clients', bill
               )}
             </div>
 
-            {designsResource.loading ? (
+            {designsResource.error ? (
+              <div className="p-6">
+                <Alert>{designsResource.error}</Alert>
+              </div>
+            ) : designsResource.loading ? (
               <LoadingBlock />
             ) : !clientDesigns.length ? (
               <div className="p-8 text-center">
@@ -372,7 +381,13 @@ export default function ClientDetail({ id, basePath = '/dashboard/clients', bill
       <ConfirmDialog open={modal?.type === 'removeLogin'} onClose={close} onConfirm={removeLogin} busy={busy} error={modalError} title="Remove portal access?" confirmLabel="Remove access">
         <b className="text-slate-900">{client.name}</b> will no longer be able to sign in. Their proposals stay; you can create a new login any time.
       </ConfirmDialog>
-      {modal?.type === 'design' && canCreateDesign && <NewDesignModal clients={[client]} clientId={client.id} onClose={close} />}
+      {modal?.type === 'design' && canCreateDesign && (
+        <NewDesignModal
+          clients={[client]}
+          clientId={client.id}
+          onClose={() => { close(); designsResource.reload(); }}
+        />
+      )}
       <ConfirmDialog open={modal?.type === 'delete'} onClose={close} onConfirm={remove} busy={busy} error={modalError} title="Delete this client?" confirmLabel="Delete client">
         <b className="text-slate-900">{client.name}</b> will be permanently deleted along with their proposals.
       </ConfirmDialog>

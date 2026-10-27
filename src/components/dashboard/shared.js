@@ -53,6 +53,8 @@ export function DesignStatusBadge({ status }) {
 export const designHref = (d) => d.type === 'quick' ? `/proposal/${d.id}` : `/design/${d.id}/${d.summary?.panels ? 'plan' : 'location'}`;
 
 export const PROJECT_TYPE_LABEL = { residential: 'Residential', industrial: 'Industrial', commercial: 'Commercial' };
+export const DESIGN_GRID_TYPES = ['on_grid', 'off_grid', 'hybrid'];
+export const GRID_TYPE_LABEL = { on_grid: 'On Grid', off_grid: 'Off Grid', hybrid: 'Hybrid' };
 export const ROOF_TYPE_LABEL = { concrete: 'Concrete', factory: 'Factory', tin_shed: 'Tin Shed' };
 
 /** Pick the client (or arrive with one) and name the design, then open the designer. */
@@ -241,6 +243,16 @@ export function NewDesignModal({ clients = [], clientId, onClose }) {
                       ))}
                     </Select>
                   </FormField>
+                  <FormField label="Grid type">
+                    <Select value={gridType} onValue={setGridType}>
+                      {DESIGN_GRID_TYPES.map((t) => (
+                        <option key={t} value={t}>{GRID_TYPE_LABEL[t]}</option>
+                      ))}
+                    </Select>
+                  </FormField>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
                   <FormField label="Roof type" optional>
                     <Select value={roofType || ''} onValue={setRoofType}>
                       <option value="">Not specified</option>
@@ -274,19 +286,11 @@ export function NewDesignModal({ clients = [], clientId, onClose }) {
               <div className="space-y-5">
                 <SectionLabel hint="Optional">Billing &amp; service</SectionLabel>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <FormField label="Billing Name" optional hint="If different from the client's name.">
-                    <Input value={billingName} onValue={setBillingName} maxLength={160} placeholder={selectedClient?.name || 'e.g. Business name for billing'} />
-                  </FormField>
-                  <FormField label="Grid Type">
-                    <Select value={gridType} onValue={setGridType}>
-                      <option value="on_grid">On Grid</option>
-                      <option value="off_grid">Off Grid</option>
-                    </Select>
-                  </FormField>
-                </div>
+                <FormField label="Billing Name" optional hint="If different from the client's name.">
+                  <Input value={billingName} onValue={setBillingName} maxLength={160} placeholder={selectedClient?.name || 'e.g. Business name for billing'} />
+                </FormField>
 
-                <Toggle checked={loanRequired} onChange={setLoanRequired} label="Loan" description="Does this client need financing for the system?" />
+                <Toggle checked={loanRequired} onChange={setLoanRequired} label="Loan" description="Is this system being bought on a loan? The proposal goes into Loans and follows your loan steps." />
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <FormField label="Roof cleaning / year" optional hint="Times per year">

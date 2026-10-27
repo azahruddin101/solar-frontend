@@ -40,7 +40,10 @@ const INSTALL_ACTIONS = {
   step_added: (e) => ({ text: `Step added: ${e.stepName}` }),
   step_removed: (e) => ({ text: `Step removed: ${e.stepName}` }),
   step_renamed: (e) => ({ text: `Step renamed: ${e.stepName}`, detail: e.message }),
+  materials_issued: (e) => ({ text: 'Material issued from stock', detail: e.message }),
   note: (e) => ({ text: e.stepName ? `Note on ${e.stepName}` : 'Note on installation', detail: e.message }),
+  amc_completed: (e) => ({ text: 'AMC visit completed', detail: e.message }),
+  amc_parts_invoiced: (e) => ({ text: 'Parts used on an AMC visit invoiced', detail: e.message }),
 };
 
 const PHASE_LABEL = { client: 'Client', design: 'Design', installation: 'Installation' };

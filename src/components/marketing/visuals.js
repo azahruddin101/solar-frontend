@@ -61,9 +61,10 @@ export function RoofIllustration({ className, rows = 3, cols = 8 }) {
   );
 }
 
-function Window({ title, children, className }) {
+/** `flat`: no drop shadow or large radius — for a page that frames the mock itself. */
+function Window({ title, children, className, flat }) {
   return (
-    <div className={cx('overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_30px_80px_-20px_rgba(15,23,42,0.35)] ring-1 ring-slate-900/5', className)}>
+    <div className={cx('overflow-hidden border bg-white', flat ? 'rounded-lg border-stone-200' : 'rounded-2xl border-slate-200 shadow-[0_30px_80px_-20px_rgba(15,23,42,0.35)] ring-1 ring-slate-900/5', className)}>
       <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
         <span className="h-2.5 w-2.5 rounded-full bg-slate-300" /><span className="h-2.5 w-2.5 rounded-full bg-slate-300" /><span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
         <span className="ml-3 truncate rounded-md bg-white px-3 py-0.5 text-[10px] text-slate-400 ring-1 ring-slate-200">{title}</span>
@@ -74,9 +75,9 @@ function Window({ title, children, className }) {
 }
 
 /** The designer's last step: 3D roof on the left, sizing + result on the right. */
-export function DesignerMock({ className }) {
+export function DesignerMock({ className, flat }) {
   return (
-    <Window title={`${PRODUCT_NAME} · Designer · Solar plan`} className={className}>
+    <Window title={`${PRODUCT_NAME} · Designer · Solar plan`} className={className} flat={flat}>
       <div className="flex items-center gap-3 border-b border-slate-200 px-4 py-2 text-[11px]">
         <span className="font-semibold text-slate-900">Kumar residence</span>
         <span className="hidden text-slate-400 sm:inline">For Ravi Kumar · Camp, Pune</span>
@@ -113,9 +114,9 @@ export function DesignerMock({ className }) {
 }
 
 /** First page of the proposal PDF. Colours come from CSS variables so the branding section can re-theme it. */
-export function ProposalMock({ company = 'Sunrise Solar', className, style }) {
+export function ProposalMock({ company = 'Sunrise Solar', className, style, flat }) {
   return (
-    <div className={cx('relative aspect-[210/297] w-full overflow-hidden rounded-xl bg-white text-left shadow-[0_30px_70px_-20px_rgba(15,23,42,0.4)] ring-1 ring-slate-900/10', className)} style={style}>
+    <div className={cx('relative aspect-[210/297] w-full overflow-hidden bg-white text-left', flat ? 'border border-stone-300' : 'rounded-xl shadow-[0_30px_70px_-20px_rgba(15,23,42,0.4)] ring-1 ring-slate-900/10', className)} style={style}>
       <div className="flex items-center justify-between px-[6%] pt-[4.5%]">
         <div className="flex items-center gap-[3%]" style={{ width: '55%' }}>
           <span className="grid aspect-square w-[16%] place-items-center rounded-[22%]" style={{ background: 'var(--p)' }}><Sun className="h-[60%] w-[60%] text-white" /></span>
