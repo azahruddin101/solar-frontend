@@ -55,7 +55,7 @@ function StaffDetails({ agent: a, onClose, onEdit }) {
       <div className="flex items-center gap-4">
         <Avatar name={a.name} src={a.photo ? assetUrl(a.photo) : undefined} size={56} zoom />
         <div className="min-w-0">
-          <div className="truncate text-base font-semibold text-slate-900">{a.name}</div>
+          <Link href={`/dashboard/team/${a.id}`} className="block truncate text-base font-semibold text-slate-900 hover:text-brand hover:underline">{a.name}</Link>
           <div className="mt-1">{a.active ? <Badge dot tone="green">Active</Badge> : <Badge dot tone="slate">Inactive</Badge>}</div>
         </div>
       </div>
@@ -161,7 +161,7 @@ export default function Team() {
                     <div className="flex items-center gap-3">
                       <Avatar name={a.name} src={a.photo ? assetUrl(a.photo) : undefined} />
                       <div className="min-w-0">
-                        <div className="max-w-[220px] truncate font-medium text-slate-900">{a.name}</div>
+                        <Link href={`/dashboard/team/${a.id}`} onClick={(e) => e.stopPropagation()} className="block max-w-[220px] truncate font-medium text-slate-900 hover:text-brand hover:underline">{a.name}</Link>
                         <div className="text-xs">{a.active ? <span className="text-emerald-700">● Can sign in</span> : <span className="text-slate-400">● Switched off</span>}</div>
                       </div>
                     </div>

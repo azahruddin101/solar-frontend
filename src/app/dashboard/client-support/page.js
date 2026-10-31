@@ -1,5 +1,10 @@
+import { Suspense } from 'react';
 import TicketList from '@/components/tickets/TicketList';
 
 export default function Page() {
-  return <TicketList channel="clients" />;
+  return (
+    <Suspense>
+      <TicketList channel="clients" />
+    </Suspense>
+  );
 }

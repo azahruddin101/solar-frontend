@@ -5,7 +5,9 @@ import { ArrowLeft, Box, CalendarClock, Check, Download, MessageSquare, X } from
 import PortalAmcPackagesCard from './PortalAmcPackagesCard';
 import Link from 'next/link';
 import { useState } from 'react';
-import { PAYMENT_MODE_LABEL, generateInvoicePdf, generateReceiptPdf } from '@/lib/billingPdf';
+import { PAYMENT_MODE_LABEL, generateInvoicePdf } from '@/lib/billingPdf';
+import { buildBillPdfBlob } from '@/lib/billPdf';
+import { downloadBlob } from '@/lib/invoicePdf';
 import { invoiceTax } from '@/lib/pricing';
 import { formatMoney } from '@/lib/energy';
 import { api } from '@/lib/api';
@@ -13,6 +15,7 @@ import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { Alert, Badge, Button, Card, FormField, IconButton, LoadingBlock, Modal, RichTextContent, Table, Td, Textarea, Th, Tr, buttonClass, formatDate, toast } from '../kit';
 import { DesignStatusBadge } from '../dashboard/shared';
+import { netAfterSubsidy, subsidyOf } from '@/lib/subsidy';
 
 const RESPONSE_COPY = {
   accepted: {
@@ -56,7 +59,7 @@ export default function PortalProposal({ id }) {
   if (loading) return <LoadingBlock />;
   if (error || !data) return <Alert>{error || 'Not found'}</Alert>;
 
-  const { proposal: p, client, total, paid, balance, payments, invoice, amc, amcPackages } = data;
+  const { proposal: p, client, total, paid, balance, payments, bills = [], invoice, amc, amcPackages } = data;
   const currency = company?.currency || 'INR';
   const pricing = p.pricing;
   const tax = pricing ? invoiceTax(pricing, total) : null;
@@ -158,7 +161,7 @@ export default function PortalProposal({ id }) {
         </Card>
       )}
 
-      {response?.decision === 'changes_requested' && p.status === 'proposed' && (
+      {response?.decision === 'changes_requested' && ['proposed', 'reproposed', 'negotiation'].includes(p.status) && (
         <Alert className="mb-5">
           <span className="font-medium">Change request sent.</span> {company?.name || 'Your provider'} will update the proposal and notify you. Your note: “{response.note}”
         </Alert>
@@ -208,6 +211,13 @@ export default function PortalProposal({ id }) {
                 <Tr key={k}><Td className="text-slate-600" colSpan={3}>{k}</Td><Td className="text-right tabular-nums">{money(v)}</Td></Tr>
               ))}
               <Tr><Td className="font-semibold text-slate-900" colSpan={3}>Total{pricing.withGst !== false && tax?.gst ? ' (incl. GST)' : ''}</Td><Td className="text-right font-semibold tabular-nums text-slate-900">{money(total)}</Td></Tr>
+              {subsidyOf(p.subsidy).on && (
+                <>
+                  {subsidyOf(p.subsidy).central > 0 && <Tr><Td className="text-slate-600" colSpan={3}>Central government subsidy</Td><Td className="text-right tabular-nums">− {money(subsidyOf(p.subsidy).central)}</Td></Tr>}
+                  {subsidyOf(p.subsidy).state > 0 && <Tr><Td className="text-slate-600" colSpan={3}>State government subsidy</Td><Td className="text-right tabular-nums">− {money(subsidyOf(p.subsidy).state)}</Td></Tr>}
+                  <Tr><Td className="font-semibold text-violet-900" colSpan={3}>Net payable after subsidy</Td><Td className="text-right font-semibold tabular-nums text-violet-900">{money(netAfterSubsidy(total, p.subsidy))}</Td></Tr>
+                </>
+              )}
             </tbody>
           </Table>
         )}
@@ -216,24 +226,24 @@ export default function PortalProposal({ id }) {
       {won && (
         <>
           <div className="mb-3 grid gap-3 sm:grid-cols-3">
-            {[['Proposal total', money(total)], ['Paid', money(paid)], ['Balance due', money(balance)]].map(([k, v]) => (
+            {[['Proposal total', money(total)], ['Paid', money(paid)], ['Yet to be billed', money(Math.max(0, balance))]].map(([k, v]) => (
               <Card key={k} className="p-4"><div className="text-xs font-medium text-slate-500">{k}</div><div className="mt-1 text-lg font-semibold text-slate-900">{v}</div></Card>
             ))}
           </div>
           <Card className="mb-5 overflow-hidden">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3"><span className="text-sm font-semibold text-slate-900">Payments & receipts</span>{invoice && <button type="button" onClick={() => run(() => generateInvoicePdf({ invoice, payments, company, client, currency }))} className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand hover:underline"><Download className="h-4 w-4" />Invoice {invoice.invoiceNo}</button>}</div>
-            {!payments.length ? <p className="px-6 py-5 text-sm text-slate-500">No payments recorded yet.</p> : (
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3"><span className="text-sm font-semibold text-slate-900">Bills & payments</span>{invoice && <button type="button" onClick={() => run(() => generateInvoicePdf({ invoice, company, client, currency }))} className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand hover:underline"><Download className="h-4 w-4" />Invoice {invoice.invoiceNo}</button>}</div>
+            {!bills.length ? <p className="px-6 py-5 text-sm text-slate-500">{payments.length ? `${payments.length} payment${payments.length === 1 ? '' : 's'} recorded.` : 'No bills yet.'}</p> : (
               <Table>
-                <thead><tr><Th>Receipt</Th><Th>Date</Th><Th>Mode</Th><Th>Reference</Th><Th className="text-right">Amount</Th><Th className="text-right">Receipt</Th></tr></thead>
+                <thead><tr><Th>Bill</Th><Th>Date</Th><Th>Covers</Th><Th>Paid by</Th><Th className="text-right">Amount</Th><Th className="text-right">PDF</Th></tr></thead>
                 <tbody>
-                  {payments.map((x, i) => (
-                    <Tr key={x.id}>
-                      <Td className="font-medium text-slate-900">{x.receiptNo}</Td>
-                      <Td>{formatDate(x.receivedOn)}</Td>
-                      <Td>{PAYMENT_MODE_LABEL[x.mode]?.split(' (')[0] || x.mode}</Td>
-                      <Td>{x.reference || '—'}</Td>
-                      <Td className="text-right tabular-nums">{money(x.amount)}</Td>
-                      <Td className="text-right"><IconButton icon={Download} label="Download receipt" onClick={() => run(() => generateReceiptPdf({ payment: x, proposalName: p.name, total, history: payments.slice(0, i + 1), company, client, currency }))} /></Td>
+                  {bills.map((b) => (
+                    <Tr key={b.id}>
+                      <Td className="font-medium text-slate-900">{b.billNo}</Td>
+                      <Td>{formatDate(b.issuedOn)}</Td>
+                      <Td>{[b.ewayBills?.length ? `E-way bill ${b.ewayBills.map((e) => e.ewayNo).join(', ')}` : '', b.services?.length ? `${b.services.length} service${b.services.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ') || '—'}</Td>
+                      <Td>{[PAYMENT_MODE_LABEL[b.paid?.mode]?.split(' (')[0] || b.paid?.mode, b.paid?.reference].filter(Boolean).join(' · ')}</Td>
+                      <Td className="text-right tabular-nums">{money(b.total)}</Td>
+                      <Td className="text-right"><IconButton icon={Download} label="Download bill" onClick={() => run(async () => { const { blob, filename } = await buildBillPdfBlob({ bill: b, company, client, currency }); downloadBlob(blob, filename); })} /></Td>
                     </Tr>
                   ))}
                 </tbody>

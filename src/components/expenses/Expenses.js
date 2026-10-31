@@ -2,14 +2,15 @@
 
 // Every proposal's project with what has been spent on it against its budget. Add an expense to any of them from
 // here, or open one to see and correct its expenses.
-import { ExternalLink, Plus, Search, Target, WalletCards } from 'lucide-react';
+import { Download, Plus, Search, Target, WalletCards } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { formatMoney } from '@/lib/energy';
+import { exportAllProjectsSummary } from '@/lib/expenseExport';
 import { useSession } from '@/lib/session';
 import { useCan } from '@/lib/useCan';
 import { useResource } from '@/lib/useResource';
-import { Alert, Button, Card, EmptyState, Input, LoadingBlock, PageHeader, StatCard, Table, Td, Th, Tr, buttonClass, cx, formatDate } from '../kit';
+import { Alert, Button, Card, EmptyState, Input, LoadingBlock, PageHeader, StatCard, Table, Td, Th, Tr, capName, cx, formatDate, toast } from '../kit';
 import ExpenseForm from './ExpenseForm';
 import { BudgetMeter, ExpenseTabs } from './shared';
 
@@ -20,6 +21,7 @@ export default function Expenses({ basePath = '/dashboard/expenses' }) {
   const { data, loading, error, reload } = useResource('/api/expenses');
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (data?.items || []).filter((r) => !q || `${r.name} ${r.client?.name || ''} ${r.address}`.toLowerCase().includes(q));
@@ -29,9 +31,20 @@ export default function Expenses({ basePath = '/dashboard/expenses' }) {
   const budget = budgeted.reduce((a, r) => a + r.budget, 0);
   const overBudget = budgeted.filter((r) => r.spent > r.budget).length;
 
+  const downloadSummary = async () => {
+    setExporting(true);
+    try {
+      await exportAllProjectsSummary(data?.items || []);
+    } catch (e) {
+      toast.error(e.message || 'Could not create the sheet');
+    }
+    setExporting(false);
+  };
+
   return (
     <>
       <PageHeader title="Expenses" description="What each project has cost against its budget. Add an expense to any project, or open one to set its budget and see its entries.">
+        {(data?.items?.length > 0) && <Button icon={Download} loading={exporting} disabled={exporting} onClick={downloadSummary}>Export Excel</Button>}
         {may('expenses', 'create') && <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add expense</Button>}
       </PageHeader>
       <ExpenseTabs basePath={basePath} current="projects" />
@@ -39,7 +52,7 @@ export default function Expenses({ basePath = '/dashboard/expenses' }) {
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label={query ? 'Spent (shown)' : 'Total spent'} value={money(total)} icon={WalletCards} />
         <StatCard label="Projects" value={rows.length} />
-        <StatCard label="Budgeted" value={money(budget)} icon={Target} hint={budgeted.length ? `${budgeted.length} project${budgeted.length === 1 ? '' : 's'} with a budget` : 'No budgets set yet'} />
+        <StatCard label="Budgeted" value={money(budget)} icon={Target} hint={budgeted.length ? `${budgeted.length} project${budgeted.length === 1 ? '' : 's'} · ${rows.filter((r) => r.budgetSource === 'proposal').length} at the proposal price` : 'No budgets yet'} />
         <StatCard label="Over budget" value={overBudget} hint={budgeted.length ? `of ${budgeted.length} budgeted` : undefined} />
       </div>
       <Card className="overflow-hidden">
@@ -58,13 +71,16 @@ export default function Expenses({ basePath = '/dashboard/expenses' }) {
               {rows.map((r) => (
                 <Tr key={r.id}>
                   <Td>
-                    <Link href={`${basePath}/${r.id}`} className="block max-w-[320px] truncate font-medium text-slate-900 hover:text-brand">{r.name}</Link>
+                    <Link href={`${basePath}/${r.id}`} className="block max-w-[320px] truncate font-medium text-slate-900 hover:text-brand">{capName(r.name)}</Link>
                     <div className="max-w-[320px] truncate text-xs text-slate-500">{[r.client?.name, r.address].filter(Boolean).join(' · ')}</div>
                   </Td>
                   <Td className="tabular-nums text-slate-600">{r.count}</Td>
                   <Td className="whitespace-nowrap text-slate-500">{r.lastExpenseOn ? formatDate(r.lastExpenseOn) : '—'}</Td>
                   <Td className="text-right font-medium text-slate-900 tabular-nums">{money(r.spent)}</Td>
-                  <Td className="text-right text-slate-600 tabular-nums">{r.budget !== null ? money(r.budget) : '—'}</Td>
+                  <Td className="text-right text-slate-600 tabular-nums">
+                    {r.budget !== null ? money(r.budget) : '—'}
+                    {r.budgetSource === 'proposal' && <div className="text-[11px] text-slate-400" title="No budget set yet, so the proposal's price is used. Open the project to set one.">proposal price</div>}
+                  </Td>
                   <Td className={cx('text-right font-medium tabular-nums', r.profit < 0 ? 'text-red-700' : 'text-slate-900')}>{r.profit !== null ? `${r.profit < 0 ? '−' : ''}${money(Math.abs(r.profit))}` : '—'}</Td>
                   <Td><BudgetMeter spent={r.spent} budget={r.budget} compact /></Td>
                   {/* <Td><div className="flex justify-end"><Link href={`${basePath}/${r.id}`} className={buttonClass({ size: 'sm' })}><ExternalLink className="h-3.5 w-3.5" /> Open</Link></div></Td> */}

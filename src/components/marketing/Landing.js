@@ -130,7 +130,7 @@ const MODULES = [
   ['Quick proposals', 'A priced proposal from your packages and catalog in a minute, when a full design isn’t needed.'],
   ['Proposals', 'Nine A4 pages in your brand, with version history, a share link and QR code, WhatsApp sharing and online acceptance.'],
   ['Loans', 'Your own loan steps. A proposal bought on a loan follows them, with remarks the client sees.'],
-  ['Billing', 'GST invoices with your own numbering, receipts for cash, UPI, cheque, card or transfer, and the balance due on every deal.'],
+  ['Billing', 'E-way bills from stock, bills paid by cash, UPI, cheque, card or transfer, and GST invoices with your own numbering.'],
   ['Inventory', 'Categories with custom attributes, batches with base, wholesale and retail prices, suppliers, serial numbers and warranties.'],
   ['Installations', 'Steps from your template, assigned by job title and priority; photos and notes from site.'],
   ['Maintenance', 'Free AMC visits scheduled from the installation date; paid visits booked by the client and assigned to technicians.'],
@@ -267,7 +267,7 @@ const AMC = [['Kumar residence', 'AMC 1 · free', '14 Nov 2026', 'Scheduled'], [
 const OPS_POINTS = [
   ['Installations', 'Every installation starts from your step template. Steps are assigned by job title and priority; the field team updates them with photos and notes from site, and material is issued from stock.'],
   ['Maintenance', 'Free visits are scheduled from the installation date and the client is reminded a week before. Paid visits are booked by the client — optional ones as often as they like — and assigned to technicians.'],
-  ['Billing', 'GST invoices with your own numbering; receipts for every payment; the balance still due on each deal. Nothing booked can be silently changed.'],
+  ['Billing', 'Goods leave stock on an e-way bill, are paid on a bill, and GST invoices with your own numbering settle the bills. Nothing booked can be silently changed.'],
 ];
 
 const Dot = ({ s }) => <span className={cx('h-1.5 w-5', s === 'done' ? 'bg-[#0F6E56]' : s === 'current' ? 'bg-[#F5B82E]' : 'bg-stone-200')} />;

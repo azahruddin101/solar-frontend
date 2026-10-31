@@ -3,7 +3,7 @@
 // Manage Masters → Lead statuses: the steps a lead goes through, used by Meta, Google Ads and manual leads.
 // Each status is an ordinary step, the converted status (the lead became a client) or the lost status — exactly one
 // of each always exists. Choosing Converted on a lead then asks to add the client.
-import { ArrowDown, ArrowUp, CircleCheck, CircleX, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, CalendarClock, CircleCheck, CircleX, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { useResource } from '@/lib/useResource';
@@ -22,7 +22,7 @@ const OutcomeBadge = ({ outcome }) => (outcome === 'converted' ? <Badge tone="gr
 function StatusForm({ status, statuses, onClose, onSaved }) {
   const editing = Boolean(status?._id);
   const special = editing && status.outcome !== 'open';
-  const [f, setF] = useState(() => ({ name: status?.name || '', color: status?.color || 'blue', outcome: status?.outcome || 'open' }));
+  const [f, setF] = useState(() => ({ name: status?.name || '', color: status?.color || 'blue', outcome: status?.outcome || 'open', requiresDate: Boolean(status?.requiresDate) }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const holder = f.outcome !== 'open' ? statuses.find((s) => s.outcome === f.outcome && s._id !== status?._id) : null;
@@ -31,7 +31,7 @@ function StatusForm({ status, statuses, onClose, onSaved }) {
     setBusy(true);
     setError('');
     try {
-      const body = { name: f.name.trim(), color: f.color, outcome: f.outcome };
+      const body = { name: f.name.trim(), color: f.color, outcome: f.outcome, requiresDate: f.requiresDate };
       const saved = editing ? await api(`${BASE}/${status._id}`, { method: 'PUT', body }) : await api(BASE, { method: 'POST', body });
       onSaved(saved);
     } catch (e) {
@@ -67,6 +67,10 @@ function StatusForm({ status, statuses, onClose, onSaved }) {
           })}
         </div>
       </FormField>
+      <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-3 hover:border-slate-300">
+        <input type="checkbox" checked={f.requiresDate} onChange={(e) => setF({ ...f, requiresDate: e.target.checked })} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand" />
+        <span><span className="flex items-center gap-1.5 text-sm font-medium text-slate-900"><CalendarClock className="h-4 w-4 text-slate-500" />Ask for a date</span><span className="block text-[13px] text-slate-500">When a lead gets this status, the team must pick a date — a callback, a site visit — and the lead shows under “Upcoming” on the lead lists.</span></span>
+      </label>
       {special && <p className="text-[13px] text-slate-500">This is your {status.outcome} status. Every company needs one, so to change it, open another status and make that one {status.outcome === 'converted' ? 'Converted' : 'Lost'}.</p>}
       {holder && <Alert tone="warn">“{holder.name}” is your {f.outcome} status now. Saving makes this one the {f.outcome} status instead, and “{holder.name}” becomes an ordinary step.</Alert>}
     </FormModal>
@@ -131,6 +135,7 @@ export default function LeadStatuses() {
                   <div className="min-w-0 flex-1">
                     <div className={cx('truncate text-sm font-medium', s.isActive ? 'text-slate-900' : 'text-slate-400 line-through')}>{s.name}</div>
                     {special && <div className="text-xs text-slate-500">{s.outcome === 'converted' ? 'Choosing it on a lead asks to add the client' : 'Closes the lead without a client'}</div>}
+                    {s.requiresDate && <div className="flex items-center gap-1 text-xs text-slate-500"><CalendarClock className="h-3 w-3" />Asks for a date</div>}
                   </div>
                   <OutcomeBadge outcome={s.outcome} />
                   <div className="w-36"><Toggle checked={s.isActive} disabled={special || busy === s._id} onChange={(x) => setActive(s, x)} label={s.isActive ? 'In use' : 'Switched off'} /></div>

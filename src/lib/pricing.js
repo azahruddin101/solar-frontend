@@ -1,11 +1,10 @@
-// The price breakdown saved with every proposal (design.summary.pricing). Receipts and the invoice are built from it.
+// The price breakdown saved with every proposal (design.summary.pricing). Bills and the invoice are built from it.
 import { computeGst } from './energy.js';
 
 const n = (v) => Number(v) || 0;
 const round2 = (v) => Math.round(n(v) * 100) / 100;
 
 /** SAC for installation / labour lines when no product HSN is set. */
-export const DEFAULT_INSTALL_HSN = '998714';
 
 /** Default GST % on installation / labour charges when not set on the charge row. */
 export const DEFAULT_CHARGE_GST = 18;
@@ -29,7 +28,7 @@ export function lineGstPercent(line, fallback = null) {
 }
 
 function lineHsn(l) {
-  const code = String(l.hsn || l.hsnCode || '').trim();
+  const code = String(l.hsn || l.hsnCode || l.sac || '').trim();
   return code ? code.slice(0, 20) : '';
 }
 
@@ -174,6 +173,7 @@ export function summarizeLinePricing({ lines = [], gstIncluded = true, discount 
   discountAmount = round2(Math.min(gross, Math.max(0, discountAmount)));
   const ratio = gross > 0 ? (gross - discountAmount) / gross : 1;
 
+  // each line keeps `gross` (qty × rate as entered); `amount` is its share after the discount, which GST is worked out on
   const processed = raw.map((l) => {
     const lineGross = round2(l.amount * ratio);
     const catalogPct = l.gstPercent ?? 18;
@@ -181,14 +181,14 @@ export function summarizeLinePricing({ lines = [], gstIncluded = true, discount 
     if (gstIncluded && pct > 0) {
       const taxable = round2(lineGross / (1 + pct / 100));
       const gst = round2(lineGross - taxable);
-      return { ...l, gstPercent: catalogPct, amount: lineGross, taxable, gstAmount: gst, lineTotal: lineGross };
+      return { ...l, gross: l.amount, gstPercent: catalogPct, amount: lineGross, taxable, gstAmount: gst, lineTotal: lineGross };
     }
     if (!gstIncluded && pct > 0) {
       const taxable = lineGross;
       const gst = round2(taxable * (pct / 100));
-      return { ...l, gstPercent: catalogPct, amount: lineGross, taxable, gstAmount: gst, lineTotal: round2(taxable + gst) };
+      return { ...l, gross: l.amount, gstPercent: catalogPct, amount: lineGross, taxable, gstAmount: gst, lineTotal: round2(taxable + gst) };
     }
-    return { ...l, gstPercent: catalogPct, amount: lineGross, taxable: lineGross, gstAmount: 0, lineTotal: lineGross };
+    return { ...l, gross: l.amount, gstPercent: catalogPct, amount: lineGross, taxable: lineGross, gstAmount: 0, lineTotal: lineGross };
   });
 
   const subtotal = round2(processed.reduce((a, l) => a + l.amount, 0));
@@ -237,7 +237,7 @@ export function buildPricing({ lines = [], floorPlacement = 0, floorCost = 0, ch
   const defGst = applyGst ? (defaultGstPercent != null ? n(defaultGstPercent) : n(gstPercent)) : 0;
   const all = lines.map((l) => normalizeLine({ ...l, gstPercent: applyGst ? (l.gstPercent ?? defGst) : 0 }));
   if (n(floorCost) > 0) {
-    all.push(normalizeLine({ name: 'Floor placement', detail: `Floor ${floorPlacement} installation surcharge`, qty: 1, unit: 'Nos', rate: n(floorCost), amount: n(floorCost), gstPercent: defGst, hsn: DEFAULT_INSTALL_HSN }));
+    all.push(normalizeLine({ name: 'Floor placement', detail: `Floor ${floorPlacement} installation surcharge`, qty: 1, unit: 'Nos', rate: n(floorCost), amount: n(floorCost), gstPercent: defGst, hsn: '' }));
   }
   for (const c of charges || []) {
     if (c?.name) {
@@ -249,7 +249,7 @@ export function buildPricing({ lines = [], floorPlacement = 0, floorCost = 0, ch
         rate: n(c.price),
         amount: n(c.price),
         gstPercent: applyGst ? installChargeGstPercent(c, defGst) : 0,
-        hsn: lineHsn(c) || DEFAULT_INSTALL_HSN,
+        hsn: lineHsn(c), // the charge's own SAC, if one is set in Manage Masters
       }));
     }
   }
@@ -340,6 +340,7 @@ export function pricingFromQuote(quote) {
     gstPercent: quote.gstPercent,
     discount: quote.discount,
     discountIsPercent: quote.discountIsPercent,
+    discountRemark: quote.discountRemark,
     defaultGstPercent: defGst,
     withGst: quote.withGst !== false,
   });
@@ -383,9 +384,19 @@ export function pricingFrom3D(design, config) {
     gstPercent: config.gstPercent,
     discount: config.discount,
     discountIsPercent: config.discountIsPercent,
+    discountRemark: config.discountRemark,
     defaultGstPercent: defGst,
     withGst: config.withGst !== false,
   });
+}
+
+/** The proposal's discount on the line subtotal, then an extra (invoice) discount on what is left — as the backend. */
+export function splitDiscounts({ lines = [], gstIncluded = true, withGst = true, discount = 0, discountIsPercent = false, extraDiscount = 0, extraDiscountIsPercent = false }) {
+  const gross = summarizeLinePricing({ lines, gstIncluded, discount: 0, withGst }).subtotal;
+  const amountOf = (base, value, pct) => roundMoney(Math.min(base, Math.max(0, pct ? base * (n(value) / 100) : n(value))));
+  const first = amountOf(gross, discount, discountIsPercent);
+  const extra = amountOf(gross - first, extraDiscount, extraDiscountIsPercent);
+  return { gross, first, extra, total: roundMoney(first + extra) };
 }
 
 /** Legacy helper — prefers stored line-level totals when available. */
@@ -437,8 +448,7 @@ export function enrichLinesHsn(lines, catalog) {
       const pole = (catalog.pillars || []).find((p) => hay.includes((p.name || '').toLowerCase()));
       if (pole?.hsnCode) return pole.hsnCode;
     }
-    if ((line.detail || '').toLowerCase().includes('installation charge')) return DEFAULT_INSTALL_HSN;
-    return '';
+    return ''; // services carry the SAC set on the installation charge, or none
   };
   return lines.map((l) => {
     const hsn = lineHsn(l) || match(l);

@@ -2,9 +2,9 @@
 
 // The company's product catalog: every tab is one of the company's own categories (see CatalogProducts.js),
 // plus the pricing used by the designer.
-import { Boxes, Package, PackageCheck, PanelsTopLeft, Plus, Settings2, Tags, Wallet } from 'lucide-react';
+import { Boxes, Package, PackageCheck, PanelsTopLeft, Plus, Settings2, Tags, Truck, Wallet } from 'lucide-react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { productUnitsFor } from '@/lib/catalog';
@@ -12,12 +12,53 @@ import { CURRENCIES, formatMoney } from '@/lib/energy';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { useCan } from '@/lib/useCan';
-import { Alert, Button, Card, CardHeader, ConfirmDialog, EmptyState, FormField, Input, LoadingBlock, PageHeader, Select, Tabs, buttonClass, showError, toast } from '../kit';
+import { Alert, Button, Card, CardHeader, ConfirmDialog, EmptyState, FilterNotice, FormField, Input, LoadingBlock, PageHeader, Select, Table, TablePagination, Tabs, Td, Th, Tr, buttonClass, showError, toast, usePagedItems } from '../kit';
 import { CategoryProducts } from './CatalogProducts';
 import Packages from './Packages';
 
 
 const num = (v) => (v === '' ? '' : Number(v));
+
+/** Product lists across every category that the dashboard links to (?show=), counted as the dashboard counts them. */
+const STOCK_SHOWS = {
+  out: { label: 'products out of stock', match: (p) => p.stock <= 0 },
+  low: { label: 'products running low (at or below the reorder level)', match: (p) => p.stock > 0 && p.stock <= (p.reorderLevel || 0) },
+  reorder: { label: 'products out of stock or running low', match: (p) => p.stock <= (p.reorderLevel || 0) }, // the catalog's lowStock badge
+};
+
+function StockAlerts({ show, categories, onClear }) {
+  const pathname = usePathname();
+  const products = useResource('/api/products');
+  const nameOf = new Map(categories.map((c) => [c.id, c.name]));
+  const rows = (products.data || []).filter(STOCK_SHOWS[show].match).sort((a, b) => a.stock - b.stock);
+  const { rows: page, pager } = usePagedItems(rows, 10);
+  return (
+    <>
+      <FilterNotice className="mb-4" label={STOCK_SHOWS[show].label} count={products.loading ? null : `${rows.length} product${rows.length === 1 ? '' : 's'}`} onClear={onClear} />
+      {products.error && <Alert className="mb-4">{products.error}</Alert>}
+      <Card className="overflow-hidden">
+        {products.loading ? <LoadingBlock /> : !rows.length ? (
+          <EmptyState icon={PackageCheck} title="Nothing here right now" description="Stock levels are fine. Use “Show all” to see the whole catalog." />
+        ) : (
+          <Table>
+            <thead><tr><Th>Product</Th><Th>Category</Th><Th className="text-right">In stock</Th><Th className="text-right">Reorder at</Th></tr></thead>
+            <tbody>
+              {page.map((p) => (
+                <Tr key={p.id}>
+                  <Td><Link href={`${pathname}/${p.id}`} className="font-medium text-slate-900 hover:text-brand hover:underline">{p.name}</Link>{(p.brand || p.model) && <div className="text-xs text-slate-500">{[p.brand, p.model].filter(Boolean).join(' · ')}</div>}</Td>
+                  <Td className="text-slate-600">{nameOf.get(p.category?.id || p.category) || '—'}</Td>
+                  <Td className={`text-right font-semibold tabular-nums ${p.stock <= 0 ? 'text-red-700' : 'text-amber-700'}`}>{`${p.stock} ${p.unit || ''}`}<div className="text-xs font-normal">{p.stock <= 0 ? 'Out of stock' : 'Low stock'}</div></Td>
+                  <Td className="text-right text-slate-500 tabular-nums">{p.reorderLevel ? `${p.reorderLevel} ${p.unit || ''}` : '—'}</Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+        <TablePagination {...pager} />
+      </Card>
+    </>
+  );
+}
 
 function Pricing() {
   const { company, setCompany } = useSession();
@@ -54,7 +95,11 @@ export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-
   const may = useCan();
   const categories = useResource('/api/categories');
   const designer = useResource('/api/catalog'); // which of the products the designer picks up
-  const [picked, setPicked] = useState(useSearchParams().get('category')); // ?category=<id> from the categories page
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const [picked, setPicked] = useState(params.get('category')); // ?category=<id> from the categories page
+  const stockShow = STOCK_SHOWS[params.get('show')] ? params.get('show') : ''; // ?show=low|out from the dashboard
   const [modal, setModal] = useState(null);
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState('');
@@ -95,6 +140,7 @@ export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-
   return (
     <>
       <PageHeader title="Product catalog" description="Everything your company sells, in your own categories and with your prices.">
+        {may('finances', 'create_eway_bill') && <Link href="/dashboard/billing?new=eway" className={buttonClass({ variant: 'secondary' })}><Truck className="h-4 w-4" />E-way bill</Link>}
         {category && may('inventory', 'create') && <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'product' })}>Add product</Button>}
       </PageHeader>
       {categories.error && <Alert className="mb-6">{categories.error}</Alert>}
@@ -103,6 +149,7 @@ export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-
           The designer has no {missing.join(' or ')} of yours yet, so it uses built-in samples. Under <Link href={mastersPath} className="font-medium underline">Manage categories</Link>, set a category’s <b>Used in the designer as</b>, then add products to it.
         </Alert>
       )}
+      {stockShow ? <StockAlerts show={stockShow} categories={list} onClear={() => router.replace(pathname)} /> : (<>
       <div className="mb-6 flex items-end gap-2">
         <Tabs
           className="min-w-0 flex-1"
@@ -152,6 +199,7 @@ export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-
           {isOwner ? <Pricing /> : <Alert tone="info">Pricing settings are managed by your company admin.</Alert>}
         </>
       )}
+      </>)}
 
 
       <ConfirmDialog open={modal?.type === 'delete-product'} onClose={close} onConfirm={remove} busy={busy} error={modalError} title="Delete this product?">

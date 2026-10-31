@@ -1,7 +1,7 @@
 'use client';
 
 // UI kit for the SaaS screens (admin console, company workspace, sign-in). Tailwind + brand tokens.
-import { AlertTriangle, Camera, Download, CheckCircle2, CircleAlert, EllipsisVertical, Eye, EyeOff, ImageIcon, Loader2, X, XCircle } from 'lucide-react';
+import { AlertTriangle, Camera, Download, CheckCircle2, CircleAlert, EllipsisVertical, Eye, EyeOff, ImageIcon, ListFilter, Loader2, X, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -455,12 +455,14 @@ export function CardHeader({ title, description, action, className }) {
 
 export function PageHeader({ title, description, children }) {
   return (
-    <div className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-      <div className="min-w-0 flex-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
-        {description && <p className="mt-1 max-w-2xl text-sm text-slate-500">{description}</p>}
-      </div>
-      {children && <div className="shrink-0 lg:max-w-[min(100%,520px)]">{children}</div>}
+    <div className={cx('flex flex-col gap-4 lg:flex-row lg:justify-between', title ? 'mb-7 lg:items-end' : 'mb-5 lg:items-center')}>
+      {title && (
+        <div className="min-w-0 flex-1">
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
+          {description && <p className="mt-1 max-w-2xl text-sm text-slate-500">{description}</p>}
+        </div>
+      )}
+      {children && <div className={cx(title ? 'shrink-0 lg:max-w-[min(100%,520px)]' : 'w-full')}>{children}</div>}
     </div>
   );
 }
@@ -565,6 +567,18 @@ export function LoadMoreRow({ hasMore, loadingMore, onClick, loaded, total }) {
  * to also offer "Rows per page" (then the footer stays while the list is longer than the smallest option, so the
  * size can be changed back).
  */
+/** Page through a list that is already loaded: `rows` is the current page, `pager` goes to <TablePagination {...pager} />. */
+export function usePagedItems(items, pageSize = 10) {
+  const [page, setPage] = useState(1);
+  const list = items || [];
+  const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
+  const current = Math.min(page, totalPages); // the list can shrink (filter, reload)
+  return {
+    rows: list.slice((current - 1) * pageSize, current * pageSize),
+    pager: { page: current, totalPages, total: list.length, pageSize, onPageChange: setPage },
+  };
+}
+
 export function TablePagination({ page, totalPages, total, pageSize, onPageChange, pageSizeOptions, onPageSizeChange, className }) {
   if (total <= 0) return null;
   const pages = Math.max(1, totalPages || Math.ceil(total / pageSize) || 1);
@@ -624,6 +638,17 @@ export function Alert({ tone = 'error', children, className }) {
   return (
     <div role={tone === 'error' ? 'alert' : 'status'} className={cx('rounded-lg border px-3.5 py-2.5 text-[13px] leading-snug', tones[tone], className)}>
       {children}
+    </div>
+  );
+}
+
+/** "Showing: …" above a list opened from a dashboard link, with one click back to the whole list. */
+export function FilterNotice({ label, count, onClear, className }) {
+  return (
+    <div role="status" className={cx('flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-brand-muted bg-brand-soft/60 px-4 py-2.5 text-sm', className)}>
+      <ListFilter className="h-4 w-4 shrink-0 text-brand" />
+      <span className="min-w-0 flex-1 text-slate-700">Showing only: <b className="font-semibold text-slate-900">{label}</b>{count != null && <span className="text-slate-500">{` · ${count}`}</span>}</span>
+      <button type="button" onClick={onClear} className="inline-flex items-center gap-1 rounded-md bg-white px-2.5 py-1 font-medium text-slate-700 ring-1 ring-slate-200 hover:ring-brand"><X className="h-3.5 w-3.5" />Show all</button>
     </div>
   );
 }
@@ -875,6 +900,8 @@ export function Toaster() {
 
 /* ───────────── Helpers ───────────── */
 
+/** "ravi kumar" → "Ravi kumar": upper-case the first letter of a name, leave the rest as typed. */
+export const capName = (v) => { const s = String(v ?? ''); return s ? s[0].toUpperCase() + s.slice(1) : s; };
 export const formatDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 
 export function timeAgo(d) {

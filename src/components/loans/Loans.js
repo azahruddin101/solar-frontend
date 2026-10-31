@@ -8,7 +8,7 @@ import { formatMoney } from '@/lib/energy';
 import { useSession } from '@/lib/session';
 import { useCan } from '@/lib/useCan';
 import { useResource } from '@/lib/useResource';
-import { Alert, Card, EmptyState, Input, LoadingBlock, PageHeader, Select, Table, Td, Th, Tr, buttonClass, timeAgo } from '../kit';
+import { Alert, Card, EmptyState, Input, LoadingBlock, PageHeader, Select, Table, Td, Th, Tr, buttonClass, capName, timeAgo } from '../kit';
 import { Progress, currentStep } from '../installations/shared';
 import { LOAN_STATUSES, LoanStatusBadge } from './shared';
 
@@ -54,20 +54,26 @@ export default function Loans({ basePath = '/dashboard/loans', designsPath = '/d
           </EmptyState>
         ) : (
           <Table>
-            <thead><tr><Th>Proposal</Th><Th>Bank / lender</Th><Th>Status</Th><Th>Progress</Th><Th>Current step</Th><Th>Updated</Th><Th className="text-right">Actions</Th></tr></thead>
+            <thead><tr><Th>Proposal</Th><Th>Bank / lender</Th><Th className="text-right">Amount</Th><Th className="text-right">EMI</Th><Th>Period</Th><Th>Status</Th><Th>Progress</Th><Th>Current step</Th><Th>Updated</Th><Th className="text-right">Actions</Th></tr></thead>
             <tbody>
               {rows.map((l) => {
                 const step = l.status === 'in_progress' ? currentStep(l) : null;
                 return (
                   <Tr key={l.id}>
                     <Td>
-                      <Link href={`${basePath}/${l.id}`} className="block max-w-[260px] truncate font-medium text-slate-900 hover:text-brand">{l.design?.name || 'Proposal'}</Link>
+                      <Link href={`${basePath}/${l.id}`} className="block max-w-[260px] truncate font-medium text-slate-900 hover:text-brand">{capName(l.design?.name) || 'Proposal'}</Link>
                       <div className="max-w-[260px] truncate text-xs text-slate-500">{[l.client?.name, l.client?.phone].filter(Boolean).join(' · ')}</div>
                     </Td>
                     <Td>
                       <div className="text-slate-900">{l.lender || <span className="text-slate-400">—</span>}</div>
-                      {l.amount != null && <div className="text-xs text-slate-500">{formatMoney(l.amount, company?.currency)}</div>}
+                      {l.branch && <div className="text-xs text-slate-500">{l.branch}</div>}
                     </Td>
+                    <Td className="text-right whitespace-nowrap tabular-nums text-slate-900">{l.amount != null ? formatMoney(l.amount, company?.currency, { decimals: 0 }) : <span className="text-slate-400">—</span>}</Td>
+                    <Td className="text-right whitespace-nowrap tabular-nums">
+                      {l.emi != null ? <div className="text-slate-900">{formatMoney(l.emi, company?.currency, { decimals: 0 })}<span className="text-xs text-slate-500"> / mo</span></div> : <span className="text-slate-400">—</span>}
+                      {l.interestRate != null && <div className="text-xs text-slate-500">{l.interestRate}% p.a.</div>}
+                    </Td>
+                    <Td className="whitespace-nowrap text-slate-900">{l.tenureMonths ? `${l.tenureMonths} mo${l.tenureMonths >= 12 ? ` · ${(l.tenureMonths / 12).toFixed(l.tenureMonths % 12 ? 1 : 0)} yr` : ''}` : <span className="text-slate-400">—</span>}</Td>
                     <Td><LoanStatusBadge status={l.status} /></Td>
                     <Td>{l.steps.length ? <Progress project={l} className="w-36" /> : <span className="text-xs text-amber-700">No steps</span>}</Td>
                     <Td>{step ? <span className="block max-w-[220px] truncate text-slate-900">{step.name}</span> : <span className="text-slate-400">—</span>}</Td>

@@ -9,48 +9,26 @@ import { leadValue, valueText } from '@/lib/leadForm';
 import { isLeadStatusLocked, LEAD_CONVERTED_LOCK_HINT } from '@/lib/leads';
 import { useCan } from '@/lib/useCan';
 import { useResource } from '@/lib/useResource';
-import { Alert, Badge, Button, Card, cx, EmptyState, FormField, FormModal, Input, LoadingBlock, Modal, PageHeader, Select, Table, TablePagination, Td, Textarea, Th, Tr, formatDate, timeAgo, toast } from '../kit';
+import { Alert, Badge, Button, Card, EmptyState, FormField, FormModal, Input, LoadingBlock, Modal, PageHeader, Select, Table, TablePagination, Td, Textarea, Th, Tr, capName, cx, formatDate, timeAgo, toast } from '../kit';
 import { PRIORITY_FILTER_OPTIONS } from '@/components/admin/leads/PriorityToggle';
 import ExportAllLeadsButton from '../admin/leads/ExportAllLeadsButton';
 import LeadListFilterBar from './LeadListFilterBar';
-import LeadFields from './LeadFields';
+import LeadForm from './LeadForm';
+import LeadViewSwitch from './LeadViewSwitch';
+import ManualLeadDetail from './ManualLeadDetail';
 import LeadLog from './LeadLog';
 import ConvertToClient from './ConvertToClient';
 import QuickAssign from './QuickAssign';
+import ScheduleField from './ScheduleField';
+import StatusCell from './StatusCell';
+import PreviousStaffCell from './PreviousStaffCell';
+import ReassignedMark, { LOG_TITLE } from './ReassignedMark';
+import { SCHEDULE_OPTIONS, toLocalInput } from '@/lib/leadSchedule';
+import LeadSourceTabs from '@/components/leads/LeadSourceTabs';
 
 const PAGE_SIZE = 20;
 const STATUS_TONE = { amber: 'amber', blue: 'blue', purple: 'violet', violet: 'violet', rose: 'red', red: 'red', emerald: 'green', green: 'green', slate: 'slate' };
 const StatusBadge = ({ status }) => (status ? <Badge tone={STATUS_TONE[status.color] || 'slate'}>{status.name}</Badge> : <span className="text-[13px] text-slate-400">Not started</span>);
-
-/** The form's values for a lead, keyed by field key (what LeadFields edits). */
-const valuesOf = (fields, lead) => Object.fromEntries(fields.map((f) => [f.key, leadValue(lead, f) ?? (f.type === 'multiselect' ? [] : '')]));
-
-/** Add or edit one lead on the company's form; the API checks every value again and reports problems per field. */
-function LeadForm({ fields, lead, onClose, onSaved }) {
-  const [values, setValues] = useState(() => (lead ? valuesOf(fields, lead) : {}));
-  const [errors, setErrors] = useState({});
-  const [busy, setBusy] = useState(false);
-  const submit = async () => {
-    const missing = Object.fromEntries(fields.filter((f) => f.required && (values[f.key] === undefined || values[f.key] === '' || (Array.isArray(values[f.key]) && !values[f.key].length))).map((f) => [f.key, `${f.label} is required`]));
-    if (Object.keys(missing).length) return setErrors(missing);
-    setBusy(true);
-    setErrors({});
-    try {
-      const saved = lead ? await api(`/api/leads/manual/${lead._id}`, { method: 'PUT', body: values }) : await api('/api/leads/manual', { method: 'POST', body: values });
-      onSaved(saved);
-    } catch (e) {
-      setErrors(e.details?.errors || { _: e.message });
-      if (!e.details?.errors) toast.error(e.message);
-      setBusy(false);
-    }
-  };
-  return (
-    <FormModal open onClose={onClose} size="lg" title={lead ? `Edit ${lead.fullName}` : 'Add a lead'} description={lead ? undefined : 'Fill in what you know — required fields are marked.'} submitLabel={lead ? 'Save changes' : 'Add lead'} busy={busy} onSubmit={submit} noValidate>
-      {errors._ && <Alert className="mb-2">{errors._}</Alert>}
-      <LeadFields fields={fields} values={values} onChange={setValues} errors={errors} />
-    </FormModal>
-  );
-}
 
 /** Bulk add from a CSV / Excel sheet laid out like the template. */
 function ImportLeads({ onClose, onDone }) {
@@ -123,122 +101,6 @@ function ImportLeads({ onClose, onDone }) {
   );
 }
 
-/** One lead: its answers, and what the user may do with it (edit, status, assign, priority). */
-function LeadDetail({ fields, lead, statuses, assignees, may, onClose, onChanged, onEdit, onConverted }) {
-  const [statusForm, setStatusForm] = useState({ statusId: lead.currentStatus?._id || '', remark: '' });
-  const [assignee, setAssignee] = useState('');
-  const [busy, setBusy] = useState('');
-  const run = async (key, fn, done) => {
-    setBusy(key);
-    let res = null;
-    try {
-      res = await fn();
-      onChanged(res);
-      if (done) toast.success(done);
-    } catch (e) {
-      toast.error(e.message);
-    }
-    setBusy('');
-    return res;
-  };
-  const saveStatus = async () => {
-    const chosen = statuses.find((s) => s._id === statusForm.statusId);
-    const res = await run('status', () => api(`/api/leads/manual/${lead._id}/status`, { method: 'PUT', body: statusForm }), 'Status updated');
-    if (!res) return;
-    setStatusForm((x) => ({ ...x, remark: '' }));
-    // the converted status: add the lead as a client straight away, filled in from the lead
-    if (chosen?.outcome === 'converted' && !lead.convertedClient) onConverted(res);
-  };
-  const reload = async () => {
-    const res = await api(`/api/leads/manual?limit=1&search=${encodeURIComponent(lead.phone)}`);
-    return res.leads.find((l) => l._id === lead._id) || lead;
-  };
-  const leadLocked = isLeadStatusLocked(lead, statuses);
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      size="xl"
-      title={lead.fullName}
-      description={`${lead.source === 'import' ? 'Imported' : 'Added'} ${timeAgo(lead.createdAt).replace(/^Just now$/, 'just now')}${lead.createdByName ? ` by ${lead.createdByName}` : ''}`}
-      footer={<>{may.update && <Button icon={Pencil} onClick={onEdit}>Edit details</Button>}<Button variant="primary" onClick={onClose}>Close</Button></>}
-    >
-      {/* left: the lead and what can be done with it; right: what has happened */}
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-        <div className="space-y-4">
-          <dl className="divide-y divide-slate-100 rounded-lg border border-slate-200">
-            {fields.map((f) => {
-              const text = valueText(f, leadValue(lead, f));
-              return (
-                <div key={f.key} className="grid gap-1 px-4 py-2.5 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-4">
-                  <dt className="text-[13px] font-medium text-slate-500">{f.label}</dt>
-                  <dd className={cx('min-w-0 text-sm break-words whitespace-pre-line', text ? 'text-slate-900' : 'text-slate-400')}>{text || '—'}</dd>
-                </div>
-              );
-            })}
-          </dl>
-
-          {lead.convertedClient && (
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-[13px] text-emerald-900">
-              <CircleCheck className="h-4 w-4 shrink-0 text-emerald-600" />
-              <span>Converted to client <b className="font-semibold">{lead.convertedClientName}</b>{lead.convertedAt ? ` on ${formatDate(lead.convertedAt)}` : ''}.</span>
-            </div>
-          )}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-lg border border-slate-200 p-4">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-[13px] font-semibold text-slate-900">Status</span>
-                <StatusBadge status={lead.currentStatus} />
-              </div>
-              {may.status ? (
-                !leadLocked && (
-                  <div className="space-y-2">
-                    <Select value={statusForm.statusId} onValue={(x) => setStatusForm({ ...statusForm, statusId: x })} aria-label="New status">
-                      <option value="">Choose a status…</option>
-                      {statuses.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
-                    </Select>
-                    <Textarea rows={2} maxLength={1000} placeholder="Remark (optional)" value={statusForm.remark} onValue={(x) => setStatusForm({ ...statusForm, remark: x })} />
-                    <Button size="sm" variant="primary" disabled={!statusForm.statusId} loading={busy === 'status'} onClick={saveStatus}>Update status</Button>
-                  </div>
-                )
-              ) : !leadLocked ? <p className="text-xs text-slate-500">You can see the status but not change it.</p> : null}
-            </div>
-
-            <div className="rounded-lg border border-slate-200 p-4">
-              <div className="mb-2 text-[13px] font-semibold text-slate-900">Assigned to</div>
-              <div className="text-sm text-slate-700">{lead.assignedTo?.name || 'Nobody yet'}</div>
-              {may.assign ? (
-                leadLocked ? (
-                  <p className="mt-1 text-xs text-slate-500">{LEAD_CONVERTED_LOCK_HINT}</p>
-                ) : (
-                  <div className="mt-2.5 space-y-2">
-                    <Select value={assignee} onValue={setAssignee} aria-label="Assign to">
-                      <option value="">Choose a staff member…</option>
-                      {assignees.filter((a) => a._id !== lead.assignedTo?._id).map((a) => <option key={a._id} value={a._id}>{a.name}</option>)}
-                      {lead.assignedTo && <option value="unassign">Remove assignment</option>}
-                    </Select>
-                    <Button size="sm" icon={UserPlus} disabled={!assignee} loading={busy === 'assign'} onClick={() => run('assign', async () => { await api('/api/leads/manual/assign', { method: 'POST', body: { leadIds: [lead._id], counsellorId: assignee === 'unassign' ? null : assignee } }); setAssignee(''); return reload(); }, 'Assignment saved')}>Assign</Button>
-                  </div>
-                )
-              ) : <p className="mt-1 text-xs text-slate-500">You can’t change who has this lead.</p>}
-            </div>
-          </div>
-        </div>
-
-        <LeadLog
-          className="lg:sticky lg:top-0"
-          entries={[
-            { at: lead.createdAt, title: lead.source === 'import' ? 'Imported from a spreadsheet' : 'Lead added', by: lead.createdByName },
-            lead.assignedTo && { at: lead.assignedAt, title: `Assigned to ${lead.assignedTo.name}` },
-            lead.convertedClient && { at: lead.convertedAt, title: `Converted to client ${lead.convertedClientName}`, by: lead.convertedByName },
-            ...(lead.statusHistory || []).map((h) => ({ at: h.changedAt, title: 'Status changed', status: { name: h.statusName, color: h.statusColor }, remark: h.remark, by: h.changedByName })),
-          ]}
-        />
-      </div>
-    </Modal>
-  );
-}
-
 export default function ManualLeads() {
   const can = useCan();
   const canAddClient = can('clients', 'create');
@@ -250,7 +112,7 @@ export default function ManualLeads() {
   const statuses = statusesRes.data || [];
   const assignees = assigneesRes.data || [];
 
-  const EMPTY_FILTERS = { search: '', assignedTo: '', statusId: '', source: '', priority: '', fromDate: '', toDate: '' };
+  const EMPTY_FILTERS = { search: '', assignedTo: '', statusId: '', source: '', priority: '', schedule: '', fromDate: '', toDate: '' };
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -269,6 +131,7 @@ export default function ManualLeads() {
     if (filters.statusId) params.set('statusId', filters.statusId);
     if (filters.source) params.set('source', filters.source);
     if (filters.priority) params.set('priority', filters.priority);
+    if (filters.schedule) params.set('schedule', filters.schedule);
     if (filters.fromDate) params.set('from', filters.fromDate);
     if (filters.toDate) params.set('to', filters.toDate);
     try {
@@ -282,7 +145,7 @@ export default function ManualLeads() {
 
   const setFilter = (k) => (v) => { setFilters((f) => ({ ...f, [k]: v })); setPage(1); };
   const clearFilters = () => { setQuery(''); setFilters(EMPTY_FILTERS); setPage(1); };
-  const extraFilterCount = [filters.assignedTo, filters.statusId, filters.source, filters.priority, filters.fromDate, filters.toDate].filter(Boolean).length;
+  const extraFilterCount = [filters.assignedTo, filters.statusId, filters.source, filters.priority, filters.schedule, filters.fromDate, filters.toDate].filter(Boolean).length;
   const replaceLead = (lead) => {
     setState((s) => ({ ...s, leads: s.leads.map((l) => (l._id === lead._id ? lead : l)) }));
     setModal((m) => (m?.lead?._id === lead._id ? { ...m, lead } : m));
@@ -300,12 +163,16 @@ export default function ManualLeads() {
 
   return (
     <>
-      <PageHeader title="Manual leads" description={may.all ? 'Leads your team adds by hand or imports from Excel, on your company’s lead form.' : 'The manual leads given to you.'}>
-        <div className="flex flex-wrap gap-2">
+      <LeadSourceTabs />
+      <PageHeader>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <LeadViewSwitch view="list" />
+          <div className="flex flex-wrap items-center gap-2">
           {may.assign && <Button icon={Users} onClick={() => setModal({ type: 'quick-assign' })}>Assign by count</Button>}
           {may.export && <ExportAllLeadsButton />}
           {may.create && <Button icon={Upload} onClick={() => setModal({ type: 'import' })}>Import</Button>}
           {may.create && <Button variant="primary" icon={Plus} disabled={!fields.length} onClick={() => setModal({ type: 'form' })}>Add lead</Button>}
+          </div>
         </div>
       </PageHeader>
 
@@ -334,6 +201,7 @@ export default function ManualLeads() {
             <Select aria-label="Assigned to" value={filters.assignedTo} onValue={setFilter('assignedTo')}>
               <option value="">Anyone</option>
               <option value="unassigned">Unassigned</option>
+              <option value="reassigned">Reassigned (handed over)</option>
               {assignees.map((a) => <option key={a._id} value={a._id}>{a.name}</option>)}
             </Select>
           </FormField>
@@ -348,6 +216,11 @@ export default function ManualLeads() {
         <FormField label="Priority">
           <Select aria-label="Priority" value={filters.priority} onValue={setFilter('priority')}>
             {PRIORITY_FILTER_OPTIONS.map((o) => <option key={o.value || 'all'} value={o.value}>{o.label}</option>)}
+          </Select>
+        </FormField>
+        <FormField label="Scheduled">
+          <Select aria-label="Scheduled" value={filters.schedule} onValue={setFilter('schedule')}>
+            {SCHEDULE_OPTIONS.map((o) => <option key={o.value || 'all'} value={o.value}>{o.label}</option>)}
           </Select>
         </FormField>
       </LeadListFilterBar>
@@ -367,6 +240,7 @@ export default function ManualLeads() {
                   <Th>Address</Th>
                   {extra.map((f) => <Th key={f.key}>{f.label}</Th>)}
                   <Th>Assigned to</Th>
+                  <Th>Previously with</Th>
                   <Th>Status</Th>
                   <Th>Added</Th>
                   <Th className="text-right">Actions</Th>
@@ -381,7 +255,7 @@ export default function ManualLeads() {
                           <Star className={cx('h-4 w-4', l.isPriority ? 'fill-amber-400 text-amber-500' : 'text-slate-300')} />
                         </button>
                         <div className="min-w-0">
-                          <div className="max-w-[220px] truncate font-medium text-slate-900">{l.fullName}</div>
+                          <div className="max-w-[220px] truncate font-medium text-slate-900">{capName(l.fullName)}</div>
                           <div className="text-xs text-slate-500 tabular-nums">{l.phone}</div>
                         </div>
                       </div>
@@ -397,8 +271,10 @@ export default function ManualLeads() {
                       ) : (
                         <span className="text-slate-400">—</span>
                       )}
+                      <ReassignedMark lead={l} />
                     </Td>
-                    <Td><StatusBadge status={l.currentStatus} /></Td>
+                    <Td><PreviousStaffCell lead={l} /></Td>
+                    <Td><StatusCell status={l.currentStatus} scheduledAt={l.scheduledAt} rescheduledCount={l.rescheduledCount} previousSchedules={l.previousSchedules} /></Td>
                     <Td className="whitespace-nowrap text-slate-500"><div>{formatDate(l.createdAt)}</div><div className="text-xs">{l.source === 'import' ? 'Imported' : 'Added'}</div></Td>
                     <Td><div className="flex justify-end"><Button size="sm" variant="ghost" icon={Eye} onClick={(e) => { e.stopPropagation(); setModal({ type: 'detail', lead: l }); }}>View</Button></div></Td>
                   </Tr>
@@ -424,7 +300,7 @@ export default function ManualLeads() {
       {modal?.type === 'import' && <ImportLeads onClose={() => setModal(null)} onDone={() => { setPage(1); load(); }} />}
       {modal?.type === 'quick-assign' && <QuickAssign source="manual" onClose={() => setModal(null)} onAssigned={() => { setModal(null); load(); }} />}
       {modal?.type === 'detail' && (
-        <LeadDetail
+        <ManualLeadDetail
           fields={fields}
           lead={modal.lead}
           statuses={statuses}

@@ -1,7 +1,7 @@
 // How each workspace area looks in the staff and role screens — one colour and icon per area, used everywhere — and
 // what each permission means in everyday words (for the "This person can…" summaries).
 // Class names are written out in full so Tailwind keeps them.
-import { Boxes, HardHat, WalletCards, Headset, Landmark, LifeBuoy, Megaphone, PenTool, Receipt, Users } from 'lucide-react';
+import { BadgeIndianRupee, Boxes, HardHat, WalletCards, Headset, Landmark, LifeBuoy, Megaphone, PenTool, Receipt, Users } from 'lucide-react';
 
 export const AREA_STYLE = {
   leads: { icon: Megaphone, chip: 'bg-rose-100 text-rose-700', on: 'border-rose-600 bg-rose-600 text-white', pill: 'bg-rose-50 text-rose-700 ring-rose-200', bar: 'border-l-rose-400', soft: 'bg-rose-50/60' },
@@ -11,6 +11,7 @@ export const AREA_STYLE = {
   inventory: { icon: Boxes, chip: 'bg-amber-100 text-amber-700', on: 'border-amber-500 bg-amber-500 text-white', pill: 'bg-amber-50 text-amber-800 ring-amber-200', bar: 'border-l-amber-400', soft: 'bg-amber-50/60' },
   expenses: { icon: WalletCards, chip: 'bg-lime-100 text-lime-700', on: 'border-lime-600 bg-lime-600 text-white', pill: 'bg-lime-50 text-lime-700 ring-lime-200', bar: 'border-l-lime-400', soft: 'bg-lime-50/60' },
   loans: { icon: Landmark, chip: 'bg-indigo-100 text-indigo-700', on: 'border-indigo-600 bg-indigo-600 text-white', pill: 'bg-indigo-50 text-indigo-700 ring-indigo-200', bar: 'border-l-indigo-400', soft: 'bg-indigo-50/60' },
+  subsidies: { icon: BadgeIndianRupee, chip: 'bg-fuchsia-100 text-fuchsia-700', on: 'border-fuchsia-600 bg-fuchsia-600 text-white', pill: 'bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-200', bar: 'border-l-fuchsia-400', soft: 'bg-fuchsia-50/60' },
   tasks: { icon: HardHat, chip: 'bg-orange-100 text-orange-700', on: 'border-orange-600 bg-orange-600 text-white', pill: 'bg-orange-50 text-orange-700 ring-orange-200', bar: 'border-l-orange-400', soft: 'bg-orange-50/60' },
   support: { icon: LifeBuoy, chip: 'bg-slate-200 text-slate-700', on: 'border-slate-700 bg-slate-700 text-white', pill: 'bg-slate-100 text-slate-700 ring-slate-200', bar: 'border-l-slate-400', soft: 'bg-slate-50' },
   helpdesk: { icon: Headset, chip: 'bg-teal-100 text-teal-700', on: 'border-teal-600 bg-teal-600 text-white', pill: 'bg-teal-50 text-teal-700 ring-teal-200', bar: 'border-l-teal-400', soft: 'bg-teal-50/60' },
@@ -21,10 +22,11 @@ export const PLAIN = {
   leads: { view: 'See the leads given to them', view_all: 'See every lead', create: 'Add leads and import them from Excel', change_status: 'Update a lead’s status', update: 'Edit lead details and mark priority', assign: 'Give leads to other staff', export: 'Download leads to Excel' },
   proposals: { view: 'Open proposals', create: 'Make new proposals', update: 'Edit proposals', change_status: 'Mark proposals won or lost', change_client: 'Move a proposal to another client', share: 'Share proposal links with clients', delete: 'Delete proposals' },
   clients: { view: 'See client details', create: 'Add new clients', update: 'Edit client details', manage_login: 'Set up a client’s portal login', delete: 'Delete clients' },
-  finances: { view: 'See payments and invoices', create_invoice: 'Make invoices', create_receipt: 'Record payments and give receipts', remove_receipt: 'Remove a wrong receipt' },
+  finances: { view: 'See e-way bills, bills and invoices', create_eway_bill: 'Send goods out of stock on an e-way bill', create_bill: 'Make bills for e-way bills and services, taking the payment', create_invoice: 'Make invoices from bills' },
   inventory: { view: 'See products and packages', create: 'Add products and packages', update: 'Edit products and prices', delete: 'Delete products' },
   expenses: { view: 'See what was spent on each project', create: 'Record an expense on a project', update: 'Correct an expense', delete: 'Delete an expense' },
   loans: { view: 'See clients’ loans and their steps', update: 'Update loan details and move steps along' },
+  subsidies: { view: 'See proposals’ subsidies and their steps', update: 'Update subsidy details and move steps along' },
   tasks: { view: 'See every installation', create: 'Start installations', update: 'Edit installation steps', assign: 'Give installation steps to staff', change_status: 'Mark installation steps done', invoice_parts: 'Invoice parts used on AMC visits', delete: 'Delete installations' },
   support: { view: 'See support tickets with the platform', create: 'Open support tickets with the platform', update: 'Reply to and close platform tickets' },
   helpdesk: { view: 'See clients’ help requests', update: 'Reply to clients and update their requests' },

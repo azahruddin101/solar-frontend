@@ -2,9 +2,11 @@
 
 // One friendly screen for home owners: see the roof in 3D, pick how many panels, done.
 
-import { Box, ChevronDown, ChevronRight, FileText, Minus, Move, Plus } from 'lucide-react';
+import { Box, Boxes, CalendarDays, ChevronDown, ChevronRight, FileText, Landmark, Minus, Move, Plus, ReceiptText, Wrench } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { SubsidyField } from '../dashboard/DesignDetail';
 import { autoGroups } from '@/lib/autofill';
 import { capFirst } from '@/lib/catalog';
 import { formatMoney } from '@/lib/energy';
@@ -86,7 +88,7 @@ const Q = ({ n, children }) => (
   </div>
 );
 
-export default function StepSimpleDesign({ design }) {
+export default function StepSimpleDesign({ design, proposalOnly: proposalOnlyProp = false, onDone = null, headerActions = null }) {
   const s = useStore();
   const { config, objects, sections, finance } = s;
   const [chosenView, setView] = useState('3d');
@@ -96,6 +98,9 @@ export default function StepSimpleDesign({ design }) {
   const toggleSec = (id) => setOpenSec((cur) => (cur === id ? null : id));
   // Materials & cost breakdown moved out of the sidebar accordion into their own popup — it's a lot to scroll
   // through inline, and most people only need to check it occasionally, not keep it open while designing.
+  // "Edit proposal" (?edit=proposal): straight to materials, charges and subsidy — the roof layout stays as designed
+  const editParam = useSearchParams().get('edit');
+  const proposalOnly = proposalOnlyProp || editParam === 'proposal';
   const [detailsOpen, setDetailsOpen] = useState(false);
   // the header's Export menu asks for the shadow report; it needs the live 3D scene, so the view is
   // 3D while it runs, and the dialog opens once the scene is up (it starts generating on open)
@@ -303,137 +308,42 @@ export default function StepSimpleDesign({ design }) {
   const card = (on) => cx('w-full rounded-lg border-2 px-4 py-3 text-left transition', on ? 'border-brand bg-brand-soft' : 'border-slate-200 hover:border-slate-300');
   const TITLES = ['Consumption', 'Panel', 'Structure', 'Proposal'];
 
-  return (
-    <>
-      <div className="absolute inset-y-0 left-0 right-[430px]">
-        {view === '3d' ? <Scene3D design={design} /> : <Editor2D design={design} />}
-        <div className="absolute left-4 top-4 flex items-center gap-2" onPointerDown={(e) => e.stopPropagation()}>
-          <div className="flex rounded-full bg-white p-1 shadow-lg">
-            {[['3d', Box, '3D'], ['2d', Move, 'Plan view']].map(([k, Icon, label]) => (
-              <button key={k} type="button" onClick={() => { if (view === '3d' && k !== '3d') s.set({ snapshot: sceneApi.capture?.() || s.snapshot }); setView(k); }} className={cx('flex items-center gap-1.5 rounded-full px-4 py-2 text-base font-medium', view === k ? 'bg-slate-900 text-white' : 'text-slate-600')}>
-                <Icon className="h-4 w-4" /> {label}
-              </button>
-            ))}
-          </div>
+  // one colour per block of the pricing form: a tinted header band with an icon chip
+  const band = (tone, Icon, title, hint) => {
+    const t = {
+      violet: ['bg-violet-50 border-violet-100', 'bg-violet-600', 'text-violet-950'],
+      brand: ['bg-brand-soft border-brand/15', 'bg-brand', 'text-brand-ink'],
+      sky: ['bg-sky-50 border-sky-100', 'bg-sky-600', 'text-sky-950'],
+      amber: ['bg-amber-50 border-amber-100', 'bg-amber-500', 'text-amber-950'],
+      emerald: ['bg-emerald-50 border-emerald-100', 'bg-emerald-600', 'text-emerald-950'],
+    }[tone];
+    return (
+      <div className={cx('-mx-5 -mt-5 mb-4 flex items-center justify-between gap-3 rounded-t-xl border-b px-5 py-3', t[0])}>
+        <div className="flex items-center gap-2.5">
+          <span className={cx('grid h-8 w-8 place-items-center rounded-lg text-white shadow-sm', t[1])}><Icon className="h-4 w-4" /></span>
+          <h3 className={cx('text-base font-semibold', t[2])}>{title}</h3>
         </div>
-        {view === '2d' && (
-          <div className="pointer-events-none absolute left-1/2 top-5 -translate-x-1/2 rounded-full bg-slate-900/85 px-5 py-2 text-base text-white shadow-lg">
-            {s.tool === 'add-array' ? 'Tap on the roof where you want panels' : 'Drag panels to move · pull the ⤡ corner to add or remove panels · orange dot turns them'}
+        {hint && <span className="text-xs text-slate-500">{hint}</span>}
+      </div>
+    );
+  };
+  const subhead = (tone, Icon, title) => (
+    <div className={cx('mt-6 mb-1 flex items-center gap-2 border-t border-slate-100 pt-5 text-sm font-semibold', tone)}>
+      <Icon className="h-4 w-4" />{title}
+    </div>
+  );
+
+  const detailsBody = (
+    <>
+        <div className="space-y-5 text-[15px] text-slate-700">
+        {s.designId && (
+          <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm shadow-sm">
+            {band('violet', Landmark, 'Subsidy', 'Optional')}
+            <SubsidyField design={{ id: s.designId, subsidy: s.subsidy }} money={money} onChange={(subsidy) => s.set({ subsidy })} />
           </div>
         )}
-        {view === '3d' && <div className="pointer-events-none absolute left-1/2 top-6 hidden -translate-x-1/2 rounded-full bg-black/35 px-3 py-1 text-[13px] text-white/85 backdrop-blur-sm lg:block">Drag to orbit · scroll to zoom · click a panel group for details, drag it to move</div>}
-      </div>
-
-      <aside className="absolute inset-y-0 right-0 flex w-[430px] flex-col border-l border-slate-200 bg-white">
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="space-y-4 px-5 py-4">
-          {/* 2 — result */}
-          <div className="rounded-2xl bg-slate-900 p-5 text-white" aria-live="polite">
-            <div className="text-3xl font-extrabold">{count} panels <span className="text-xl font-medium text-slate-300">· {totals.kwp.toFixed(1)} kW</span></div>
-            <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4">
-              <div><div className="text-base font-semibold text-slate-300">Generates</div><div className="text-2xl font-bold text-white">{Math.round(totals.acKwh / 12).toLocaleString()} units<span className="text-base font-normal text-slate-300"> / month</span></div><div className="text-base text-slate-300">{Math.round(totals.acKwh).toLocaleString()} kWh / year</div></div>
-              <div><div className="text-base font-semibold text-slate-300">Saves</div><div className="text-2xl font-bold text-white">{money(fin.firstYearSavings / 12)}<span className="text-base font-normal text-slate-300"> / month</span></div></div>
-              <div><div className="text-base font-semibold text-slate-300">Total price</div><div className="text-2xl font-bold text-white">{money(design.cost.total)}</div>{design.cost.withGst !== false && design.cost.gstAmount > 0 && <div className="text-sm text-slate-300">incl. GST</div>}</div>
-              <div><div className="text-base font-semibold text-slate-300">Payback</div><div className="text-2xl font-bold text-white">{fin.payback ? `${fin.payback.toFixed(1)} years` : `${fin.rows.length}+ years`}</div></div>
-            </div>
-          </div>
-
-          {/* 1 — the only question: size by bill or by kW */}
-          <div>
-            <div className="text-[19px] font-bold text-slate-900">Size the system by</div>
-            <div role="radiogroup" aria-label="Size the system by" className="mt-2.5 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
-              {[['bill', 'Monthly bill'], ['kw', 'Kilowatt (kW)']].map(([k, label]) => (
-                <button key={k} type="button" role="radio" aria-checked={sizeBy === k} onClick={() => switchTo(k)} className={cx('h-10 rounded-md text-[17px] font-semibold whitespace-nowrap transition', sizeBy === k ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-700 hover:text-slate-900')}>{label}</button>
-              ))}
-            </div>
-            <label htmlFor="size" className="mt-3.5 block text-base font-semibold text-slate-600">{sizeBy === 'bill' ? `Monthly electricity bill (${finance.currency})` : 'System size required (kW)'}</label>
-            <div className="relative mt-1.5">
-              <input id="size" inputMode="decimal" value={sizeValue} onChange={(e) => sizeFor(sizeBy, e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1'))} placeholder={sizeBy === 'bill' ? 'e.g. 3500' : 'e.g. 5'} className="h-12 w-full rounded-md border border-slate-300 pr-14 pl-3 text-2xl font-bold outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
-              <span className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-lg font-semibold text-slate-600">{sizeBy === 'bill' ? finance.currency : 'kW'}</span>
-            </div>
-            <p className="mt-2 text-base text-slate-600">
-              {needPanels > 0
-                ? <>
-                    {sizeBy === 'bill' ? <>About <b className="text-slate-900">{Math.round(needUnits)} units</b>/month → </> : <><b className="text-slate-900">{amount} kW</b> → </>}
-                    <b className="text-slate-900">{needPanels} panels</b> of {spec.watts} W needed
-                    {needPanels > maxFit ? `; the roof fits ${maxFit} (${sizeBy === 'bill' ? `${Math.round((maxFit / needPanels) * 100)}% of the bill` : `${((maxFit * spec.watts) / 1000).toFixed(1)} kW`})` : ''}.
-                  </>
-                : 'Leave empty to fill the whole roof.'}
-            </p>
-          </div>
-
-          {totals.invalid > 0 && <p className="rounded-md bg-red-50 px-3 py-2 text-base text-red-700">{totals.invalid} red group{totals.invalid > 1 ? 's are' : ' is'} overlapping something and not counted. Drag it to a free place.</p>}
-
-          </div>
-          <div className="border-t border-slate-200">
-          <Section id="equipment" title="Panels & poles" summary={config.pricingMode === 'package' ? 'From the package' : [brandOf(spec), `${spec.watts} W`].join(' · ')} open={openSec === 'equipment'} onToggle={toggleSec}>
-            {config.pricingMode === 'package' ? <p className="text-sm text-slate-700">Panels and poles are set by the selected package (see Materials).</p> : null}
-          {/* 3 — dropdowns for panels, poles and custom materials (Only shown in Custom mode; package mode manages these via the package) */}
-          {config.pricingMode !== 'package' && (
-            <div className="grid gap-3">
-              <div className="grid gap-3">
-                <label className="text-sm font-medium text-slate-700">Panel brand
-                  <select className="mt-1 h-10 w-full rounded-md border border-slate-300 px-3 text-base text-slate-900" value={brandOf(spec)} onChange={(e) => pickBrand(e.target.value)}>
-                    {brands.map((b) => <option key={b} value={b}>{b}</option>)}
-                  </select>
-                </label>
-                <label className="text-sm font-medium text-slate-700">Model
-                  <select className="mt-1 h-10 w-full rounded-md border border-slate-300 px-3 text-base text-slate-900" value={spec.id} onChange={(e) => pickPanel(e.target.value)}>
-                    {models.map((p) => <option key={p.id} value={p.id}>{p.model || `${p.watts} W`} · {p.watts} W</option>)}
-                  </select>
-                </label>
-              </div>
-              <p className="-mt-1 text-sm text-slate-700">
-                {spec.watts} W · {spec.length} × {spec.width} m · {money(spec.price)} per panel
-                {spec.manufactureYear ? ` · made ${spec.manufactureYear}` : ''}{spec.warrantyYears != null ? ` · ${spec.warrantyYears}-year warranty` : ''}
-              </p>
-              {/* poles only exist on flat roofs; flush-mounted panels use roof hooks */}
-              {(structure.columns > 0 || !structure.hooks) && (
-                <label className="text-sm font-medium text-slate-700">Mounting pole
-                  <select className="mt-1 h-10 w-full rounded-md border border-slate-300 px-3 text-base text-slate-900" value={design.pillar.id} onChange={(e) => s.patch('config', { pillarId: e.target.value })}>
-                    {design.catalog.pillars.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.shape.replace('-', ' ')}) · {money(p.pricePerFt)}/ft</option>)}
-                  </select>
-                </label>
-              )}
-            </div>
-          )}
-
-          </Section>
-          <Section id="adjust" title="Adjust layout" summary={`${count} panels · ${config.tilt}° tilt`} open={openSec === 'adjust'} onToggle={toggleSec}>
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <button type="button" aria-label="One panel less" onClick={() => setCount(count - 1)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Minus className="h-4 w-4" /></button>
-                <div className="flex-1 text-center text-base"><b className="text-xl">{count}</b> panels <span className="text-sm text-slate-600">(max {maxFit})</span></div>
-                <button type="button" aria-label="One panel more" onClick={() => setCount(count + 1)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Plus className="h-4 w-4" /></button>
-              </div>
-              {design.sections.some((sec) => sec.frame) && <p className="rounded-md bg-brand-soft px-3 py-2 text-sm text-brand-ink">On the sloped roof, panels lie flat on the slope: their tilt and facing follow the roof, so the height and tilt sliders below only affect flat areas.</p>}
-              <Adjust label={`Panel height · ${(config.frontLeg * FT).toFixed(1)} ft`} value={config.frontLeg} min={0.2} max={4} step={0.05} suffix="m" onChange={(frontLeg) => applyAll({ frontLeg })} />
-              <Adjust label={`Tilt (best ${opt}°)`} value={config.tilt} min={0} max={45} suffix="°" onChange={(tilt) => applyAll({ tilt })} />
-              <p className="text-sm text-slate-700">Back pole {backLeg.toFixed(2)} m ({(backLeg * FT).toFixed(1)} ft). Cut list: {structure.cutList.map((c) => `${c.qty} × ${(c.len * FT).toFixed(1)} ft`).join(', ') || '—'}</p>
-              <div className="text-base font-semibold">Panel groups</div>
-              <GroupList design={design} />
-              <button type="button" onClick={() => { setView('2d'); s.set({ tool: 'add-array', selectedId: null }); }} className="w-full rounded-md border border-slate-300 py-2.5 text-base font-medium hover:bg-slate-50">Add panels manually (plan view)</button>
-            </div>
-          </Section>
-          <button
-            type="button"
-            onClick={() => setDetailsOpen(true)}
-            className="flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-slate-50"
-          >
-            <span className="text-[18px] font-bold text-slate-900">Materials &amp; cost breakdown</span>
-            <span className="ml-auto flex items-center gap-1.5 truncate rounded-full bg-brand-soft px-2.5 py-1 text-sm font-semibold text-brand-ink">{money(design.cost.total)}</span>
-            <ChevronRight className="h-5 w-5 shrink-0 text-slate-600" />
-          </button>
-          </div>
-        </div>
-        {/* after a panel change: re-size to the bill / kW if one is set, otherwise keep the same number of panels */}
-        <button id="rearrange" type="button" hidden onClick={() => (amount > 0 ? sizeFor(sizeBy, sizeValue) : autoGroups(design, count >= maxFit ? 0 : count))} />
-      </aside>
-
-      <Modal open={detailsOpen} onClose={() => setDetailsOpen(false)} title="Materials & cost breakdown" size="lg" footer={<button type="button" onClick={() => setDetailsOpen(false)} className="h-10 rounded-lg bg-brand px-5 text-base font-semibold text-brand-fg hover:bg-brand-600">Done</button>}>
-        <div className="space-y-8 text-[17px] text-slate-700">
-        <div>
-          <h3 className="mb-3 text-[18px] font-bold text-slate-900">Materials</h3>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          {band('brand', Boxes, 'Materials & terms', config.pricingMode === 'package' ? 'Package pricing' : 'Custom pricing')}
           <div className="space-y-4">
           {/* Pricing mode selection: Package vs Custom */}
           <div>
@@ -574,6 +484,7 @@ export default function StepSimpleDesign({ design }) {
             </div>
           </div>
 
+          {subhead('text-sky-700', CalendarDays, 'Proposal terms')}
           <label className="block text-sm text-slate-600">
             Valid until
             <input type="date" className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm" value={validUntilInput(s.validUntil)} onChange={(e) => { const v = e.target.value; s.set({ validUntil: v ? new Date(`${v}T23:59:59`).toISOString() : null }); api(`/api/designs/${useStore.getState().designId}`, { method: 'PUT', body: { validUntil: v || null } }).catch(() => {}); }} />
@@ -592,6 +503,7 @@ export default function StepSimpleDesign({ design }) {
           </div>
           <p className="-mt-2 text-[13px] text-slate-700">The PDF lists savings month by month ({(config.outlookYears ?? 10) * 12} months) at this rate, held flat.</p>
 
+          {subhead('text-amber-700', Wrench, 'Installation charges')}
           <ChargePicker value={config.installationCharges} onChange={(installationCharges) => s.patch('config', { installationCharges })} currency={finance.currency} />
 
           {/* Custom Mode Other Materials (Dynamically rendered from company's own categories) */}
@@ -699,8 +611,8 @@ export default function StepSimpleDesign({ design }) {
             </div>
         </div>
 
-        <div>
-          <h3 className="mb-3 text-[18px] font-bold text-slate-900">Cost breakdown</h3>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          {band('emerald', ReceiptText, 'Cost breakdown', 'Updates as you edit')}
           {/* Cost breakdown card */}
           <div className="text-[17px]">
             {config.pricingMode === 'package' ? (
@@ -785,6 +697,159 @@ export default function StepSimpleDesign({ design }) {
           </div>
         </div>
         </div>
+    </>
+  );
+
+  // "Edit proposal": only the pricing — no 3D scene or layout tools
+  if (proposalOnly) {
+    return (
+      <div className={onDone ? '' : 'absolute inset-0 overflow-y-auto bg-slate-50'}>
+        <div className={onDone ? '' : 'mx-auto max-w-3xl px-5 py-8'}>
+          <div className="mb-6 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-semibold text-slate-900">Edit proposal</h2>
+              <p className="text-sm text-slate-500">Materials, charges, GST and subsidy. The roof design stays as it is.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {headerActions}
+              <button type="button" onClick={() => { if (onDone) onDone(); else window.location.href = `/dashboard/designs/${s.designId}`; }} className="h-10 rounded-lg bg-brand px-5 text-base font-semibold text-brand-fg hover:bg-brand-600">Done</button>
+            </div>
+          </div>
+          <div>{detailsBody}</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="absolute inset-y-0 left-0 right-[430px]">
+        {view === '3d' ? <Scene3D design={design} /> : <Editor2D design={design} />}
+        <div className="absolute left-4 top-4 flex items-center gap-2" onPointerDown={(e) => e.stopPropagation()}>
+          <div className="flex rounded-full bg-white p-1 shadow-lg">
+            {[['3d', Box, '3D'], ['2d', Move, 'Plan view']].map(([k, Icon, label]) => (
+              <button key={k} type="button" onClick={() => { if (view === '3d' && k !== '3d') s.set({ snapshot: sceneApi.capture?.() || s.snapshot }); setView(k); }} className={cx('flex items-center gap-1.5 rounded-full px-4 py-2 text-base font-medium', view === k ? 'bg-slate-900 text-white' : 'text-slate-600')}>
+                <Icon className="h-4 w-4" /> {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {view === '2d' && (
+          <div className="pointer-events-none absolute left-1/2 top-5 -translate-x-1/2 rounded-full bg-slate-900/85 px-5 py-2 text-base text-white shadow-lg">
+            {s.tool === 'add-array' ? 'Tap on the roof where you want panels' : 'Drag panels to move · pull the ⤡ corner to add or remove panels · orange dot turns them'}
+          </div>
+        )}
+        {view === '3d' && <div className="pointer-events-none absolute left-1/2 top-6 hidden -translate-x-1/2 rounded-full bg-black/35 px-3 py-1 text-[13px] text-white/85 backdrop-blur-sm lg:block">Drag to orbit · scroll to zoom · click a panel group for details, drag it to move</div>}
+      </div>
+
+      <aside className="absolute inset-y-0 right-0 flex w-[430px] flex-col border-l border-slate-200 bg-white">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="space-y-4 px-5 py-4">
+          {/* 2 — result */}
+          <div className="rounded-2xl bg-slate-900 p-5 text-white" aria-live="polite">
+            <div className="text-3xl font-extrabold">{count} panels <span className="text-xl font-medium text-slate-300">· {totals.kwp.toFixed(1)} kW</span></div>
+            <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4">
+              <div><div className="text-base font-semibold text-slate-300">Generates</div><div className="text-2xl font-bold text-white">{Math.round(totals.acKwh / 12).toLocaleString()} units<span className="text-base font-normal text-slate-300"> / month</span></div><div className="text-base text-slate-300">{Math.round(totals.acKwh).toLocaleString()} kWh / year</div></div>
+              <div><div className="text-base font-semibold text-slate-300">Saves</div><div className="text-2xl font-bold text-white">{money(fin.firstYearSavings / 12)}<span className="text-base font-normal text-slate-300"> / month</span></div></div>
+              <div><div className="text-base font-semibold text-slate-300">Total price</div><div className="text-2xl font-bold text-white">{money(design.cost.total)}</div>{design.cost.withGst !== false && design.cost.gstAmount > 0 && <div className="text-sm text-slate-300">incl. GST</div>}</div>
+              <div><div className="text-base font-semibold text-slate-300">Payback</div><div className="text-2xl font-bold text-white">{fin.payback ? `${fin.payback.toFixed(1)} years` : `${fin.rows.length}+ years`}</div></div>
+            </div>
+          </div>
+
+          {/* 1 — the only question: size by bill or by kW */}
+          <div>
+            <div className="text-[19px] font-bold text-slate-900">Size the system by</div>
+            <div role="radiogroup" aria-label="Size the system by" className="mt-2.5 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
+              {[['bill', 'Monthly bill'], ['kw', 'Kilowatt (kW)']].map(([k, label]) => (
+                <button key={k} type="button" role="radio" aria-checked={sizeBy === k} onClick={() => switchTo(k)} className={cx('h-10 rounded-md text-[17px] font-semibold whitespace-nowrap transition', sizeBy === k ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-700 hover:text-slate-900')}>{label}</button>
+              ))}
+            </div>
+            <label htmlFor="size" className="mt-3.5 block text-base font-semibold text-slate-600">{sizeBy === 'bill' ? `Monthly electricity bill (${finance.currency})` : 'System size required (kW)'}</label>
+            <div className="relative mt-1.5">
+              <input id="size" inputMode="decimal" value={sizeValue} onChange={(e) => sizeFor(sizeBy, e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1'))} placeholder={sizeBy === 'bill' ? 'e.g. 3500' : 'e.g. 5'} className="h-12 w-full rounded-md border border-slate-300 pr-14 pl-3 text-2xl font-bold outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
+              <span className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-lg font-semibold text-slate-600">{sizeBy === 'bill' ? finance.currency : 'kW'}</span>
+            </div>
+            <p className="mt-2 text-base text-slate-600">
+              {needPanels > 0
+                ? <>
+                    {sizeBy === 'bill' ? <>About <b className="text-slate-900">{Math.round(needUnits)} units</b>/month → </> : <><b className="text-slate-900">{amount} kW</b> → </>}
+                    <b className="text-slate-900">{needPanels} panels</b> of {spec.watts} W needed
+                    {needPanels > maxFit ? `; the roof fits ${maxFit} (${sizeBy === 'bill' ? `${Math.round((maxFit / needPanels) * 100)}% of the bill` : `${((maxFit * spec.watts) / 1000).toFixed(1)} kW`})` : ''}.
+                  </>
+                : 'Leave empty to fill the whole roof.'}
+            </p>
+          </div>
+
+          {totals.invalid > 0 && <p className="rounded-md bg-red-50 px-3 py-2 text-base text-red-700">{totals.invalid} red group{totals.invalid > 1 ? 's are' : ' is'} overlapping something and not counted. Drag it to a free place.</p>}
+
+          </div>
+          <div className="border-t border-slate-200">
+          <Section id="equipment" title="Panels & poles" summary={config.pricingMode === 'package' ? 'From the package' : [brandOf(spec), `${spec.watts} W`].join(' · ')} open={openSec === 'equipment'} onToggle={toggleSec}>
+            {config.pricingMode === 'package' ? <p className="text-sm text-slate-700">Panels and poles are set by the selected package (see Materials).</p> : null}
+          {/* 3 — dropdowns for panels, poles and custom materials (Only shown in Custom mode; package mode manages these via the package) */}
+          {config.pricingMode !== 'package' && (
+            <div className="grid gap-3">
+              <div className="grid gap-3">
+                <label className="text-sm font-medium text-slate-700">Panel brand
+                  <select className="mt-1 h-10 w-full rounded-md border border-slate-300 px-3 text-base text-slate-900" value={brandOf(spec)} onChange={(e) => pickBrand(e.target.value)}>
+                    {brands.map((b) => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm font-medium text-slate-700">Model
+                  <select className="mt-1 h-10 w-full rounded-md border border-slate-300 px-3 text-base text-slate-900" value={spec.id} onChange={(e) => pickPanel(e.target.value)}>
+                    {models.map((p) => <option key={p.id} value={p.id}>{p.model || `${p.watts} W`} · {p.watts} W</option>)}
+                  </select>
+                </label>
+              </div>
+              <p className="-mt-1 text-sm text-slate-700">
+                {spec.watts} W · {spec.length} × {spec.width} m · {money(spec.price)} per panel
+                {spec.manufactureYear ? ` · made ${spec.manufactureYear}` : ''}{spec.warrantyYears != null ? ` · ${spec.warrantyYears}-year warranty` : ''}
+              </p>
+              {/* poles only exist on flat roofs; flush-mounted panels use roof hooks */}
+              {(structure.columns > 0 || !structure.hooks) && (
+                <label className="text-sm font-medium text-slate-700">Mounting pole
+                  <select className="mt-1 h-10 w-full rounded-md border border-slate-300 px-3 text-base text-slate-900" value={design.pillar.id} onChange={(e) => s.patch('config', { pillarId: e.target.value })}>
+                    {design.catalog.pillars.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.shape.replace('-', ' ')}) · {money(p.pricePerFt)}/ft</option>)}
+                  </select>
+                </label>
+              )}
+            </div>
+          )}
+
+          </Section>
+          <Section id="adjust" title="Adjust layout" summary={`${count} panels · ${config.tilt}° tilt`} open={openSec === 'adjust'} onToggle={toggleSec}>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <button type="button" aria-label="One panel less" onClick={() => setCount(count - 1)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Minus className="h-4 w-4" /></button>
+                <div className="flex-1 text-center text-base"><b className="text-xl">{count}</b> panels <span className="text-sm text-slate-600">(max {maxFit})</span></div>
+                <button type="button" aria-label="One panel more" onClick={() => setCount(count + 1)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Plus className="h-4 w-4" /></button>
+              </div>
+              {design.sections.some((sec) => sec.frame) && <p className="rounded-md bg-brand-soft px-3 py-2 text-sm text-brand-ink">On the sloped roof, panels lie flat on the slope: their tilt and facing follow the roof, so the height and tilt sliders below only affect flat areas.</p>}
+              <Adjust label={`Panel height · ${(config.frontLeg * FT).toFixed(1)} ft`} value={config.frontLeg} min={0.2} max={4} step={0.05} suffix="m" onChange={(frontLeg) => applyAll({ frontLeg })} />
+              <Adjust label={`Tilt (best ${opt}°)`} value={config.tilt} min={0} max={45} suffix="°" onChange={(tilt) => applyAll({ tilt })} />
+              <p className="text-sm text-slate-700">Back pole {backLeg.toFixed(2)} m ({(backLeg * FT).toFixed(1)} ft). Cut list: {structure.cutList.map((c) => `${c.qty} × ${(c.len * FT).toFixed(1)} ft`).join(', ') || '—'}</p>
+              <div className="text-base font-semibold">Panel groups</div>
+              <GroupList design={design} />
+              <button type="button" onClick={() => { setView('2d'); s.set({ tool: 'add-array', selectedId: null }); }} className="w-full rounded-md border border-slate-300 py-2.5 text-base font-medium hover:bg-slate-50">Add panels manually (plan view)</button>
+            </div>
+          </Section>
+          <button
+            type="button"
+            onClick={() => setDetailsOpen(true)}
+            className="flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-slate-50"
+          >
+            <span className="text-[18px] font-bold text-slate-900">Materials &amp; cost breakdown</span>
+            <span className="ml-auto flex items-center gap-1.5 truncate rounded-full bg-brand-soft px-2.5 py-1 text-sm font-semibold text-brand-ink">{money(design.cost.total)}</span>
+            <ChevronRight className="h-5 w-5 shrink-0 text-slate-600" />
+          </button>
+          </div>
+        </div>
+        {/* after a panel change: re-size to the bill / kW if one is set, otherwise keep the same number of panels */}
+        <button id="rearrange" type="button" hidden onClick={() => (amount > 0 ? sizeFor(sizeBy, sizeValue) : autoGroups(design, count >= maxFit ? 0 : count))} />
+      </aside>
+
+      <Modal open={detailsOpen} onClose={() => setDetailsOpen(false)} title={proposalOnly ? 'Edit proposal — materials, charges & subsidy' : 'Materials & cost breakdown'} size="lg" footer={<button type="button" onClick={() => setDetailsOpen(false)} className="h-10 rounded-lg bg-brand px-5 text-base font-semibold text-brand-fg hover:bg-brand-600">Done</button>}>
+        {detailsBody}
       </Modal>
       <ShadowReportModal open={Boolean(wantShadow) && sceneReady} mode={wantShadow || 'report'} onClose={() => useStore.getState().set({ shadowReport: false })} design={design} />
     </>

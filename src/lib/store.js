@@ -47,6 +47,7 @@ const initial = {
   designName: '',
   designStatus: 'draft',
   validUntil: null, // the proposal's valid-until date (a design field, edited from the sidebar)
+  subsidy: null, // the proposal's government subsidy (a design field): shown under the price and on the PDF
   readOnly: false, // the client's viewer: nothing can be selected, moved or saved
   client: null, // {id, name, email, phone, address}
 };
@@ -104,6 +105,7 @@ export const useStore = create((set, get) => ({
         designName: design.name,
         designStatus: design.status,
         validUntil: design.validUntil || null,
+        subsidy: design.subsidy || null,
         readOnly,
         client: design.client || null,
       };

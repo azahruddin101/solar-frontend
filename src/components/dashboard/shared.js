@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, FileText, Mail, MapPin, PenTool, Phone, User, Users, Zap } from 'lucide-react';
+import { ArrowRight, FileText, Landmark, Mail, MapPin, PenTool, Phone, ReceiptText, User, Users, Wrench, Zap } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useId, useMemo, useState } from 'react';
 
@@ -8,7 +8,8 @@ import { api } from '@/lib/api';
 import { defaultValidUntil, toDateInput } from '@/lib/validity';
 import { CLIENT_PROJECT_TYPES, CLIENT_ROOF_TYPES } from '@/lib/validation';
 import { useSession } from '@/lib/session';
-import { Badge, Button, FormField, Input, Modal, NumField, Select, Stepper, Toggle } from '../kit';
+import { Badge, Button, FormField, Input, Modal, NumField, Select, Stepper, Toggle, cx } from '../kit';
+import { AREA_TONE } from './ClientRelated';
 
 /** A quiet section label — separates a long form into clearly named parts without adding boxes/borders. */
 function SectionLabel({ children, hint }) {
@@ -17,6 +18,23 @@ function SectionLabel({ children, hint }) {
       <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{children}</span>
       {hint && <span className="text-[11px] text-slate-400">{hint}</span>}
     </div>
+  );
+}
+
+/** A block of the form with its own colour: a tinted header with an icon chip, then the fields. */
+function FormSection({ icon: Icon, tone = 'slate', title, hint, children }) {
+  const t = AREA_TONE[tone] || AREA_TONE.slate;
+  return (
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className={cx('flex items-center justify-between gap-3 border-b px-4 py-2.5', t.band)}>
+        <div className="flex items-center gap-2.5">
+          <span className={cx('grid h-7 w-7 shrink-0 place-items-center rounded-md', t.chip)}><Icon className="h-3.5 w-3.5" /></span>
+          <h4 className={cx('text-sm font-semibold', t.title)}>{title}</h4>
+        </div>
+        {hint && <span className="text-[11px] text-slate-500">{hint}</span>}
+      </div>
+      <div className="space-y-4 p-4">{children}</div>
+    </section>
   );
 }
 
@@ -41,6 +59,8 @@ function SegmentedControl({ options, value, onChange, className }) {
 export const DESIGN_STATUSES = [
   { id: 'draft', label: 'Draft', tone: 'slate' },
   { id: 'proposed', label: 'Proposed', tone: 'blue' },
+  { id: 'reproposed', label: 'Reproposed', tone: 'violet' },
+  { id: 'negotiation', label: 'Negotiation', tone: 'amber' },
   { id: 'won', label: 'Booked', tone: 'green' },
   { id: 'lost', label: 'Lost', tone: 'red' },
 ];
@@ -78,11 +98,15 @@ export function NewDesignModal({ clients = [], clientId, onClose }) {
   const [cleaningCharge, setCleaningCharge] = useState(0);
   const [projectType, setProjectType] = useState('residential');
   const [roofType, setRoofType] = useState('');
+  const [subsidyOn, setSubsidyOn] = useState(false); // government subsidy applies: central + state amounts
+  const [subsidyCentral, setSubsidyCentral] = useState('');
+  const [subsidyState, setSubsidyState] = useState('');
+  const subsidyTotal = (Number(subsidyCentral) || 0) + (Number(subsidyState) || 0);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const steps = ['Proposal', 'Billing & Service'];
+  const steps = ['Proposal & site', 'Billing, subsidy & service'];
   const isLastStep = step === steps.length - 1;
 
   // Fetch available packages for company
@@ -131,6 +155,7 @@ export function NewDesignModal({ clients = [], clientId, onClose }) {
         cleaningCharge: Number(cleaningCharge) || 0,
         projectType,
         roofType: roofType || '',
+        subsidy: { enabled: subsidyOn, central: subsidyOn ? Number(subsidyCentral) || 0 : 0, state: subsidyOn ? Number(subsidyState) || 0 : 0 },
       };
       if (kind === 'quick') {
         const design = await api('/api/designs', { method: 'POST', body: { client, name, validUntil, type: 'quick', ...billingExtras } });
@@ -191,14 +216,15 @@ export function NewDesignModal({ clients = [], clientId, onClose }) {
           {/* Left Panel: Form controls */}
           <form id={formId} onSubmit={submit} className="space-y-5 lg:col-span-2">
             {step === 0 && (
-              <div className="space-y-5">
+              <div className="space-y-4">
                 <SegmentedControl
                   options={[{ value: '3d', label: 'With 3D design' }, { value: 'quick', label: 'Without 3D design' }]}
                   value={kind}
                   onChange={setKind}
                 />
-                {kind === 'quick' && <p className="-mt-3 text-[11px] text-slate-500">Pick packages/products, GST, floor and installation charges — no roof design needed.</p>}
+                {kind === 'quick' && <p className="-mt-2 text-[11px] text-slate-500">Pick packages/products, GST, floor and installation charges — no roof design needed.</p>}
 
+                <FormSection icon={PenTool} tone="proposals" title="Proposal" hint="Who it is for and how long it holds">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <FormField label="Select client">
                     <Select required value={client} onValue={setClient} autoFocus>
@@ -235,6 +261,21 @@ export function NewDesignModal({ clients = [], clientId, onClose }) {
                   )}
                 </div>
 
+                {kind === '3d' && pricingMode === 'package' && (
+                  <FormField label="Select Package">
+                    <Select value={packageId} onValue={setPackageId}>
+                      {!packagesList.length && <option value="">Standard Package (built-in)</option>}
+                      {packagesList.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} {p.kw ? `(${p.kw} kW)` : ''}
+                        </option>
+                      ))}
+                    </Select>
+                  </FormField>
+                )}
+                </FormSection>
+
+                <FormSection icon={MapPin} tone="installations" title="Site" hint="Shapes the design and the costing">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <FormField label="Project type">
                     <Select value={projectType} onValue={setProjectType}>
@@ -262,19 +303,7 @@ export function NewDesignModal({ clients = [], clientId, onClose }) {
                     </Select>
                   </FormField>
                 </div>
-
-                {kind === '3d' && pricingMode === 'package' && (
-                  <FormField label="Select Package">
-                    <Select value={packageId} onValue={setPackageId}>
-                      {!packagesList.length && <option value="">Standard Package (built-in)</option>}
-                      {packagesList.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} {p.kw ? `(${p.kw} kW)` : ''}
-                        </option>
-                      ))}
-                    </Select>
-                  </FormField>
-                )}
+                </FormSection>
                 {kind === '3d' && (
                   <p className="text-[11px] text-slate-400">Floor placement, tariff and installation charges can be set inside the proposal editor next.</p>
                 )}
@@ -283,23 +312,38 @@ export function NewDesignModal({ clients = [], clientId, onClose }) {
 
             {/* Billing & service, the final step */}
             {isLastStep && (
-              <div className="space-y-5">
-                <SectionLabel hint="Optional">Billing &amp; service</SectionLabel>
-
-                <FormField label="Billing Name" optional hint="If different from the client's name.">
-                  <Input value={billingName} onValue={setBillingName} maxLength={160} placeholder={selectedClient?.name || 'e.g. Business name for billing'} />
-                </FormField>
-
-                <Toggle checked={loanRequired} onChange={setLoanRequired} label="Loan" description="Is this system being bought on a loan? The proposal goes into Loans and follows your loan steps." />
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <FormField label="Roof cleaning / year" optional hint="Times per year">
-                    <NumField min={0} max={365} step={1} value={cleaningFrequency} onValue={(v) => setCleaningFrequency(Math.round(v))} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" />
+              <div className="space-y-4">
+                <FormSection icon={ReceiptText} tone="billing" title="Billing" hint="Optional">
+                  <FormField label="Billing Name" optional hint="If different from the client's name.">
+                    <Input value={billingName} onValue={setBillingName} maxLength={160} placeholder={selectedClient?.name || 'e.g. Business name for billing'} />
                   </FormField>
-                  <FormField label="Charge per cleaning" optional>
-                    <NumField min={0} step="any" value={cleaningCharge} onValue={setCleaningCharge} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" />
-                  </FormField>
-                </div>
+                  <Toggle checked={loanRequired} onChange={setLoanRequired} label="Loan" description="Is this system being bought on a loan? The proposal goes into Loans and follows your loan steps." />
+                </FormSection>
+
+                <FormSection icon={Landmark} tone="loans" title="Subsidy" hint={subsidyOn && subsidyTotal > 0 ? `Total ${subsidyTotal.toLocaleString('en-IN')}` : 'Optional'}>
+                  <Toggle checked={subsidyOn} onChange={setSubsidyOn} label="Government subsidy applies" description="The client can claim a central and/or state subsidy on this system. Enter the amounts the client will get back." />
+                  {subsidyOn && (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <FormField label="Central subsidy" hint="e.g. PM Surya Ghar, in your currency">
+                        <NumField min={0} step="any" value={subsidyCentral} onValue={setSubsidyCentral} placeholder="e.g. 78000" className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" autoFocus />
+                      </FormField>
+                      <FormField label="State subsidy" hint="The state scheme's amount, if any">
+                        <NumField min={0} step="any" value={subsidyState} onValue={setSubsidyState} placeholder="e.g. 15000" className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" />
+                      </FormField>
+                    </div>
+                  )}
+                </FormSection>
+
+                <FormSection icon={Wrench} tone="support" title="Service" hint="Optional">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <FormField label="Roof cleaning / year" optional hint="Times per year">
+                      <NumField min={0} max={365} step={1} value={cleaningFrequency} onValue={(v) => setCleaningFrequency(Math.round(v))} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" />
+                    </FormField>
+                    <FormField label="Charge per cleaning" optional>
+                      <NumField min={0} step="any" value={cleaningCharge} onValue={setCleaningCharge} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" />
+                    </FormField>
+                  </div>
+                </FormSection>
               </div>
             )}
 
@@ -342,6 +386,14 @@ export function NewDesignModal({ clients = [], clientId, onClose }) {
                     {selectedClient.kwRequired ? `${selectedClient.kwRequired} kW` : '—'}
                   </span>
                 </div>
+
+                {subsidyOn && (
+                  <div className="rounded-lg border border-violet-100 bg-violet-50/70 px-3 py-2">
+                    <span className="font-medium text-violet-700 block">Subsidy on this proposal</span>
+                    <span className="text-slate-800 text-[13px]">Central {(Number(subsidyCentral) || 0).toLocaleString('en-IN')} · State {(Number(subsidyState) || 0).toLocaleString('en-IN')}</span>
+                    <span className="block text-[13px] font-semibold text-violet-900">Total {subsidyTotal.toLocaleString('en-IN')}</span>
+                  </div>
+                )}
 
                 <div className="flex gap-4">
                   <div>

@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/useCan';
 import { usePagedResource } from '@/lib/useResource';
-import { Alert, Avatar, Badge, Button, Card, ConfirmDialog, DateRangeFilter, EmptyState, Input, LoadingBlock, LoadMoreRow, PageHeader, Table, Td, Th, Tr, formatDate, toast, RowMenu } from '../kit';
+import { Alert, Avatar, Badge, Button, Card, ConfirmDialog, DateRangeFilter, EmptyState, Input, LoadMoreRow, LoadingBlock, PageHeader, RowMenu, Table, Td, Th, Tr, capName, formatDate, toast } from '../kit';
 import ClientCredentials from './ClientCredentials';
 import ClientForm from './ClientForm';
 
@@ -131,7 +131,7 @@ export default function Clients({ basePath = '/dashboard/clients' }) {
                           href={`${basePath}/${c.id}`}
                           className="font-medium text-slate-900 hover:text-brand hover:underline block truncate max-w-[220px]"
                         >
-                          {c.name}
+                          {capName(c.name)}
                         </Link>
                         <div className="flex items-center gap-2 text-xs text-slate-500">
                           {c.source && <span>{c.source}</span>}

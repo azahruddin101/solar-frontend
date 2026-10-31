@@ -1,6 +1,12 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import ScheduleField from '@/components/leads/ScheduleField';
+import LeadViewSwitch from '@/components/leads/LeadViewSwitch';
+import PreviousStaffCell from '@/components/leads/PreviousStaffCell';
+import ReassignedMark from '@/components/leads/ReassignedMark';
+import { LOG_TITLE } from '@/components/leads/ReassignedMark';
+import { toLocalInput } from '@/lib/leadSchedule';
 import api from '@/lib/leads/api';
 import { can } from '@/lib/permissions';
 import { useSession } from '@/lib/session';
@@ -16,6 +22,7 @@ import QuickAssign from '@/components/leads/QuickAssign';
 import PriorityToggle, { PRIORITY_FILTER_OPTIONS } from '@/components/admin/leads/PriorityToggle';
 import { statusBadgeClass, formatFieldLabel, formatFieldValue, isHiddenLeadField } from '@/lib/leads/metaLeadStatus';
 import { isLeadStatusLocked, LEAD_CONVERTED_LOCK_HINT } from '@/lib/leads';
+import LeadSourceTabs from '@/components/leads/LeadSourceTabs';
 
 const PAGE_SIZES = [20, 50, 100];
 
@@ -58,7 +65,7 @@ export default function AdminGoogleLeads() {
   const [selectedLead, setSelectedLead] = useState(null);
   const [modalAssigneeId, setModalAssigneeId] = useState('');
   const [modalAssigning, setModalAssigning] = useState(false);
-  const [statusForm, setStatusForm] = useState({ statusId: '', remark: '' });
+  const [statusForm, setStatusForm] = useState({ statusId: '', remark: '', scheduledAt: '' });
   const [savingStatus, setSavingStatus] = useState(false);
   const [converting, setConverting] = useState(null); // the lead being turned into a client (converted status)
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -167,7 +174,7 @@ export default function AdminGoogleLeads() {
   const handleViewLead = (lead) => {
     setSelectedLead(lead);
     setModalAssigneeId('');
-    setStatusForm({ statusId: lead.currentStatus?._id || '', remark: '' });
+    setStatusForm({ statusId: lead.currentStatus?._id || '', remark: '', scheduledAt: toLocalInput(lead.scheduledAt) });
   };
 
   const handleAssigned = () => {
@@ -201,7 +208,7 @@ export default function AdminGoogleLeads() {
     setSavingStatus(true);
     try {
       const chosen = statuses.find((s) => s._id === statusForm.statusId);
-      await api.put(`/leads/google/${selectedLead._id}/status`, statusForm);
+      await api.put(`/leads/google/${selectedLead._id}/status`, { ...statusForm, scheduledAt: statusForm.scheduledAt ? new Date(statusForm.scheduledAt).toISOString() : null });
       toast.success('Status updated');
       // the converted status: add the lead as a client straight away, filled in from the lead
       if (chosen?.outcome === 'converted' && !selectedLead.convertedClient) {
@@ -222,14 +229,10 @@ export default function AdminGoogleLeads() {
 
   return (
     <div className="space-y-6">
+      <LeadSourceTabs />
       {/* Header */}
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-             Google Ads Leads
-          </h2>
-          <p className="text-sm text-slate-900 mt-1">{may.all ? 'Leads collected from Google Ads lead forms. Assign them to your team and track their progress.' : 'The Google Ads leads assigned to you.'}</p>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <LeadViewSwitch view="list" />
         <div className="hidden md:flex flex-wrap items-center justify-end gap-2">
           {may.assign && (
             <button onClick={() => setIsAssignOpen(true)} className="btn-primary rounded-md text-base flex items-center gap-1.5">
@@ -343,6 +346,7 @@ export default function AdminGoogleLeads() {
                   <th className="p-4 whitespace-nowrap">Lead</th>
                   <th className="p-4 whitespace-nowrap min-w-[240px]">Lead Form</th>
                   <th className="p-4 whitespace-nowrap">Assigned to</th>
+                  <th className="p-4 whitespace-nowrap">Previously with</th>
                   <th className="p-4 whitespace-nowrap">Status</th>
                   <th className="p-4 whitespace-nowrap">Received</th>
                   <th className="p-4 text-center whitespace-nowrap">Details</th>
@@ -374,7 +378,9 @@ export default function AdminGoogleLeads() {
                         </td>
                         <td className="p-4">
                           <p className="font-bold text-slate-900 capitalize">{l.assignedTo?.name || 'Unallocated'}</p>
+                          <ReassignedMark lead={l} />
                         </td>
+                        <td className="p-4"><PreviousStaffCell lead={l} /></td>
                         <td className="p-4">
                           {l.currentStatus ? (
                             <span className={`px-2 py-0.5 rounded-full text-[11px] uppercase font-semibold tracking-wide ${statusBadgeClass(l.currentStatus.color)}`}>
@@ -404,7 +410,7 @@ export default function AdminGoogleLeads() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={6} className="p-8 text-center text-slate-500 font-semibold">
+                    <td colSpan={7} className="p-8 text-center text-slate-500 font-semibold">
                       {hasFilters ? 'No Google Ads leads match these filters' : 'No Google Ads leads received yet'}
                     </td>
                   </tr>
@@ -525,6 +531,7 @@ export default function AdminGoogleLeads() {
                         <option key={status._id} value={status._id}>{status.name}</option>
                       ))}
                     </select>
+                    <ScheduleField status={statuses.find((s) => s._id === statusForm.statusId)} value={statusForm.scheduledAt} onChange={(x) => setStatusForm({ ...statusForm, scheduledAt: x })} />
                     <textarea
                       value={statusForm.remark}
                       onChange={(e) => setStatusForm({ ...statusForm, remark: e.target.value })}
@@ -548,9 +555,11 @@ export default function AdminGoogleLeads() {
                   className="self-start md:sticky md:top-0"
                   entries={[
                     { at: selectedLead.createdAt, title: 'Received from Google Ads' },
-                    selectedLead.assignedTo && { at: selectedLead.assignedAt, title: `Assigned to ${selectedLead.assignedTo.name}` },
+                    ...(selectedLead.logs?.length ? [] : [selectedLead.assignedTo && { at: selectedLead.assignedAt, title: `Assigned to ${selectedLead.assignedTo.name}` }]),
+                    // the lead's own log: assignments and hand-overs (status lines come from the histories below, with their badge)
+                    ...(selectedLead.logs || []).filter((e) => !['lead_status', 'lead_rescheduled'].includes(e.action)).map((e) => ({ at: e.at, title: LOG_TITLE[e.action] || e.action, remark: e.message, by: e.byName })),
                     selectedLead.convertedClient && { at: selectedLead.convertedAt, title: `Converted to client ${selectedLead.convertedClientName}`, by: selectedLead.convertedByName },
-                    ...(selectedLead.statusHistory || []).map((h) => ({ at: h.changedAt, title: 'Status changed', status: { name: h.statusName, color: h.statusColor }, remark: h.remark })),
+                    ...(selectedLead.statusHistory || []).map((h) => ({ at: h.changedAt, title: h.rescheduled ? 'Rescheduled' : 'Status changed', status: { name: h.statusName, color: h.statusColor }, remark: h.remark, scheduledAt: h.scheduledAt })),
                   ]}
                 />
               </div>

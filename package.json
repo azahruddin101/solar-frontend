@@ -13,6 +13,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@atlaskit/pragmatic-drag-and-drop": "^4.0.0",
+    "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^3.2.1",
+    "@atlaskit/pragmatic-drag-and-drop-flourish": "^3.2.4",
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
     "jspdf": "^4.2.1",

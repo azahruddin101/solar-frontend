@@ -15,6 +15,7 @@ function ChargeForm({ charge, onClose, onSaved }) {
     description: charge?.description || '',
     defaultPrice: charge?.defaultPrice ? String(charge.defaultPrice) : '',
     gstPercent: charge?.gstPercent != null && charge?.gstPercent !== '' ? String(charge.gstPercent) : '18',
+    sac: charge?.sac || '',
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -29,6 +30,7 @@ function ChargeForm({ charge, onClose, onSaved }) {
         description: form.description.trim(),
         defaultPrice: Number(form.defaultPrice) || 0,
         gstPercent: Math.max(0, Math.min(100, Number(form.gstPercent) || 18)),
+        sac: form.sac.replace(/\D/g, ''),
       };
       onSaved(await api(editing ? `/api/installation-charges/${charge.id}` : '/api/installation-charges', { method: editing ? 'PUT' : 'POST', body }), editing);
     } catch (e) {
@@ -42,7 +44,10 @@ function ChargeForm({ charge, onClose, onSaved }) {
       <FormField label="Charge name"><Input maxLength={80} value={form.name} onValue={(v) => setForm({ ...form, name: v.replace(/^\s+/, '') })} placeholder="e.g. Inverter installation" /></FormField>
       <FormField label="Description" optional><Input maxLength={300} value={form.description} onValue={(v) => setForm({ ...form, description: v })} /></FormField>
       <FormField label="Usual price" optional hint="Only pre-fills the price on a proposal — you can change it there every time."><Input type="number" min={0} step="any" value={form.defaultPrice} onValue={(v) => setForm({ ...form, defaultPrice: v })} /></FormField>
-      <FormField label="GST %" hint="Applied to this charge on proposals (ex-GST price + this %)."><Input type="number" min={0} max={100} step="0.1" value={form.gstPercent} onValue={(v) => setForm({ ...form, gstPercent: v })} /></FormField>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <FormField label="GST %" hint="Applied to this charge on proposals (ex-GST price + this %)."><Input type="number" min={0} max={100} step="0.1" value={form.gstPercent} onValue={(v) => setForm({ ...form, gstPercent: v })} /></FormField>
+        <FormField label="SAC code" optional hint="Services Accounting Code, 6 digits, printed in the HSN/SAC column. Leave blank to print none."><Input inputMode="numeric" maxLength={8} value={form.sac} onValue={(v) => setForm({ ...form, sac: v.replace(/\D/g, '') })} placeholder="e.g. 998736" className="font-mono" /></FormField>
+      </div>
     </FormModal>
   );
 }
@@ -86,12 +91,14 @@ export default function InstallationCharges() {
           </EmptyState>
         ) : (
           <Table>
-            <thead><tr><Th>Charge</Th><Th>Description</Th><Th className="text-right">Usual price</Th><Th className="text-right">Actions</Th></tr></thead>
+            <thead><tr><Th>Charge</Th><Th>Description</Th><Th>SAC</Th><Th className="text-right">GST</Th><Th className="text-right">Usual price</Th><Th className="text-right">Actions</Th></tr></thead>
             <tbody>
               {data.map((c) => (
                 <Tr key={c.id}>
                   <Td className="font-medium text-slate-900">{c.name}</Td>
                   <Td className="max-w-[320px] truncate text-slate-500">{c.description || '—'}</Td>
+                  <Td className="font-mono text-[13px] text-slate-700">{c.sac || <span className="text-slate-400">—</span>}</Td>
+                  <Td className="text-right tabular-nums">{c.gstPercent ?? 18}%</Td>
                   <Td className="text-right tabular-nums">{c.defaultPrice ? c.defaultPrice.toLocaleString('en-IN') : '—'}</Td>
                   <Td>
                     <div className="flex justify-end">

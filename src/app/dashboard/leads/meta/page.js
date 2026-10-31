@@ -1,14 +1,6 @@
 import AdminMetaLeads from '@/components/admin/leads/AdminMetaLeads';
-import { PageHeader } from '@/components/kit';
 
+// The page carries its own heading, so there is no PageHeader here.
 export default function Page() {
-  return (
-    <>
-      <PageHeader
-        title="Meta leads"
-        description="Leads from Facebook and Instagram Lead Ads for your company."
-      />
-      <AdminMetaLeads />
-    </>
-  );
+  return <AdminMetaLeads />;
 }

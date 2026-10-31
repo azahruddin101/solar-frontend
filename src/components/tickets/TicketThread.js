@@ -11,6 +11,7 @@ import { useUnread } from '@/lib/unread';
 import { Alert, Avatar, Button, Card, LoadingBlock, Select, Tabs, cx, formatDate, toast } from '../kit';
 import Composer from './Composer';
 import { Attachment, TICKET_STATUSES, TicketStatusBadge, channelOf, labelOf } from './shared';
+import { useBreadcrumb } from '@/lib/breadcrumbs';
 
 const stamp = (d) => new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const clock = (d) => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -61,6 +62,7 @@ export default function TicketThread({ id, admin = false, basePath, channel = 'p
   const canReply = !c.permission || may(c.permission, 'update');
   const base = basePath || (channel === 'clients' ? '/dashboard/client-support' : channel === 'portal' ? '/portal/support' : admin ? '/admin/support' : '/dashboard/support');
   const [ticket, setTicket] = useState(null);
+  useBreadcrumb(ticket?.subject);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [checkedAt, setCheckedAt] = useState(null);

@@ -2,7 +2,7 @@
 
 // A proposal without a 3D design: choose packages/products (qty and price), GST, floor placement and
 // installation charges. Autosaves into the design document (`data.quote`) and exports a branded PDF.
-import { ArrowLeft, Download, Plus, QrCode, X } from 'lucide-react';
+import { ArrowLeft, Download, Plus, QrCode, Save, X } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
@@ -11,6 +11,7 @@ import { normalizeCatalog } from '@/lib/catalog';
 import { pricingFromQuote } from '@/lib/pricing';
 import { toDateInput, validUntilInput } from '@/lib/validity';
 import { generateQuotePdf } from '@/lib/pdf';
+import { SubsidyField } from './DesignDetail';
 import { DEFAULT_SYSTEM, computeQuoteSystem, deriveQuoteSystem, wattsFrom } from '@/lib/quoteModel';
 import { can } from '@/lib/permissions';
 import { useSession } from '@/lib/session';
@@ -23,6 +24,7 @@ import ClientChangeRequestPanel from './ClientChangeRequestPanel';
 import ShareModal from './ShareModal';
 import { ProposalGstModeToggle } from '../proposal/ProposalGstControls';
 import { DESIGN_STATUSES } from './shared';
+import { netAfterSubsidy, subsidyOf } from '@/lib/subsidy';
 
 const EMPTY = { pricingMode: 'package', packageId: '', packagePrice: 0, packageGstPercent: 18, bundle: [], materials: {}, extraItems: [], system: { ...DEFAULT_SYSTEM }, items: [], withGst: true, gstPercent: 18, discount: 0, discountIsPercent: false, floorPlacement: 0, floorCost: 0, outlookYears: 10, installationCharges: [] };
 const FLOORS = ['Ground floor', '1st floor', '2nd floor', '3rd floor', '4th floor', '5th floor+'];
@@ -130,13 +132,29 @@ function Editor({ designId }) {
   const download = async (cover) => {
     setExporting(true);
     try {
-      await generateQuotePdf({ quote, name: design.name, company, client: design.client, designId, currency, spec, count: sysInfo.count, tariff, validUntil: validUntil ? new Date(`${validUntil}T23:59:59`) : null, cover });
+      await generateQuotePdf({ quote, name: design.name, company, client: design.client, designId, currency, spec, count: sysInfo.count, tariff, validUntil: validUntil ? new Date(`${validUntil}T23:59:59`) : null, cover, subsidy: design.subsidy });
       setPicking(false);
     } catch (e) {
       console.error(e);
       toast.error('Sorry, the PDF could not be created. Please try again.');
     }
     setExporting(false);
+  };
+
+  // a snapshot of the proposal as it stands (its data and PDF), listed under the proposal's versions
+  const [savingVersion, setSavingVersion] = useState(false);
+  const saveVersion = async () => {
+    setSavingVersion(true);
+    try {
+      const { blob, filename } = await generateQuotePdf({ quote, name: design.name, company, client: design.client, designId, currency, spec, count: sysInfo.count, tariff, validUntil: validUntil ? new Date(`${validUntil}T23:59:59`) : null, subsidy: design.subsidy, save: false });
+      const form = new FormData();
+      form.append('file', blob, filename);
+      await api(`/api/designs/${designId}/versions`, { method: 'POST', form });
+      toast.success('Version saved');
+    } catch (e) {
+      toast.error(e.message || 'Could not save the version');
+    }
+    setSavingVersion(false);
   };
 
   if (loading || !quote) return error ? <Alert>{error}</Alert> : <LoadingBlock />;
@@ -153,6 +171,7 @@ function Editor({ designId }) {
         <div className="flex items-center gap-2">
           <Select value={status} onValue={changeStatus} disabled={!canChangeStatus} title={canChangeStatus ? undefined : 'Needs the Proposals › Change status permission'} aria-label="Status" className="w-36">{DESIGN_STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</Select>
           {canShare && <Button icon={QrCode} onClick={() => setShareOpen(true)}>Share</Button>}
+          <Button icon={Save} loading={savingVersion} disabled={!quote.items.length || !model?.ready} onClick={saveVersion} title="Keep a copy of the proposal as it is now, with its PDF">Save version</Button>
           <Button variant="primary" icon={Download} loading={exporting} disabled={!quote.items.length || !model?.ready} title={!model?.ready ? 'Choose a package with a solar panel, or a solar panel product, first' : undefined} onClick={() => setPicking(true)}>Download PDF</Button>
         </div>
       </div>
@@ -290,9 +309,10 @@ function Editor({ designId }) {
           <div className="flex justify-between border-t border-slate-200 pt-2"><span className="font-semibold">Subtotal</span><b>{money(totals.subtotal)}</b></div>
           <div className="grid grid-cols-2 gap-2">
             <label className="text-xs text-slate-600">Discount<NumField min={0} step="any" value={quote.discount || 0} onValue={(v) => change({ discount: v })} className="mt-1 h-9 w-full rounded-md border border-slate-300 px-2 text-xs" /></label>
+            <label className="col-span-2 text-xs text-slate-600">Discount description<input type="text" maxLength={200} value={quote.discountRemark || ''} placeholder="e.g. Festive offer" onChange={(e) => change({ discountRemark: e.target.value })} className="mt-1 h-9 w-full rounded-md border border-slate-300 px-2 text-xs" /></label>
             <label className="text-xs text-slate-600">Type<Select value={quote.discountIsPercent ? 'percent' : 'flat'} onValue={(v) => change({ discountIsPercent: v === 'percent' })} className="mt-1 h-9 w-full text-xs">{[['flat', 'Flat'], ['percent', '%']].map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></label>
           </div>
-          {totals.discountAmount > 0 && <div className="flex justify-between text-xs text-emerald-700"><span>Discount</span><span>-{money(totals.discountAmount)}</span></div>}
+          {totals.discountAmount > 0 && <div className="flex justify-between text-xs text-emerald-700"><span>Discount{quote.discountRemark ? ` · ${quote.discountRemark}` : ''}</span><span>-{money(totals.discountAmount)}</span></div>}
           <ProposalGstModeToggle withGst={quote.withGst !== false} onChange={(v) => change({ withGst: v })} className="border-t border-slate-200 pt-2" />
           {quote.withGst !== false && totals.gstTotal > 0 && (
             <>
@@ -301,6 +321,14 @@ function Editor({ designId }) {
             </>
           )}
           <div className="flex justify-between border-t border-slate-200 pt-2 text-base"><span className="font-semibold">Total</span><b>{money(totals.grandTotal)}</b></div>
+          <div className="border-t border-slate-200 pt-2 text-sm"><SubsidyField design={design} money={money} onChange={(subsidy) => setData((d) => ({ ...d, subsidy }))} /></div>
+          {subsidyOf(design.subsidy).on && (
+            <div className="mt-2 space-y-1 rounded-lg border border-violet-100 bg-violet-50/70 px-3 py-2">
+              {subsidyOf(design.subsidy).central > 0 && <div className="flex justify-between text-xs text-slate-600"><span>Central government subsidy</span><span>− {money(subsidyOf(design.subsidy).central)}</span></div>}
+              {subsidyOf(design.subsidy).state > 0 && <div className="flex justify-between text-xs text-slate-600"><span>State government subsidy</span><span>− {money(subsidyOf(design.subsidy).state)}</span></div>}
+              <div className="flex justify-between border-t border-violet-100 pt-1 text-sm"><span className="font-semibold text-violet-900">Net payable after subsidy</span><b className="text-violet-900">{money(netAfterSubsidy(totals.grandTotal, design.subsidy))}</b></div>
+            </div>
+          )}
         </Card>
       </div>
       {shareOpen && <ShareModal designId={designId} onClose={() => setShareOpen(false)} />}

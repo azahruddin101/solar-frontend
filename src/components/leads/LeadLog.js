@@ -2,7 +2,8 @@
 
 // A lead's activity, newest first: the 3 latest entries are shown and the rest fold away behind "Show N earlier".
 // Used by the Manual, Meta and Google Ads lead details. Each entry: { at, title, by?, remark?, status?: { name, color } }.
-import { ChevronDown, Clock } from 'lucide-react';
+import { CalendarClock, ChevronDown, Clock } from 'lucide-react';
+import { formatSchedule } from '@/lib/leadSchedule';
 import { useState } from 'react';
 import { Badge, cx } from '../kit';
 
@@ -35,6 +36,7 @@ export default function LeadLog({ entries, empty = 'Nothing has happened on this
                   <span className="text-[13px] font-medium text-slate-900">{e.title}</span>
                   {e.status && <Badge tone={STATUS_TONE[e.status.color] || 'slate'}>{e.status.name}</Badge>}
                 </div>
+                {e.scheduledAt && <p className="mt-1 flex items-center gap-1 text-[13px] text-slate-700"><CalendarClock className="h-3.5 w-3.5 text-slate-500" />{formatSchedule(e.scheduledAt)}</p>}
                 {e.remark && <p className="mt-1 rounded-md bg-slate-50 px-2.5 py-1.5 text-[13px] break-words text-slate-700">“{e.remark}”</p>}
                 <p className="mt-1 flex items-center gap-1 text-xs text-slate-400"><Clock className="h-3 w-3" />{when(e.at)}{e.by ? ` · ${e.by}` : ''}</p>
               </div>

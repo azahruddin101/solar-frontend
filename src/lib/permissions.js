@@ -42,12 +42,12 @@ export const PERMISSION_CATALOG = {
   },
   finances: {
     label: 'Finances',
-    description: 'Invoices, payments and receipts',
+    description: 'E-way bills, bills (payments) and invoices',
     actions: {
       view: 'View',
+      create_eway_bill: 'Create e-way bill',
+      create_bill: 'Create bill',
       create_invoice: 'Create invoice',
-      create_receipt: 'Record payment',
-      remove_receipt: 'Remove receipt',
     },
   },
   inventory: {
@@ -106,6 +106,14 @@ export const PERMISSION_CATALOG = {
     actions: {
       view: 'View',
       update: 'Update loan & steps',
+    },
+  },
+  subsidies: {
+    label: 'Subsidies',
+    description: 'Proposals with a government subsidy, and their progress through the subsidy steps',
+    actions: {
+      view: 'View',
+      update: 'Update subsidy & steps',
     },
   },
 };

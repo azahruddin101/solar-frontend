@@ -16,12 +16,15 @@ import ProductUnits from './ProductUnits';
 import Workflow from './Workflow';
 import AmcTemplates from './AmcTemplates';
 import LoanSteps from './LoanSteps';
+import SubsidySteps from './SubsidySteps';
+import { useBreadcrumbTail } from '@/lib/breadcrumbs';
 
 const TABS = [
   { id: 'agent-roles', label: 'Job titles', count: 'agentRoles', Page: AgentRoles },
   { id: 'installation-steps', label: 'Installation steps', count: 'installationSteps', Page: Workflow },
   { id: 'amc-schedule', label: 'AMC schedule', count: 'amcTemplates', Page: AmcTemplates },
   { id: 'loan-steps', label: 'Loan steps', count: 'loanSteps', Page: LoanSteps },
+  { id: 'subsidy-steps', label: 'Subsidy steps', count: 'subsidySteps', Page: SubsidySteps },
   { id: 'installation-charges', label: 'Installation charges', count: 'installationCharges', Page: InstallationCharges },
   { id: 'catalog-categories', label: 'Catalog categories', count: 'categories', Page: Categories },
   { id: 'product-units', label: 'Product units', count: 'productUnits', Page: ProductUnits },
@@ -78,6 +81,7 @@ export default function Masters({ tabIds, pageProps }) {
   const tabs = tabIds ? TABS.filter((t) => tabIds.includes(t.id)) : TABS;
   const active = tabs.find((t) => t.id === params.get('tab')) || tabs[0];
   const Page = active.Page;
+  useBreadcrumbTail(active.label);
 
   return (
     <>

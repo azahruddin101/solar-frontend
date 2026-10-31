@@ -1,5 +1,6 @@
 'use client';
 
+import ProposalEditModal from './ProposalEditModal';
 import { Copy, FileText, HardHat, History, MapPin, PenLine, PenTool, Plus, ReceiptText, Search, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -11,9 +12,21 @@ import { generateLifecyclePdf } from '@/lib/lifecyclePdf';
 import { useSession } from '@/lib/session';
 import { useResource, usePagedResource } from '@/lib/useResource';
 import { withDateRange } from '@/lib/listDates';
-import { Alert, Button, Card, ConfirmDialog, DateRangeFilter, EmptyState, Input, LoadingBlock, LoadMoreRow, PageHeader, Select, Table, Td, Th, Tr, buttonClass, timeAgo, toast, RowMenu } from '../kit';
+import { Alert, Button, Card, ConfirmDialog, DateRangeFilter, EmptyState, FilterNotice, Input, LoadMoreRow, LoadingBlock, PageHeader, RowMenu, Select, Table, Td, Th, Tr, buttonClass, capName, timeAgo, toast } from '../kit';
 import { DESIGN_STATUSES, DesignStatusBadge, NewDesignModal, designHref } from './shared';
 import { ClientChangeRequestsSection } from './ClientChangeRequestPanel';
+
+/** The ready-made lists the dashboard links to (`?show=`); the server applies them (backend listPresets.js). */
+const SHOWS = {
+  changes: 'quotes where the client asked for changes',
+  no_reply: 'quotes with no reply for a week',
+  expiring: 'quotes that expire in the next 7 days',
+  not_started: 'booked jobs where installation has not started',
+  loan_missing: 'booked jobs that need a loan, with no loan started',
+  subsidy_missing: 'booked jobs with a subsidy, with no subsidy started',
+  made_month: 'quotes made this month',
+};
+const plural = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
 export default function Designs({ basePath = '/dashboard/designs', installationsBasePath = '/dashboard/installations', billingBasePath = '/dashboard/billing', clientsBasePath = '/dashboard/clients' }) {
   const router = useRouter();
@@ -30,20 +43,21 @@ export default function Designs({ basePath = '/dashboard/designs', installations
   const canViewTasks = can(me, 'tasks', 'view');
   const canStartTask = can(me, 'tasks', 'create');
   const clientId = params.get('client') || 'all';
+  const show = SHOWS[params.get('show')] ? params.get('show') : '';
   const [addedFrom, setAddedFrom] = useState('');
   const [addedTo, setAddedTo] = useState('');
   const listPath = useMemo(() => {
-    let path = '/api/designs';
-    if (clientId !== 'all') path += `?client=${encodeURIComponent(clientId)}`;
-    return withDateRange(path, addedFrom, addedTo);
-  }, [clientId, addedFrom, addedTo]);
+    const query = new URLSearchParams({ ...(clientId !== 'all' && { client: clientId }), ...(show && { show }) }).toString();
+    return withDateRange(`/api/designs${query ? `?${query}` : ''}`, addedFrom, addedTo);
+  }, [clientId, show, addedFrom, addedTo]);
   const { items: data, setItems: setData, loading, error, hasMore, loadingMore, loadMore, total } = usePagedResource(listPath, { limit: 100 });
   const clients = useResource(canViewClients ? '/api/clients?limit=500' : null);
   const projects = useResource(canViewTasks ? '/api/projects?limit=1000' : null);
   const clientList = clients.data?.items || [];
   const projectList = projects.data?.items || [];
   const [query, setQuery] = useState('');
-  const [status, setStatus] = useState('all');
+  const [editingProposal, setEditingProposal] = useState(null); // the proposal open in the Edit proposal dialog
+  const [status, setStatus] = useState(() => (DESIGN_STATUSES.some((s) => s.id === params.get('status')) ? params.get('status') : 'all')); // ?status= from a dashboard link
   const [modal, setModal] = useState(null);
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState('');
@@ -105,10 +119,18 @@ export default function Designs({ basePath = '/dashboard/designs', installations
   // a proposal is made for a client, so creating one needs the client list too
   const newButton = !canViewClients ? null : hasClients ? <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'new' })}>New Proposal</Button> : can(me, 'clients', 'create') ? <Link href={`${clientsBasePath}?new=1`} className={buttonClass({ variant: 'primary' })}>Add a client first</Link> : null;
 
+  const closeProposalEditor = async () => {
+    const d = editingProposal;
+    setEditingProposal(null);
+    try { const fresh = await api(`/api/designs/${d.id}`); setData((list) => list.map((x) => (x.id === d.id ? { ...x, ...fresh } : x))); } catch { /* the list refreshes on its next load */ }
+  };
+
   return (
     <>
+      {editingProposal && <ProposalEditModal designId={editingProposal.id} name={editingProposal.name} onClose={closeProposalEditor} />}
       <PageHeader title="Proposals" description="Rooftop solar designs and proposals for your clients.">{!clients.loading && canCreate && newButton}</PageHeader>
       {error && <Alert className="mb-6">{error}</Alert>}
+      {show && <FilterNotice className="mb-4" label={SHOWS[show]} count={loading ? null : plural(total, 'proposal')} onClear={() => router.replace(basePath)} />}
       {!loading && <ClientChangeRequestsSection designs={data} onSent={patchDesign} />}
 
       <Card className="overflow-hidden">
@@ -130,7 +152,7 @@ export default function Designs({ basePath = '/dashboard/designs', installations
           </div>
         </div>
         {loading ? <LoadingBlock /> : !rows.length ? (
-          <EmptyState icon={PenTool} title={dateFiltered || query.trim() || status !== 'all' || clientId !== 'all' ? 'No proposals match' : 'No proposals yet'} description={total ? 'Try a different search or filter.' : 'Pick a client, outline their roof and get a priced, branded proposal.'}>
+          <EmptyState icon={PenTool} title={show || dateFiltered || query.trim() || status !== 'all' || clientId !== 'all' ? 'No proposals match' : 'No proposals yet'} description={total ? 'Try a different search or filter.' : 'Pick a client, outline their roof and get a priced, branded proposal.'}>
             {!dateFiltered && !query.trim() && status === 'all' && clientId === 'all' && total === 0 && !clients.loading && canCreate && newButton}
           </EmptyState>
         ) : (
@@ -140,10 +162,10 @@ export default function Designs({ basePath = '/dashboard/designs', installations
               {rows.map((d) => (
                 <Tr key={d.id}>
                   <Td>
-                    <Link href={`${basePath}/${d.id}`} className="block max-w-[260px] truncate font-medium text-slate-900 hover:text-brand">{d.name}</Link>
+                    <Link href={`${basePath}/${d.id}`} className="block max-w-[260px] truncate font-medium text-slate-900 hover:text-brand">{capName(d.name)}</Link>
                     {d.summary?.address && <div className="flex max-w-[260px] items-center gap-1 text-xs text-slate-500"><MapPin className="h-3 w-3 shrink-0" /><span className="truncate">{d.summary.address}</span></div>}
                   </Td>
-                  <Td><div className="max-w-[160px] truncate" title={d.client?.name}>{d.client?.name || '—'}</div></Td>
+                  <Td><div className="max-w-[160px] truncate" title={d.client?.name}>{capName(d.client?.name) || '—'}</div></Td>
                   <Td>
                     {canChangeStatus ? (
                       <Select aria-label="Status" value={d.status} onValue={(v) => setDesignStatus(d, v)} className="h-8 w-[118px] text-[13px]">
@@ -164,7 +186,8 @@ export default function Designs({ basePath = '/dashboard/designs', installations
                       <RowMenu
                         label={`Actions for ${d.name}`}
                         items={[
-                          { key: 'edit', icon: PenLine, label: canUpdate ? 'Edit proposal' : 'Open proposal (view only)', href: designHref(d) },
+                          d.type !== 'quick' && canUpdate && { key: 'edit-design', icon: PenLine, label: 'Edit design', href: designHref(d) },
+                          d.type === 'quick' || !canUpdate ? { key: 'edit', icon: ReceiptText, label: canUpdate ? 'Edit proposal' : 'Open proposal (view only)', href: designHref(d) } : { key: 'edit', icon: ReceiptText, label: 'Edit proposal', onClick: () => setEditingProposal(d) },
                           { key: 'detail', icon: History, label: 'View details & versions', href: `${basePath}/${d.id}` },
                           canSeeBilling && d.status === 'won' && { key: 'billing', icon: ReceiptText, label: 'Billing', href: `${billingBasePath}/${d.id}` },
                           canViewTasks && installationOf.has(d.id) && { key: 'installation', icon: HardHat, label: 'View installation', href: `${installationsBasePath}/${installationOf.get(d.id)}` },

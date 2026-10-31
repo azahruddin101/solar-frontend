@@ -1,6 +1,6 @@
 /** Human-readable lines for the merged design + installation audit trail. */
 
-const STATUS_LABELS = { draft: 'Draft', proposed: 'Proposed', won: 'Booked', lost: 'Lost' };
+const STATUS_LABELS = { draft: 'Draft', proposed: 'Proposed', reproposed: 'Reproposed', negotiation: 'Negotiation', won: 'Booked', lost: 'Lost' };
 
 function statusLine(msg) {
   const m = String(msg || '').match(/^(\w+)\s*→\s*(\w+)$/);
@@ -42,6 +42,15 @@ const INSTALL_ACTIONS = {
   step_renamed: (e) => ({ text: `Step renamed: ${e.stepName}`, detail: e.message }),
   materials_issued: (e) => ({ text: 'Material issued from stock', detail: e.message }),
   note: (e) => ({ text: e.stepName ? `Note on ${e.stepName}` : 'Note on installation', detail: e.message }),
+  lead_assigned: (e) => ({ text: 'Lead assigned', detail: e.message }),
+  lead_reassigned: (e) => ({ text: 'Lead handed over', detail: e.message }),
+  lead_unassigned: (e) => ({ text: 'Lead assignment removed', detail: e.message }),
+  lead_status: (e) => ({ text: 'Lead status changed', detail: e.message }),
+  lead_rescheduled: (e) => ({ text: 'Lead rescheduled', detail: e.message }),
+  amc_requested: (e) => ({ text: 'AMC visit requested', detail: e.message }),
+  amc_added: (e) => ({ text: 'AMC visit added', detail: e.message }),
+  amc_assigned: (e) => ({ text: 'AMC visit assigned', detail: e.message }),
+  amc_reassigned: (e) => ({ text: 'AMC visit reassigned', detail: e.message }),
   amc_completed: (e) => ({ text: 'AMC visit completed', detail: e.message }),
   amc_parts_invoiced: (e) => ({ text: 'Parts used on an AMC visit invoiced', detail: e.message }),
 };

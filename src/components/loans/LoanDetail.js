@@ -5,14 +5,18 @@
 // the in-page viewers, Excel as a download.
 import { ArrowLeft, Check, Download, Eye, FileImage, FileSpreadsheet, FileText, ListPlus, Paperclip, Pencil, Trash2, Upload, X } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { formatMoney } from '@/lib/energy';
+import { monthlyEmi } from '@/lib/loanEmi';
+import { useSession } from '@/lib/session';
 import { api } from '@/lib/api';
 import { signedFileUrl, useSignedUrl } from '@/lib/files';
 import { useResource } from '@/lib/useResource';
 import { useCan } from '@/lib/useCan';
-import { Alert, Button, Card, CardHeader, ConfirmDialog, EmptyState, FormField, IconButton, Input, LoadingBlock, PageHeader, Select, TablePagination, Textarea, cx, openImage, openPdfViewer, showError, timeAgo, toast, UploadProgress, useUploadQueue } from '../kit';
+import { Alert, Button, Card, CardHeader, ConfirmDialog, EmptyState, FormField, IconButton, Input, LoadingBlock, PageHeader, Select, TablePagination, Textarea, UploadProgress, capName, cx, openImage, openPdfViewer, showError, timeAgo, toast, useUploadQueue } from '../kit';
 import { Progress, STEP_STATUSES } from '../installations/shared';
 import { LOAN_STATUSES, LoanStatusBadge, LoanTimeline } from './shared';
+import { useBreadcrumb } from '@/lib/breadcrumbs';
 
 const LOG_TEXT = {
   opened: () => 'opened the loan',
@@ -351,20 +355,54 @@ export default function LoanDetail({ id, basePath = '/dashboard/loans', clientsP
   const may = useCan();
   const canEdit = may('loans', 'update');
   const { data: loan, setData, loading, error } = useResource(`/api/loans/${id}`);
+  useBreadcrumb(loan?.design?.name ? `Loan · ${capName(loan.design.name)}` : null);
   const [form, setForm] = useState(null);
+  const [openSteps, setOpenSteps] = useState(null); // step ids unfolded; null until the loan arrives (then: the ones in progress)
+  const stepIds = loan?.steps?.map((s) => s.id) || [];
+  const openIds = useMemo(() => {
+    if (openSteps) return openSteps;
+    const steps = loan?.steps || [];
+    const working = steps.filter((s) => s.status === 'in_progress').map((s) => s.id);
+    return new Set(working.length ? working : steps.find((s) => s.status !== 'done') ? [steps.find((s) => s.status !== 'done').id] : []);
+  }, [openSteps, loan?.steps]);
+  const toggleStep = (sid) => setOpenSteps((prev) => { const next = new Set(prev || openIds); if (next.has(sid)) next.delete(sid); else next.add(sid); return next; });
+  const currency = useSession((s) => s.company?.currency) || 'INR';
+  const money = (v) => formatMoney(v, currency, { decimals: 0 });
+  // the standard reducing-balance EMI for the amount, rate and period entered
+  const suggestedEmi = useMemo(() => monthlyEmi(form?.amount, form?.interestRate, form?.tenureMonths), [form?.amount, form?.tenureMonths, form?.interestRate]);
+  /** Change the amount, rate or period: the EMI follows. It stays editable for a figure the bank quoted, until one of the three changes again. */
+  const setTerm = (key) => (v) => setForm((f) => {
+    const next = { ...f, [key]: v };
+    const emi = monthlyEmi(next.amount, next.interestRate, next.tenureMonths);
+    return emi ? { ...next, emi } : next;
+  });
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (loan) setForm({ lender: loan.lender || '', amount: loan.amount ?? '', status: loan.status, notes: loan.notes || '' });
+    if (loan) {
+      const num = (v) => (v == null ? '' : v);
+      const day = (v) => (v ? String(v).slice(0, 10) : '');
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setForm({
+        lender: loan.lender || '', branch: loan.branch || '', ifsc: loan.ifsc || '', accountRef: loan.accountRef || '',
+        amount: num(loan.amount), interestRate: num(loan.interestRate), tenureMonths: num(loan.tenureMonths), emi: num(loan.emi), downPayment: num(loan.downPayment), processingFee: num(loan.processingFee),
+        sanctionedOn: day(loan.sanctionedOn), disbursedOn: day(loan.disbursedOn),
+        status: loan.status, notes: loan.notes || '',
+      });
+    }
   }, [loan]);
 
   const saveDetails = async (e) => {
     e.preventDefault();
     setBusy(true);
     try {
-      setData(await api(`/api/loans/${id}`, { method: 'PUT', body: { ...form, amount: form.amount === '' ? null : Number(form.amount) } }));
+      const numOrNull = (v) => (v === '' || v == null ? null : Number(v));
+      setData(await api(`/api/loans/${id}`, { method: 'PUT', body: {
+        ...form,
+        amount: numOrNull(form.amount), interestRate: numOrNull(form.interestRate), tenureMonths: numOrNull(form.tenureMonths), emi: numOrNull(form.emi), downPayment: numOrNull(form.downPayment), processingFee: numOrNull(form.processingFee),
+        sanctionedOn: form.sanctionedOn || null, disbursedOn: form.disbursedOn || null,
+      } }));
       toast.success('Loan saved');
     } catch (err) {
       showError(err, 'The loan was not saved');
@@ -407,16 +445,28 @@ export default function LoanDetail({ id, basePath = '/dashboard/loans', clientsP
       </PageHeader>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+        <div className="space-y-6">
         <Card className="overflow-hidden">
           <CardHeader
             title="Loan steps"
             description={loan.steps.length ? <Progress project={loan} className="mt-1 max-w-xs" /> : 'This loan has no steps yet.'}
-            action={canEdit && <Button size="sm" icon={ListPlus} loading={syncing} onClick={sync}>Add new template steps</Button>}
+            action={(
+              <div className="flex items-center gap-2">
+                {loan.steps.length > 0 && (
+                  <button type="button" onClick={() => setOpenSteps(openIds.size === stepIds.length ? new Set() : new Set(stepIds))} className="text-xs font-medium text-slate-500 hover:text-slate-900">
+                    {openIds.size === stepIds.length ? 'Collapse all' : 'Expand all'}
+                  </button>
+                )}
+                {canEdit && <Button size="sm" icon={ListPlus} loading={syncing} onClick={sync}>Add new template steps</Button>}
+              </div>
+            )}
           />
           <div className="px-6 py-5">
             {loan.steps.length ? (
               <LoanTimeline
                 steps={loan.steps}
+                openIds={openIds}
+                onToggle={toggleStep}
                 renderExtra={(s) => (
                   <>
                     {canEdit ? <StepControls key={`${s.id}:${s.remark}`} step={s} onSave={saveStep} /> : s.remark ? <p className="mt-1.5 rounded-lg bg-slate-50 px-3 py-2 text-[13px] text-slate-700">{s.remark}</p> : null}
@@ -429,23 +479,73 @@ export default function LoanDetail({ id, basePath = '/dashboard/loans', clientsP
             )}
           </div>
         </Card>
+        <DocumentsOverview steps={loan.steps} />
+        </div>
 
         <div className="space-y-6">
           {form && (
             <Card className="p-5">
-              <form onSubmit={saveDetails} className="space-y-4">
+              <form onSubmit={saveDetails} className="space-y-5">
                 <h3 className="text-sm font-semibold text-slate-900">Loan details</h3>
-                <FormField label="Bank / lender" optional>
-                  <Input maxLength={120} value={form.lender} disabled={!canEdit} onValue={(v) => setForm((f) => ({ ...f, lender: v }))} placeholder="e.g. State Bank of India" />
-                </FormField>
-                <FormField label="Loan amount" optional>
-                  <Input type="number" min={0} step="any" value={form.amount} disabled={!canEdit} onValue={(v) => setForm((f) => ({ ...f, amount: v }))} placeholder="e.g. 250000" />
-                </FormField>
+
+                <fieldset className="space-y-3">
+                  <legend className="mb-2 flex items-center gap-2 text-[11px] font-semibold tracking-wider text-violet-700 uppercase"><span className="h-1.5 w-1.5 rounded-full bg-violet-500" />Bank</legend>
+                  <FormField label="Bank / lender" optional>
+                    <Input maxLength={120} value={form.lender} disabled={!canEdit} onValue={(v) => setForm((f) => ({ ...f, lender: v }))} placeholder="e.g. State Bank of India" />
+                  </FormField>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <FormField label="Branch" optional>
+                      <Input maxLength={120} value={form.branch} disabled={!canEdit} onValue={(v) => setForm((f) => ({ ...f, branch: v }))} placeholder="e.g. Nigdi" />
+                    </FormField>
+                    <FormField label="IFSC" optional>
+                      <Input maxLength={20} value={form.ifsc} disabled={!canEdit} onValue={(v) => setForm((f) => ({ ...f, ifsc: v.toUpperCase() }))} placeholder="e.g. SBIN0001234" className="font-mono uppercase" />
+                    </FormField>
+                  </div>
+                  <FormField label="Application / account reference" optional>
+                    <Input maxLength={60} value={form.accountRef} disabled={!canEdit} onValue={(v) => setForm((f) => ({ ...f, accountRef: v }))} placeholder="The bank's reference number" />
+                  </FormField>
+                </fieldset>
+
+                <fieldset className="space-y-3">
+                  <legend className="mb-2 flex items-center gap-2 text-[11px] font-semibold tracking-wider text-emerald-700 uppercase"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Terms</legend>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <FormField label="Loan amount" optional>
+                      <Input type="number" min={0} step="any" value={form.amount} disabled={!canEdit} onValue={setTerm('amount')} placeholder="e.g. 250000" />
+                    </FormField>
+                    <FormField label="Down payment" optional>
+                      <Input type="number" min={0} step="any" value={form.downPayment} disabled={!canEdit} onValue={(v) => setForm((f) => ({ ...f, downPayment: v }))} placeholder="Paid upfront" />
+                    </FormField>
+                    <FormField label="Interest rate" optional hint="% per year">
+                      <Input type="number" min={0} max={100} step="any" value={form.interestRate} disabled={!canEdit} onValue={setTerm('interestRate')} placeholder="e.g. 9.5" />
+                    </FormField>
+                    <FormField label="Period" optional hint="Months">
+                      <Input type="number" min={0} max={600} step={1} value={form.tenureMonths} disabled={!canEdit} onValue={setTerm('tenureMonths')} placeholder="e.g. 60" />
+                    </FormField>
+                    <FormField label="EMI" optional hint={suggestedEmi ? (Number(form.emi) === suggestedEmi ? `Calculated from the amount, rate and period: ${money(suggestedEmi)} / month` : `Per month. The amount, rate and period work out to ${money(suggestedEmi)}`) : 'Calculated once the amount, rate and period are filled in'}>
+                      <Input type="number" min={0} step="any" value={form.emi} disabled={!canEdit} onValue={(v) => setForm((f) => ({ ...f, emi: v }))} placeholder={suggestedEmi ? String(suggestedEmi) : 'e.g. 5300'} />
+                    </FormField>
+                    <FormField label="Processing fee" optional>
+                      <Input type="number" min={0} step="any" value={form.processingFee} disabled={!canEdit} onValue={(v) => setForm((f) => ({ ...f, processingFee: v }))} placeholder="e.g. 2500" />
+                    </FormField>
+                  </div>
+                </fieldset>
+
+                <fieldset className="space-y-3">
+                  <legend className="mb-2 flex items-center gap-2 text-[11px] font-semibold tracking-wider text-sky-700 uppercase"><span className="h-1.5 w-1.5 rounded-full bg-sky-500" />Dates &amp; status</legend>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <FormField label="Sanctioned on" optional>
+                      <Input type="date" value={form.sanctionedOn} disabled={!canEdit} onValue={(v) => setForm((f) => ({ ...f, sanctionedOn: v }))} />
+                    </FormField>
+                    <FormField label="Disbursed on" optional>
+                      <Input type="date" value={form.disbursedOn} disabled={!canEdit} onValue={(v) => setForm((f) => ({ ...f, disbursedOn: v }))} />
+                    </FormField>
+                  </div>
                 <FormField label="Status" hint="Completing every step marks the loan completed automatically.">
                   <Select value={form.status} disabled={!canEdit} onValue={(v) => setForm((f) => ({ ...f, status: v }))}>
                     {LOAN_STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                   </Select>
                 </FormField>
+                </fieldset>
                 <FormField label="Notes" optional hint="Private to your company — the client doesn’t see these.">
                   <Textarea rows={3} maxLength={1000} value={form.notes} disabled={!canEdit} onValue={(v) => setForm((f) => ({ ...f, notes: v }))} />
                 </FormField>
@@ -454,7 +554,6 @@ export default function LoanDetail({ id, basePath = '/dashboard/loans', clientsP
             </Card>
           )}
 
-          <DocumentsOverview steps={loan.steps} />
 
           <LoanActivity logs={loan.logs} />
         </div>

@@ -4,7 +4,7 @@
 // platform (every company's for the platform admin), or client support between a company and its clients.
 import { LifeBuoy, Plus, RefreshCw, Search, X } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/useCan';
@@ -12,7 +12,7 @@ import { useResource } from '@/lib/useResource';
 import { usePagedResource } from '@/lib/useResource';
 import { clientTicketCreateSchema, ticketCreateSchema, useValidation } from '@/lib/validation';
 import { useUnread } from '@/lib/unread';
-import { Alert, Badge, Button, Card, EmptyState, FormField, FormModal, Input, LoadingBlock, LoadMoreRow, PageHeader, Select, Textarea, cx, timeAgo } from '../kit';
+import { Alert, Badge, Button, Card, EmptyState, FormField, FormModal, Input, LoadingBlock, LoadMoreRow, PageHeader, Select, Textarea, cx, timeAgo, FilterNotice } from '../kit';
 import { TICKET_PRIORITIES, TICKET_STATUSES, TicketStatusBadge, channelOf, labelOf } from './shared';
 import Composer from './Composer';
 
@@ -72,11 +72,14 @@ export default function TicketList({ admin = false, basePath, channel = 'platfor
   const base = basePath || (channel === 'clients' ? '/dashboard/client-support' : channel === 'portal' ? '/portal/support' : admin ? '/admin/support' : '/dashboard/support');
   // starting one: a client always; the company with Reply permission (client support); the company's platform tickets as before
   const canCreate = Boolean(c.newLabel) && (channel !== 'clients' || may('helpdesk', 'update'));
+  const pathname = usePathname();
+  const params = useSearchParams();
   const [status, setStatus] = useState('');
+  const [unreadOnly, setUnreadOnly] = useState(() => channel === 'clients' && params.get('show') === 'unread'); // from a dashboard link
   const [query, setQuery] = useState('');
   const [q, setQ] = useState(''); // the search that is applied (on Search / Enter)
   const [creating, setCreating] = useState(false);
-  const { items: data, total, loading, error, reload, hasMore, loadingMore, loadMore } = usePagedResource(`${c.api}?${new URLSearchParams({ ...(status && { status }), ...(q && { q }) })}`, { limit: 50 });
+  const { items: data, total, loading, error, reload, hasMore, loadingMore, loadMore } = usePagedResource(`${c.api}?${new URLSearchParams({ ...(status && { status }), ...(q && { q }), ...(unreadOnly && { unread: '1' }) })}`, { limit: 50 });
   const refreshBadge = useUnread((s) => s.refresh);
 
   const refresh = async () => { await reload(); refreshBadge(); };
@@ -108,9 +111,10 @@ export default function TicketList({ admin = false, basePath, channel = 'platfor
         ))}
       </div>
 
+      {unreadOnly && <FilterNotice className="mb-4" label="requests with messages you haven’t read" count={loading ? null : `${total} request${total === 1 ? '' : 's'}`} onClear={() => { setUnreadOnly(false); router.replace(pathname); }} />}
       {error && <Alert className="mb-6">{error}</Alert>}
       {loading && !data ? <LoadingBlock /> : !data?.length ? (
-        <Card><EmptyState icon={LifeBuoy} title={q ? 'Nothing matches' : channel === 'platform' ? 'No tickets' : 'No requests yet'} description={q ? 'Try a different ID or subject.' : c.empty}>
+        <Card><EmptyState icon={LifeBuoy} title={unreadOnly ? 'Nothing unread' : q ? 'Nothing matches' : channel === 'platform' ? 'No tickets' : 'No requests yet'} description={unreadOnly ? 'You have read every message from your clients.' : q ? 'Try a different ID or subject.' : c.empty}>
           {canCreate && <Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>{c.newLabel}</Button>}
         </EmptyState></Card>
       ) : (

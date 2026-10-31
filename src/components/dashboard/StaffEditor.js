@@ -14,8 +14,9 @@ import { normalizePermissions } from '@/lib/permissions';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { agentCreateSchema, agentUpdateSchema, useValidation } from '@/lib/validation';
-import { Alert, Avatar, Button, cx, FormField, ImageSourceButtons, Input, LoadingBlock, Modal, NameInput, PasswordInput, PhoneInput, Toggle, toast } from '../kit';
+import { Alert, Avatar, Button, FormField, ImageSourceButtons, Input, LoadingBlock, Modal, NameInput, PasswordInput, PhoneInput, Toggle, capName, cx, toast } from '../kit';
 import { areasOf, PermissionEditor, PermissionSummary } from './PermissionEditor';
+import { useBreadcrumb } from '@/lib/breadcrumbs';
 
 const TEAM_PATH = '/dashboard/team';
 
@@ -61,6 +62,7 @@ export default function StaffEditor({ agentId = null }) {
   const agents = useResource(editing ? '/api/agents' : null);
   const roles = useResource('/api/roles');
   const agent = editing ? (agents.data || []).find((a) => a.id === agentId) : null;
+  useBreadcrumb(capName(agent?.name), editing ? `/dashboard/team/${agentId}` : null); // the person's name on the crumb before "Edit"
 
   if ((editing && agents.loading) || roles.loading) return <LoadingBlock />;
   if (editing && !agent) {

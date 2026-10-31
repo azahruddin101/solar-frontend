@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { Alert, Button, Card, FormField, Modal, Textarea, buttonClass, formatDate, toast } from '../kit';
 import { designHref } from './shared';
 
+const OPEN_STATUSES = ['proposed', 'reproposed', 'negotiation']; // quotes the client can still answer
 const DEFAULT_MESSAGE = 'I have made the changes you requested. Please review the updated proposal.';
 
 /** Shown when the client asked for changes on a proposed design — full feedback + send-for-review action. */
@@ -15,7 +16,7 @@ export default function ClientChangeRequestPanel({ design, compact, onSent, clas
   const [message, setMessage] = useState(DEFAULT_MESSAGE);
   const [busy, setBusy] = useState(false);
 
-  if (!design || design.status !== 'proposed' || design.clientResponse?.decision !== 'changes_requested') return null;
+  if (!design || !OPEN_STATUSES.includes(design.status) || design.clientResponse?.decision !== 'changes_requested') return null;
 
   const note = design.clientResponse.note || '';
   const respondedAt = design.clientResponse.respondedAt;
@@ -86,7 +87,7 @@ export default function ClientChangeRequestPanel({ design, compact, onSent, clas
 
 /** List of all designs awaiting company action after a client change request. */
 export function ClientChangeRequestsSection({ designs, onSent }) {
-  const pending = (designs || []).filter((d) => d.status === 'proposed' && d.clientResponse?.decision === 'changes_requested');
+  const pending = (designs || []).filter((d) => OPEN_STATUSES.includes(d.status) && d.clientResponse?.decision === 'changes_requested');
   if (!pending.length) return null;
   return (
     <div className="mb-6 space-y-3">

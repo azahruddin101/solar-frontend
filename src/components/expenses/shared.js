@@ -50,6 +50,7 @@ export function ExpenseTabs({ basePath, current }) {
   const tabs = [
     { id: 'projects', label: 'Projects', href: basePath },
     { id: 'pnl', label: 'Profit & loss', href: `${basePath}/analytics` },
+    { id: 'reasons', label: 'Reasons', href: `${basePath}/reasons` },
   ];
   return (
     <nav aria-label="Expenses sections" className="mb-6 flex gap-1 overflow-x-auto border-b border-slate-200">

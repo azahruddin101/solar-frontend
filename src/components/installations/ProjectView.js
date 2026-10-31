@@ -15,10 +15,11 @@ import { useResource } from '@/lib/useResource';
 import { useSignedUrl } from '@/lib/files';
 import { DEFAULT_STEP_PRIORITY, STEP_PRIORITIES, stepColor } from '@/lib/steps';
 import { stepCreateSchema, useValidation } from '@/lib/validation';
-import { Alert, Avatar, Badge, Button, Card, CardHeader, ConfirmDialog, FormField, FormModal, IconButton, ImageSourceButtons, Input, LoadingBlock, PageHeader, Select, Textarea, ZoomImage, cx, showError, toast } from '../kit';
+import { Alert, Avatar, Badge, Button, Card, CardHeader, ConfirmDialog, FormField, FormModal, IconButton, ImageSourceButtons, Input, LoadingBlock, PageHeader, Select, Textarea, ZoomImage, capName, cx, showError, toast } from '../kit';
 import { generateLifecyclePdf } from '@/lib/lifecyclePdf';
 import { describeLifecycleEvent } from '@/lib/lifecycleLog';
 import { Progress, ProjectStatusBadge, StepPriorityBadge, StepStatusBadge, formatDateTime } from './shared';
+import { useBreadcrumb } from '@/lib/breadcrumbs';
 
 /** A photo attached to an activity-log entry (protected: opened through a signed link). */
 function StepPhoto({ url }) {
@@ -118,8 +119,8 @@ function StepForm({ step, agents, roleOptions, onClose, onSubmit }) {
   );
 }
 
-/** Optional note; when marking done, location is required and a photo is optional. */
-function StatusModal({ step, status, onClose, onSubmit }) {
+/** Optional note; when marking done, location is required and a photo is optional. Shared with the step board. */
+export function StatusModal({ step, status, onClose, onSubmit }) {
   const completing = status === 'done';
   const [note, setNote] = useState('');
   const [lat, setLat] = useState('');
@@ -223,6 +224,7 @@ export default function ProjectView({ id, mode, basePath = '/dashboard/installat
   const company = useSession((s) => s.company);
   const me = useSession((s) => s.user);
   const { data: project, setData, loading, error } = useResource(`${base}/${id}`);
+  useBreadcrumb(capName(project?.design?.name));
   const lifecycle = useResource(`${base}/${id}/lifecycle`);
   // in the full view (owner, or staff with Installations › View all) each control follows the permissions
   const may = {

@@ -10,8 +10,9 @@ import { formatMoney } from '@/lib/energy';
 import { invoiceTax } from '@/lib/pricing';
 import { applyTheme, clearTheme } from '@/lib/theme';
 import { Alert, Badge, Card, FullPageLoader, LogoChip, Table, Td, Th, Tr, buttonClass } from '../kit';
+import { netAfterSubsidy, subsidyOf } from '@/lib/subsidy';
 
-const STATUS = { draft: ['Draft', 'slate'], proposed: ['Proposal', 'blue'], won: ['Accepted', 'green'], lost: ['Closed', 'slate'] };
+const STATUS = { draft: ['Draft', 'slate'], proposed: ['Proposal', 'blue'], reproposed: ['Revised proposal', 'blue'], negotiation: ['Proposal', 'blue'], won: ['Accepted', 'green'], lost: ['Closed', 'slate'] };
 const date = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
 export default function PublicProposal({ token }) {
@@ -109,6 +110,13 @@ export default function PublicProposal({ token }) {
                   <Tr key={k}><Td className="text-slate-700" colSpan={2}>{k}</Td><Td className="text-right tabular-nums">{money(v)}</Td></Tr>
                 ))}
                 <Tr><Td className="font-semibold" colSpan={2}>Total{pricing.withGst !== false && tax?.gst ? ' (incl. GST)' : ''}</Td><Td className="text-right font-semibold tabular-nums">{money(p.total)}</Td></Tr>
+                {subsidyOf(p.subsidy).on && (
+                  <>
+                    {subsidyOf(p.subsidy).central > 0 && <Tr><Td className="text-slate-700" colSpan={2}>Central government subsidy</Td><Td className="text-right tabular-nums">− {money(subsidyOf(p.subsidy).central)}</Td></Tr>}
+                    {subsidyOf(p.subsidy).state > 0 && <Tr><Td className="text-slate-700" colSpan={2}>State government subsidy</Td><Td className="text-right tabular-nums">− {money(subsidyOf(p.subsidy).state)}</Td></Tr>}
+                    <Tr><Td className="font-semibold text-violet-900" colSpan={2}>Net payable after subsidy</Td><Td className="text-right font-semibold tabular-nums text-violet-900">{money(netAfterSubsidy(p.total, p.subsidy))}</Td></Tr>
+                  </>
+                )}
               </tbody>
             </Table>
           )}

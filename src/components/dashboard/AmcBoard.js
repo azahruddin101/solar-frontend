@@ -2,16 +2,16 @@
 
 // Every AMC visit in one place. Mandatory AMCs are scheduled on every job after installation; optional ones come from a client
 // request (or the company adding one). The company assigns staff, and staff complete the checklist here.
-import { AlertTriangle, CalendarClock, CalendarDays, Check, CircleCheck, ExternalLink, Inbox, Plus, Receipt, Search, Settings2, UserCheck, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, CalendarClock, CalendarDays, Check, CircleCheck, ExternalLink, History, Inbox, Plus, Receipt, Search, Settings2, UserCheck, X } from 'lucide-react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { formatMoney } from '@/lib/energy';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { viewInvoiceDocument } from '@/lib/billingDocuments';
-import { Alert, Badge, Button, Card, EmptyState, FormField, Input, LoadingBlock, Modal, PageHeader, RichTextContent, Select, Table, Td, Textarea, Th, Tr, cx, formatDate, showError, toast } from '../kit';
+import { Alert, Badge, Button, Card, EmptyState, FormField, Input, LoadingBlock, Modal, PageHeader, RichTextContent, Select, Table, Td, Textarea, Th, Tr, cx, formatDate, showError, toast, FilterNotice } from '../kit';
 import AmcPartsInvoiceModal from './AmcPartsInvoiceModal';
 import AmcVisitCreateModal from './AmcVisitCreateModal';
 
@@ -48,6 +48,12 @@ function relativeDue(v) {
 const isOpen = (v) => v.status !== 'completed';
 const dueThisWeek = (v) => isOpen(v) && v.booked && v.daysLeft != null && v.daysLeft >= 0 && v.daysLeft <= SOON_DAYS;
 const overdue = (v) => isOpen(v) && v.booked && v.daysLeft != null && v.daysLeft < 0;
+const dueToday = (v) => isOpen(v) && v.booked && v.daysLeft === 0;
+/** Lists only reachable from a dashboard link (?view=), shown with a "Showing only" note instead of a tile. */
+const LINKED_VIEWS = { today: 'visits due today', due: 'visits due today or late' };
+const VIEW_IDS = ['open', 'to_assign', 'week', 'overdue', 'reassigned', 'done', ...Object.keys(LINKED_VIEWS)];
+
+const LOG_LABEL = { amc_requested: 'Requested', amc_added: 'Added', amc_assigned: 'Assigned', amc_reassigned: 'Reassigned', amc_completed: 'Completed', amc_parts_invoiced: 'Parts invoiced' };
 
 /** May this person mark the visit done? Once staff are assigned. */
 function completable(v, canComplete) {
@@ -86,6 +92,30 @@ function SummaryTile({ icon: Icon, label, value, hint, tone = 'slate', active, o
       <span className="mt-2 text-2xl leading-none font-semibold tracking-tight text-slate-900 tabular-nums">{value}</span>
       {hint && <span className="mt-1.5 truncate text-xs text-slate-500">{hint}</span>}
     </button>
+  );
+}
+
+/** "Previously with": who held the visit before it was handed over, latest first, with their dates on hover. */
+function PreviousStaffCell({ v }) {
+  const past = [...(v.previousAssignees || [])].filter((p) => p.name).reverse(); // latest hand-over first
+  if (!past.length) return <span className="text-slate-400">—</span>;
+  const [latest, ...older] = past;
+  const title = past.map((p) => `${p.name} · ${formatDate(p.assignedAt)} – ${formatDate(p.replacedAt)}`).join('\n');
+  return (
+    <div className="whitespace-nowrap text-slate-700" title={title}>
+      <div>{latest.name}</div>
+      <div className="text-xs text-slate-500">until {formatDate(latest.replacedAt)}{older.length ? ` · +${older.length} earlier` : ''}</div>
+    </div>
+  );
+}
+
+/** "Reassigned ×2" with the earlier people on hover. */
+function ReassignedBadge({ v }) {
+  const before = (v.previousAssignees || []).map((p) => p.name).filter(Boolean).join(', ');
+  return (
+    <span className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-violet-700" title={before ? `Before: ${before}` : undefined}>
+      <ArrowLeftRight className="h-3 w-3" />Reassigned{v.reassignedCount > 1 ? ` ×${v.reassignedCount}` : ''}
+    </span>
   );
 }
 
@@ -139,7 +169,7 @@ function VisitModal({ visit, money, canComplete, canInvoiceParts, completeBase, 
     ['Client', visit.client?.name || '—', visit.client?.phone],
     ['Site', visit.design?.name || '—', visit.design?.address],
     ['Due', visit.dueDate ? formatDate(visit.dueDate) : 'No date yet', relativeDue(visit)],
-    ['Staff', visit.assignee?.name || (visit.free ? 'Not assigned (optional)' : 'Not assigned'), null],
+    ['Staff', visit.assignee?.name || (visit.free ? 'Not assigned (optional)' : 'Not assigned'), visit.reassigned ? `Reassigned ${visit.reassignedCount}× — before: ${visit.previousAssignees.map((p) => p.name).join(', ')}` : null],
   ];
 
   return (
@@ -249,6 +279,22 @@ function VisitModal({ visit, money, canComplete, canInvoiceParts, completeBase, 
           Completed {formatDate(visit.completedAt)}{visit.completedByName ? ` by ${visit.completedByName}` : ''}{visit.completionNote ? ` — ${visit.completionNote}` : ''}
         </p>
       )}
+      {visit.logs?.length > 0 && (
+        <div className="mt-5">
+          <div className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-slate-900"><History className="h-4 w-4 text-slate-500" />Activity</div>
+          <ol className="divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
+            {visit.logs.map((l) => (
+              <li key={l.id} className="flex items-start gap-3 px-3.5 py-2">
+                <span className="min-w-0 flex-1">
+                  <span className="font-medium text-slate-900">{LOG_LABEL[l.action] || l.action}</span>
+                  {l.message && <span className="text-slate-600"> · {l.message}</span>}
+                </span>
+                <span className="shrink-0 text-right text-xs text-slate-500">{formatDate(l.at)}{l.byName ? <><br />{l.byName}</> : null}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
       {error && <Alert className="mt-4">{error}</Alert>}
     </Modal>
   );
@@ -273,14 +319,16 @@ export default function AmcBoard({
   const currency = useSession((s) => s.company?.currency) || 'INR';
   const money = (v) => formatMoney(v, currency, { decimals: 2 });
   const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const { data, loading, error, reload } = useResource(apiPath);
   const { data: staff } = useResource(canAssign ? '/api/projects/assignees' : null);
 
-  const [view, setView] = useState('open');
+  const [view, setView] = useState(() => (VIEW_IDS.includes(params.get('view')) ? params.get('view') : 'open')); // ?view= from a dashboard link
   const [query, setQuery] = useState('');
   const [type, setType] = useState('all');
   const [amcName, setAmcName] = useState('all');
-  const [staffFilter, setStaffFilter] = useState('all');
+  const [staffFilter, setStaffFilter] = useState(() => (/^[a-f0-9]{24}$/.test(params.get('staff') || '') ? params.get('staff') : 'all')); // ?staff= from the dashboard's Staff tab
   const [projectFilter, setProjectFilter] = useState(() => params.get('project') || '');
   const [openId, setOpenId] = useState(null);
   const [assigning, setAssigning] = useState(null);
@@ -295,6 +343,7 @@ export default function AmcBoard({
     toAssign: all.filter((v) => ['to_assign', 'blocked'].includes(stageOf(v))).length,
     week: all.filter(dueThisWeek).length,
     overdue: all.filter(overdue).length,
+    reassigned: all.filter((v) => v.reassigned).length,
     done: all.filter((v) => !isOpen(v)).length,
   }), [all]);
 
@@ -306,7 +355,10 @@ export default function AmcBoard({
       to_assign: (v) => ['to_assign', 'blocked'].includes(stageOf(v)),
       week: dueThisWeek,
       overdue,
+      reassigned: (v) => v.reassigned, // handed from one person to another at least once
       done: (v) => !isOpen(v),
+      today: dueToday,
+      due: (v) => dueToday(v) || overdue(v),
     }[view] || (() => true);
     const q = query.trim().toLowerCase();
     return all.filter((v) => {
@@ -344,6 +396,7 @@ export default function AmcBoard({
     canAssign && { id: 'to_assign', icon: UserCheck, label: 'To assign', value: counts.toAssign, tone: counts.toAssign ? 'amber' : 'slate', hint: 'Visits waiting for staff' },
     { id: 'week', icon: CalendarDays, label: 'Due this week', value: counts.week, tone: counts.week ? 'amber' : 'slate', hint: `Next ${SOON_DAYS} days` },
     { id: 'overdue', icon: AlertTriangle, label: 'Overdue', value: counts.overdue, tone: counts.overdue ? 'red' : 'slate' },
+    canAssign && { id: 'reassigned', icon: ArrowLeftRight, label: 'Reassigned', value: counts.reassigned, tone: counts.reassigned ? 'violet' : 'slate', hint: 'Handed to someone else' },
     { id: 'done', icon: CircleCheck, label: 'Completed', value: counts.done, tone: 'green' },
   ].filter(Boolean);
 
@@ -362,6 +415,7 @@ export default function AmcBoard({
         )}
       </PageHeader>
       {error && <Alert className="mb-6">{error}</Alert>}
+      {LINKED_VIEWS[view] && <FilterNotice className="mb-4" label={LINKED_VIEWS[view]} count={loading ? null : `${rows.length} visit${rows.length === 1 ? '' : 's'}`} onClear={() => { setView('open'); router.replace(pathname); }} />}
 
       <div className={cx('mb-5 grid grid-cols-2 gap-3', tiles.length === 5 ? 'lg:grid-cols-5' : 'lg:grid-cols-4')}>
         {tiles.map((t) => <SummaryTile key={t.id} {...t} active={view === t.id} onClick={() => setView(t.id)} />)}
@@ -416,6 +470,7 @@ export default function AmcBoard({
                 <Th>Client & site</Th>
                 <Th>Due</Th>
                 <Th>Staff</Th>
+                <Th>Previously with</Th>
                 <Th>Status</Th>
                 <Th className="text-right"><span className="sr-only">Actions</span></Th>
               </tr>
@@ -458,7 +513,9 @@ export default function AmcBoard({
                       ) : (
                         <span className="text-sm text-slate-700">{v.assignee?.name || '—'}</span>
                       )}
+                      {v.reassigned && <ReassignedBadge v={v} />}
                     </Td>
+                    <Td><PreviousStaffCell v={v} /></Td>
                     <Td><Badge tone={st.tone} dot>{st.label}</Badge></Td>
                     <Td className="text-right whitespace-nowrap">
                       <Button size="sm" variant={completable(v, canComplete) ? 'primary' : 'secondary'} onClick={(e) => { e.stopPropagation(); setOpenId(v.id); }}>

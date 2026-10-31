@@ -12,11 +12,12 @@ import { formatMoney } from '@/lib/energy';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { useCan } from '@/lib/useCan';
-import { Alert, Badge, Button, Card, ConfirmDialog, IconButton, LoadingBlock, toast } from '@/components/kit';
+import { Alert, Badge, Button, Card, ConfirmDialog, IconButton, LoadingBlock, capName, toast } from '@/components/kit';
 import { attributeRows } from './attributes';
 import { ProductForm, typeOf, warrantyLabel } from './CatalogProducts';
 import { ProductDocumentsCard } from './ProductDocuments';
 import { BatchesCard, UnitsCard } from './ProductStock';
+import { useBreadcrumb } from '@/lib/breadcrumbs';
 
 function Fact({ label, children }) {
   return (
@@ -32,6 +33,7 @@ export default function ProductDetail({ id, catalogPath = '/dashboard/catalog' }
   const company = useSession((s) => s.company);
   const may = useCan();
   const productResource = useResource(`/api/products/${id}`);
+  useBreadcrumb(capName(productResource.data?.name));
   const categoriesResource = useResource('/api/categories');
   const [modal, setModal] = useState(null);
   const [busy, setBusy] = useState(false);

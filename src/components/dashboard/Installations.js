@@ -10,7 +10,8 @@ import { withDateRange } from '@/lib/listDates';
 import { stepPriority } from '@/lib/steps';
 import { useResource, usePagedResource } from '@/lib/useResource';
 import { useCan } from '@/lib/useCan';
-import { Alert, Badge, Button, Card, DateRangeFilter, EmptyState, FormField, FormModal, Input, LoadingBlock, LoadMoreRow, PageHeader, Select, Table, Td, Th, Tr, buttonClass, timeAgo } from '../kit';
+import { Alert, Badge, Button, Card, DateRangeFilter, EmptyState, FilterNotice, FormField, FormModal, Input, LoadMoreRow, LoadingBlock, PageHeader, Select, Table, Td, Th, Tr, buttonClass, capName, timeAgo } from '../kit';
+import InstallationViewSwitch from '../installations/InstallationViewSwitch';
 import { Progress, ProjectStatusBadge, currentStep } from '../installations/shared';
 
 /** Pick a design that has no installation yet; its steps come from the company's template. */
@@ -57,20 +58,29 @@ function StartModal({ designs, designId, steps, basePath, workflowPath, onClose 
   );
 }
 
+/** The ready-made lists the dashboard links to (`?show=`); the server applies them (backend listPresets.js). */
+const SHOWS = {
+  stuck: 'installations with a task stuck for over a week',
+  unassigned: 'installations with a task nobody is assigned to',
+  finished_month: 'installations finished this month',
+};
+
 export default function Installations({ basePath = '/dashboard/installations', workflowPath = '/dashboard/workflow' }) {
   const may = useCan();
   const router = useRouter();
   const params = useSearchParams();
   const [updatedFrom, setUpdatedFrom] = useState('');
   const [updatedTo, setUpdatedTo] = useState('');
-  const listPath = useMemo(() => withDateRange('/api/projects', updatedFrom, updatedTo), [updatedFrom, updatedTo]);
+  const show = SHOWS[params.get('show')] ? params.get('show') : '';
+  const listPath = useMemo(() => withDateRange(show ? `/api/projects?show=${show}` : '/api/projects', updatedFrom, updatedTo), [show, updatedFrom, updatedTo]);
   const { items: data, loading, error, hasMore, loadingMore, loadMore, total } = usePagedResource(listPath, { limit: 100 });
   const allProjects = useResource('/api/projects?limit=1000'); // for "which designs still need an installation", not the table below
   const designs = useResource('/api/designs?limit=500');
   const designList = designs.data?.items || [];
   const steps = useResource('/api/projects/steps');
   const [query, setQuery] = useState('');
-  const [status, setStatus] = useState('all');
+  const [status, setStatus] = useState(() => (['active', 'completed'].includes(params.get('status')) ? params.get('status') : 'all')); // ?status= from a dashboard link
+  const [step, setStep] = useState('all'); // the step an installation is on right now
   const [starting, setStarting] = useState(null);
 
   // /dashboard/installations?start=<designId> — from the Designs table
@@ -85,22 +95,35 @@ export default function Installations({ basePath = '/dashboard/installations', w
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (data || []).filter((p) => (status === 'all' || p.status === status) && (!q || `${p.design?.name} ${p.client?.name} ${p.design?.summary?.address} ${p.steps.map((s) => `${s.assignee?.name || ''} ${s.role || ''}`).join(' ')}`.toLowerCase().includes(q)));
-  }, [data, query, status]);
+    return (data || []).filter((p) => (status === 'all' || p.status === status) && (step === 'all' || currentStep(p)?.name === step) && (!q || `${p.design?.name} ${p.client?.name} ${p.design?.summary?.address} ${p.steps.map((s) => `${s.assignee?.name || ''} ${s.role || ''}`).join(' ')}`.toLowerCase().includes(q)));
+  }, [data, query, status, step]);
+
+  // this company's step names: its step templates in order, plus any other step name its installations use
+  const stepNames = useMemo(() => {
+    const names = (steps.data || []).map((s) => s.name);
+    for (const p of data || []) for (const st of p.steps || []) if (st.name && !names.includes(st.name)) names.push(st.name);
+    return names;
+  }, [steps.data, data]);
 
   const free = useMemo(() => {
     const taken = new Set((allProjects.data?.items || []).map((p) => p.design?.id));
     return (designs.data?.items || []).filter((d) => !taken.has(d.id));
   }, [allProjects.data, designs.data]);
 
-  const filtered = Boolean(query.trim() || status !== 'all' || (updatedFrom && updatedTo));
+  const filtered = Boolean(show || query.trim() || status !== 'all' || step !== 'all' || (updatedFrom && updatedTo));
   const ready = !loading && !designs.loading && !allProjects.loading && !steps.loading;
   const startButton = <Button variant="primary" icon={Plus} disabled={!free.length} title={free.length ? undefined : 'Every proposal already has an installation'} onClick={() => setStarting({})}>Start installation</Button>;
 
   return (
     <>
-      <PageHeader title="Installations" description="Accepted proposals on their way to a working system — step by step.">{ready && may('tasks', 'create') && startButton}</PageHeader>
+      <PageHeader title="Installations" description="Accepted proposals on their way to a working system — step by step.">
+        <div className="flex flex-wrap items-center gap-2">
+          <InstallationViewSwitch view="list" basePath={basePath} />
+          {ready && may('tasks', 'create') && startButton}
+        </div>
+      </PageHeader>
       {(error || designs.error) && <Alert className="mb-6">{error || designs.error}</Alert>}
+      {show && <FilterNotice className="mb-4" label={SHOWS[show]} count={loading ? null : `${total} installation${total === 1 ? '' : 's'}`} onClear={() => router.replace(basePath)} />}
 
       <Card className="overflow-hidden">
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-6 py-4 xl:flex-nowrap">
@@ -122,9 +145,13 @@ export default function Installations({ basePath = '/dashboard/installations', w
             <option value="active">In progress</option>
             <option value="completed">Completed</option>
           </Select>
+          <Select aria-label="Filter by current step" value={step} onValue={setStep} className="w-48 shrink-0">
+            <option value="all">Any step</option>
+            {stepNames.map((n) => <option key={n} value={n}>{n}</option>)}
+          </Select>
         </div>
         {loading ? <LoadingBlock /> : !rows.length ? (
-          <EmptyState icon={HardHat} title={filtered || data?.length ? 'No installations match' : 'No installations yet'} description={filtered || data?.length ? 'Try a different search, status or date range.' : 'When a client accepts a proposal, start its installation and assign each step to your team.'}>
+          <EmptyState icon={HardHat} title={filtered || data?.length ? 'No installations match' : 'No installations yet'} description={filtered || data?.length ? 'Try a different search, status, step or date range.' : 'When a client accepts a proposal, start its installation and assign each step to your team.'}>
             {!data?.length && ready && startButton}
           </EmptyState>
         ) : (
@@ -136,8 +163,8 @@ export default function Installations({ basePath = '/dashboard/installations', w
                 return (
                   <Tr key={p.id}>
                     <Td>
-                      <Link href={`${basePath}/${p.id}`} className="block max-w-[260px] truncate font-medium text-slate-900 hover:text-brand">{p.design?.name || 'Installation'}</Link>
-                      <div className="max-w-[260px] truncate text-xs text-slate-500">{p.client?.name}</div>
+                      <Link href={`${basePath}/${p.id}`} className="block max-w-[260px] truncate font-medium text-slate-900 hover:text-brand">{capName(p.design?.name) || 'Installation'}</Link>
+                      <div className="max-w-[260px] truncate text-xs text-slate-500">{capName(p.client?.name)}</div>
                     </Td>
                     <Td><ProjectStatusBadge status={p.status} /></Td>
                     <Td><Progress project={p} className="w-36" /></Td>

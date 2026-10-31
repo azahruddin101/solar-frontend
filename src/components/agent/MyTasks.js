@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { Alert, Card, EmptyState, LoadingBlock, PageHeader } from '../kit';
+import InstallationViewSwitch from '../installations/InstallationViewSwitch';
 import { Progress, StepStatusBadge, StepPriorityBadge } from '../installations/shared';
 
 export default function MyTasks() {
@@ -44,7 +45,9 @@ export default function MyTasks() {
 
   return (
     <>
-      <PageHeader title={`Hello${user.name ? `, ${user.name.split(' ')[0]}` : ''}`} description="The installation steps assigned to you." />
+      <PageHeader title={`Hello${user.name ? `, ${user.name.split(' ')[0]}` : ''}`} description="The installation steps assigned to you.">
+        <InstallationViewSwitch view="list" basePath="/agent/installations" listHref="/agent" />
+      </PageHeader>
       {error && <Alert className="mb-6">{error}</Alert>}
       {loading ? <LoadingBlock /> : !rows.length ? (
         <Card><EmptyState icon={ClipboardList} title="Nothing assigned yet" description="When your company assigns you an installation step, it shows up here." /></Card>

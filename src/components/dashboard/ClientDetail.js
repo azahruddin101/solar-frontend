@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, ArrowUpRight, Calendar, Download, Eye, FileText, Mail, MapPin, PenTool, Pencil, Phone, Plus, ReceiptText, Trash2, User, Users, Zap } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Calendar, Download, Eye, FileText, KeyRound, Mail, MapPin, PenTool, Pencil, Phone, Plus, ReceiptText, Trash2, User, Users, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
@@ -9,9 +9,11 @@ import { can } from '@/lib/permissions';
 import { formatMoney } from '@/lib/energy';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
-import { Alert, Avatar, Badge, Button, Card, ConfirmDialog, EmptyState, FormField, IconButton, Input, LoadingBlock, PageHeader, Select, Table, Td, Textarea, Th, Tr, buttonClass, cx, formatDate, openStoredFile, timeAgo, toast, RowMenu } from '@/components/kit';
+import { Alert, Avatar, Badge, Button, Card, ConfirmDialog, EmptyState, FormField, IconButton, Input, LoadingBlock, PageHeader, RowMenu, Select, Table, Td, Textarea, Th, Tr, buttonClass, capName, cx, formatDate, openStoredFile, timeAgo, toast } from '@/components/kit';
 import ClientCredentials from './ClientCredentials';
+import ClientRelated, { AREA_TONE, ClientMoneyCard, SideHeading, useClientOverview } from './ClientRelated';
 import { DESIGN_STATUSES, GRID_TYPE_LABEL, NewDesignModal, PROJECT_TYPE_LABEL, ROOF_TYPE_LABEL, designHref } from './shared';
+import { useBreadcrumb } from '@/lib/breadcrumbs';
 
 function formatFileSize(bytes) {
   if (!bytes) return '0 B';
@@ -31,6 +33,8 @@ export default function ClientDetail({ id, basePath = '/dashboard/clients', bill
   const canManageLogin = can(me, 'clients', 'manage_login');
   const canSeeBilling = can(me, 'finances', 'view');
   const clientResource = useResource(`/api/clients/${id}`);
+  const overview = useClientOverview(id); // installations, money, loans, AMC… shared by the side column and the blocks below
+  useBreadcrumb(capName(clientResource.data?.name));
   const designsResource = useResource(canViewDesigns ? `/api/designs?client=${id}&limit=200` : null);
   const [modal, setModal] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -109,7 +113,7 @@ export default function ClientDetail({ id, basePath = '/dashboard/clients', bill
           </Link>
           <div>
             <div className="flex items-center gap-2.5">
-              <h1 className="text-xl font-bold text-slate-900">{client.name}</h1>
+              <h1 className="text-xl font-bold text-slate-900">{capName(client.name)}</h1>
               {client.kwRequired ? (
                 <Badge tone="brand">
                   <Zap className="h-3 w-3" /> {client.kwRequired} kW
@@ -210,28 +214,16 @@ export default function ClientDetail({ id, basePath = '/dashboard/clients', bill
             </div>
           </Card>
 
-          {/* Portal access: the client's own view-only sign-in */}
-          <Card className="p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Client portal access</h2>
-                <p className="mt-1 text-sm text-slate-600">{client.hasLogin ? <>Signs in with <b className="text-slate-900">{client.email}</b> and can view their proposals, prices and payments — not edit anything.</> : client.email ? 'No login yet. Create one so this client can view their proposals.' : 'Add an email address to this client to create their login.'}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                {client.hasLogin && <Badge tone="green">Active</Badge>}
-                {canManageLogin && <Button size="sm" disabled={!client.email} loading={busy} onClick={manageLogin}>{client.hasLogin ? 'Reset password' : 'Create login'}</Button>}
-                {canManageLogin && client.hasLogin && <Button size="sm" variant="dangerGhost" onClick={() => setModal({ type: 'removeLogin' })}>Remove access</Button>}
-              </div>
-            </div>
-          </Card>
-
           {/* Client Designs Table */}
           {canViewDesigns && (
           <Card className="overflow-hidden">
-            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-              <div>
-                <h3 className="font-semibold text-slate-900">Proposals</h3>
-                <p className="text-xs text-slate-500">Proposals created specifically for this client</p>
+            <div className={cx('flex items-center justify-between gap-3 border-b px-6 py-3.5', AREA_TONE.proposals.band)}>
+              <div className="flex min-w-0 items-center gap-3">
+                <span className={cx('grid h-9 w-9 shrink-0 place-items-center rounded-lg shadow-sm', AREA_TONE.proposals.chip)}><PenTool className="h-4 w-4" /></span>
+                <div>
+                  <h3 className={cx('font-semibold', AREA_TONE.proposals.title)}>Proposals</h3>
+                  <p className="text-xs text-slate-600">Proposals created specifically for this client</p>
+                </div>
               </div>
               {canCreateDesign && (
                 <Button size="sm" variant="secondary" icon={Plus} onClick={() => setModal({ type: 'design' })}>
@@ -273,7 +265,7 @@ export default function ClientDetail({ id, basePath = '/dashboard/clients', bill
                     <Tr key={d.id}>
                       <Td>
                         <Link href={designHref(d)} className="font-medium text-slate-900 hover:text-brand">
-                          {d.name}
+                          {capName(d.name)}
                         </Link>
                         {d.summary?.address && <div className="text-xs text-slate-400 truncate max-w-[200px]">{d.summary.address}</div>}
                       </Td>
@@ -306,7 +298,7 @@ export default function ClientDetail({ id, basePath = '/dashboard/clients', bill
         <div className="space-y-6">
           {/* Source & Referral Card */}
           <Card className="p-5">
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Lead Source &amp; Referral</h3>
+            <SideHeading icon={Users} tone="loans">Lead source &amp; referral</SideHeading>
             <div className="space-y-3">
               <div>
                 <span className="text-xs text-slate-400">Acquisition Source</span>
@@ -329,10 +321,13 @@ export default function ClientDetail({ id, basePath = '/dashboard/clients', bill
             </div>
           </Card>
 
+          {/* Money at a glance */}
+          <ClientMoneyCard overview={overview} />
+
           {/* Uploaded Documents Card */}
           <Card className="p-5">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Documents ({client.documents?.length || 0})</h3>
+              <h3 className="flex items-center gap-2 text-xs font-semibold tracking-wider text-slate-500 uppercase"><span className={cx('grid h-6 w-6 place-items-center rounded-md', AREA_TONE.slate.chip)}><FileText className="h-3.5 w-3.5" /></span>Documents ({client.documents?.length || 0})</h3>
             </div>
 
             {!client.documents?.length ? (
@@ -374,8 +369,26 @@ export default function ClientDetail({ id, basePath = '/dashboard/clients', bill
               </div>
             )}
           </Card>
+
+          {/* Portal access: the client's own view-only sign-in */}
+          <Card className="p-5">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="flex items-center gap-2 text-xs font-semibold tracking-wider text-slate-500 uppercase"><span className={cx('grid h-6 w-6 place-items-center rounded-md', AREA_TONE.support.chip)}><KeyRound className="h-3.5 w-3.5" /></span>Client portal access</h3>
+              {client.hasLogin && <Badge tone="green" dot>Active</Badge>}
+            </div>
+            <p className="text-sm text-slate-600">{client.hasLogin ? <>Signs in with <b className="break-all text-slate-900">{client.email}</b> and can view their proposals, prices and payments — not edit anything.</> : client.email ? 'No login yet. Create one so this client can view their proposals.' : 'Add an email address to this client to create their login.'}</p>
+            {canManageLogin && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button size="sm" disabled={!client.email} loading={busy} onClick={manageLogin}>{client.hasLogin ? 'Reset password' : 'Create login'}</Button>
+                {client.hasLogin && <Button size="sm" variant="dangerGhost" onClick={() => setModal({ type: 'removeLogin' })}>Remove access</Button>}
+              </div>
+            )}
+          </Card>
         </div>
       </div>
+
+      {/* everything else about this client: installations, money, loans, AMC, support, expenses */}
+      <ClientRelated overview={overview} basePath={basePath} />
 
       {creds && <ClientCredentials clientName={creds.clientName} credentials={creds.credentials} onClose={() => setCreds(null)} />}
       <ConfirmDialog open={modal?.type === 'removeLogin'} onClose={close} onConfirm={removeLogin} busy={busy} error={modalError} title="Remove portal access?" confirmLabel="Remove access">

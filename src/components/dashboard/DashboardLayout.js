@@ -1,6 +1,6 @@
 'use client';
 
-import { Boxes, CalendarClock, Truck, Headset, SlidersHorizontal, HardHat, Landmark, LayoutDashboard, WalletCards, Megaphone, PanelsTopLeft, PenTool, Receipt, Settings, UserCog, Users } from 'lucide-react';
+import { BadgeIndianRupee, Boxes, CalendarClock, Truck, Headset, SlidersHorizontal, HardHat, Landmark, LayoutDashboard, WalletCards, Megaphone, PanelsTopLeft, PenTool, Receipt, Settings, UserCog, Users } from 'lucide-react';
 import AppShell from '../layout/AppShell';
 import AuthGuard from '../layout/AuthGuard';
 
@@ -8,19 +8,10 @@ const NAV = [
   {
     items: [
       { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true },
-      {
-        href: '/dashboard/leads',
-        label: 'Leads',
-        icon: Megaphone,
-        countKey: 'leads', // all three sources together
-        children: [
-          { href: '/dashboard/leads/meta', label: 'Meta leads' },
-          { href: '/dashboard/leads/google', label: 'Google Ads leads' },
-          { href: '/dashboard/leads/manual', label: 'Manual leads' },
-        ],
-      },
+      { href: '/dashboard/leads', label: 'Leads', icon: Megaphone }, // the sources are tabs inside the page (LeadSourceTabs)
       { href: '/dashboard/clients', label: 'Clients', icon: Users },
       { href: '/dashboard/loans', label: 'Loans', icon: Landmark },
+      { href: '/dashboard/subsidies', label: 'Subsidies', icon: BadgeIndianRupee },
       { href: '/dashboard/designs', label: 'Proposals', icon: PenTool },
       { href: '/dashboard/billing', label: 'Billing & Invoices', icon: Receipt },
       { href: '/dashboard/expenses', label: 'Expenses', icon: WalletCards },

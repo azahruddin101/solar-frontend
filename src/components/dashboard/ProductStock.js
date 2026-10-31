@@ -12,6 +12,7 @@ import { useResource } from '@/lib/useResource';
 import { batchUpdateSchema, stockReceiveSchema, useValidation } from '@/lib/validation';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, FormField, FormModal, IconButton, Input, LoadingBlock, Select, Table, TablePagination, Td, Textarea, Th, Tr, formatDate, toast } from '../kit';
 import { SupplierForm } from './Suppliers';
+import SerialRange from './SerialRange';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const dateInput = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
@@ -142,8 +143,14 @@ function BatchForm({ product, batch, currency, onClose, onSaved }) {
           <p className="mt-1.5 text-xs text-slate-500">An invoice line picks one of the three selling prices; the purchase price is what an installation’s material costs.</p>
         </fieldset>
         {!editing && (product.isSerialized ? (
-          <FormField label={`Serial numbers — ${serials.length} ${product.unit}`} error={repeated.length ? `Listed twice: ${[...new Set(repeated)].slice(0, 5).join(', ')}` : undefined} hint="One per line (or paste a column from a sheet). Each becomes one unit you can sell, install and track for warranty.">
+          <FormField label={`Serial numbers — ${serials.length} ${product.unit}`} error={repeated.length ? `Listed twice: ${[...new Set(repeated)].slice(0, 5).join(', ')}` : undefined} hint="One per line (or paste a column from a sheet), or generate a whole range below. Each becomes one unit you can sell, install and track for warranty.">
             <Textarea rows={6} value={serialText} onValue={setSerialText} placeholder={'WSMD540-0001\nWSMD540-0002'} className="font-mono text-[13px]" />
+            <SerialRange
+              existing={serials}
+              unit={product.unit}
+              onAdd={(list) => setSerialText((t) => [t.trimEnd(), ...list].filter(Boolean).join('\n'))}
+              onReplace={(list) => setSerialText(list.join('\n'))}
+            />
           </FormField>
         ) : (
           <FormField label={`Quantity received (${product.unit})`} className="max-w-xs"><Input type="number" min={0} step="any" value={form.qtyReceived} onValue={(x) => set({ qtyReceived: num(x) })} /></FormField>

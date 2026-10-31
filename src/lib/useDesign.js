@@ -4,7 +4,7 @@ import { useDeferredValue, useMemo } from 'react';
 import { allocate } from './buildings.js';
 import { designElectricalByBuilding } from './electrical.js';
 import { buildYieldModel, computeFinancials } from './energy.js';
-import { DEFAULT_INSTALL_HSN, installChargeGstPercent, packageToPricingLines, summarizeLinePricing } from './pricing.js';
+import { installChargeGstPercent, packageToPricingLines, summarizeLinePricing } from './pricing.js';
 import { normalizeCatalog } from './catalog.js';
 import { buildDesign, resolveAzimuth, sectionAzimuth } from './model.js';
 import { shadingLoss } from './shading.js';
@@ -188,13 +188,13 @@ export function useDesign() {
       if (pillars > 0) restLines.push({ name: 'Mounting structure', detail: pillar.name, qty: 1, unit: 'Nos', rate: pillars, gstPercent: pillar.gstPercent ?? defGst, hsn: pillar.hsnCode || '7308' });
       if (!hasChosenMaterials) restLines.push({ name: 'Balance of system', qty: 1, unit: 'Set', rate: bosFallback, gstPercent: defGst, hsn: '85049090' });
     }
-    if (floorCost > 0) restLines.push({ name: 'Floor placement', detail: `Floor ${Number(config.floorPlacement) || 0}`, qty: 1, unit: 'Nos', rate: floorCost, gstPercent: defGst, hsn: DEFAULT_INSTALL_HSN });
+    if (floorCost > 0) restLines.push({ name: 'Floor placement', detail: `Floor ${Number(config.floorPlacement) || 0}`, qty: 1, unit: 'Nos', rate: floorCost, gstPercent: defGst, hsn: '' });
     for (const c of installationCharges) {
-      restLines.push({ name: c.name, detail: 'Installation charge', qty: 1, unit: 'Nos', rate: Number(c.price) || 0, gstPercent: installChargeGstPercent(c, defGst), hsn: c.hsnCode || c.hsn || DEFAULT_INSTALL_HSN });
+      restLines.push({ name: c.name, detail: 'Installation charge', qty: 1, unit: 'Nos', rate: Number(c.price) || 0, gstPercent: installChargeGstPercent(c, defGst), hsn: c.hsnCode || c.hsn || c.sac || '' });
     }
 
     const allLines = [...materialLines, ...restLines];
-    const priced = summarizeLinePricing({ lines: allLines, gstIncluded: false, withGst: applyGst });
+    const priced = summarizeLinePricing({ lines: allLines, gstIncluded: false, withGst: applyGst, discount: config.discount || 0, discountIsPercent: Boolean(config.discountIsPercent) });
     const categoryMaterials = selectedCategoryMaterials.map((m, i) => ({
       ...m,
       total: priced.lines[i]?.lineTotal ?? m.total,
@@ -216,6 +216,10 @@ export function useDesign() {
       sgst: priced.sgst,
       cgst: priced.cgst,
       grandTotal: priced.total,
+      discountAmount: priced.discountAmount || 0,
+      discount: Number(config.discount) || 0,
+      discountIsPercent: Boolean(config.discountIsPercent),
+      discountRemark: String(config.discountRemark || '').trim(),
     };
     const own = totals.buildings.map((b) => (isPackage ? 0 : b.count * spec.price + (structures.get(b.id)?.columnM || 0) * 3.281 * pillar.pricePerFt));
     const ownSum = own.reduce((a, v) => a + v, 0);

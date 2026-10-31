@@ -2,6 +2,7 @@
 
 import { Wallet } from 'lucide-react';
 import { formatMoney } from '@/lib/energy';
+import { netAfterSubsidy, subsidyOf } from '@/lib/subsidy';
 import { useStore } from '@/lib/store';
 import { FormPage, inputCls, Label, Num } from './common';
 import ChargePicker from '../dashboard/ChargePicker';
@@ -10,13 +11,14 @@ import { GstSummary } from './GstSummary';
 
 export default function StepFinancials({ design }) {
   const f = useStore((s) => s.finance);
+  const subsidy = useStore((s) => s.subsidy);
   const project = useStore((s) => s.project);
   const patch = useStore((s) => s.patch);
   const config = useStore((s) => s.config);
   const u = (p) => patch('finance', { ...p, init: true });
   const money = (v) => formatMoney(v, f.currency);
   const fin = design.fin;
-  const kpis = [['System cost', money(fin.cost)], ['Year-1 savings', money(fin.firstYearSavings)], ['Payback', fin.payback ? `${fin.payback.toFixed(1)} yrs` : `> ${fin.rows.length} yrs`], [`${fin.rows.length}-yr savings`, money(fin.lifetimeSavings)], ['ROI', `${fin.roi.toFixed(0)}%`], ['Energy / yr', `${Math.round(design.totals.acKwh).toLocaleString()} kWh`]];
+  const kpis = [['System cost', money(fin.cost)], ['Year-1 savings', money(fin.firstYearSavings)], ['Payback', fin.payback ? `${fin.payback.toFixed(1)} yrs` : `> ${fin.rows.length} yrs`], [`${fin.rows.length}-yr savings`, money(fin.lifetimeSavings)], ['ROI', `${fin.roi.toFixed(0)}%`], ['Energy / yr', `${Math.round(design.totals.acKwh).toLocaleString()} kWh`], ...(subsidyOf(subsidy).on ? [['Net after subsidy', money(netAfterSubsidy(fin.cost, subsidy))]] : [])];
   return (
     <FormPage icon={Wallet} title="Project & Financials">
       <div className="grid grid-cols-2 gap-4">

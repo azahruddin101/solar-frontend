@@ -31,6 +31,7 @@ export default function ChargePicker({ value = [], onChange, currency = '₹' })
       name: o.name,
       price: rows[i]?.price != null && rows[i].price !== '' ? rows[i].price : o.defaultPrice || 0,
       gstPercent: o.gstPercent != null && o.gstPercent !== '' ? o.gstPercent : DEFAULT_GST,
+      sac: o.sac || '', // printed in the HSN/SAC column
     });
   };
 

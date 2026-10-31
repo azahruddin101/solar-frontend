@@ -12,11 +12,13 @@ import { useUnread } from '@/lib/unread';
 import { Avatar, ImageFrame, Toaster, cx } from '../kit';
 import { BrandMark, PRODUCT_NAME } from './Brand';
 import PushNotifications from './PushNotifications';
+import Breadcrumbs from './Breadcrumbs';
 
 /** Which count sits beside which sidebar link (company workspace, staff workspace and admin console). Zero is shown too. */
 const COUNT_FOR = {
   '/dashboard/clients': { key: 'clients' },
   '/dashboard/loans': { key: 'loans' },
+  '/dashboard/subsidies': { key: 'subsidies' },
   '/dashboard/expenses': { key: 'expenses' },
   '/dashboard/designs': { key: 'designs' },
   '/dashboard/billing': { key: 'billing' },
@@ -29,6 +31,8 @@ const COUNT_FOR = {
   '/dashboard/team': { key: 'team' },
   '/dashboard/catalog': { key: 'products' },
   '/dashboard/suppliers': { key: 'suppliers' },
+  '/dashboard/leads': { key: 'leads' }, // all three sources together
+  '/agent/leads': { key: 'leads' },
   '/dashboard/leads/meta': { key: 'metaLeads' },
   '/dashboard/leads/google': { key: 'googleLeads' },
   '/dashboard/leads/manual': { key: 'manualLeads' },
@@ -36,6 +40,7 @@ const COUNT_FOR = {
   '/agent': { key: 'myTasks' },
   '/agent/clients': { key: 'clients' },
   '/agent/loans': { key: 'loans' },
+  '/agent/subsidies': { key: 'subsidies' },
   '/agent/expenses': { key: 'expenses' },
   '/agent/designs': { key: 'designs' },
   '/agent/billing': { key: 'billing' },
@@ -365,7 +370,10 @@ export default function AppShell({ nav, workspace, children }) {
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto">
           {/* every page uses the full width next to the sidebar */}
-          <div className="w-full px-5 py-8 sm:px-8 lg:py-10">{children}</div>
+          <div className="w-full px-5 py-8 sm:px-8 lg:py-10">
+            <Breadcrumbs nav={nav} />
+            {children}
+          </div>
         </main>
       </div>
       <Toaster />

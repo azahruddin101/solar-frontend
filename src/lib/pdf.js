@@ -23,6 +23,7 @@ import { drawRichText, richTextIsEmpty } from './pdfRichText.js';
 import { drawSld, sldSchedule } from './pdfSld.js';
 import { appendShadowReport } from './shadowReport/shadowReportPdf.js';
 import { MONTHS } from './sun.js';
+import { netAfterSubsidy, subsidyOf } from './subsidy';
 
 // A4 portrait, millimetres
 const W = 210;
@@ -452,7 +453,7 @@ function signOff(doc, r, y) {
  * `company` is the signed-in company (profile, theme, logo, e-signature, QR, terms) and `client`
  * the person the design was made for — together they personalise every page.
  */
-export async function generatePdf({ design, project, place, finance, snapshot, company = {}, client = {}, designId = '', shadow = null, validUntil = null, cover }) {
+export async function generatePdf({ design, project, place, finance, snapshot, company = {}, client = {}, designId = '', shadow = null, validUntil = null, cover, subsidy = null, save = true }) {
   company = { name: project.preparedBy || 'Solar proposal', ...company };
   client = { name: project.customer || '', ...(client || {}) };
   const brand = await loadBranding(company);
@@ -738,7 +739,12 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
   y = doc.lastAutoTable.finalY + 3;
 
   const subtotal = cost.subtotal ?? cost.total;
+  const discountRemark = cost.discountRemark || '';
   const gstExtra = cost.withGst !== false && (cost.gstAmount || 0) > 0;
+  if (cost.discountAmount > 0) {
+    autoTable(doc, { ...table(), startY: y, body: [[`Discount${cost.discountIsPercent ? ` (${cost.discount}%)` : ''}${discountRemark ? ` — ${discountRemark}` : ''}`, money(-cost.discountAmount)]], theme: 'plain', styles: { fontSize: 9.5, textColor: BODY }, columnStyles: { 0: { cellWidth: CW - 42 }, 1: { halign: 'right', cellWidth: 42 } } });
+    y = doc.lastAutoTable.finalY + 2;
+  }
   if (gstExtra) {
     autoTable(doc, {
       ...table(),
@@ -760,7 +766,9 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
   text(doc, gstExtra ? 'GRAND TOTAL (INCL. GST)' : 'TOTAL INVESTMENT', M + 4, y + 8.2, { size: 8.5, style: 'bold', color: brand.primaryFg });
   text(doc, `${totals.kwp.toFixed(2)} kWp system`, M + 68, y + 8.2, { size: 8.5, color: brand.primaryFg });
   text(doc, money(cost.total), W - M - 4, y + 8.8, { size: 13, style: 'bold', color: brand.primaryFg, align: 'right' });
-  y += 13 + 8;
+  y += 13;
+  const afterSubsidy = subsidyBlock(doc, r, y + 3, subsidy, cost.total, money); // only when a subsidy applies
+  y = (afterSubsidy > y + 3 ? afterSubsidy : y) + 8;
   if (campus) {
     y = section(doc, r, 'Price breakdown by building', ensure(doc, r, y + 2, 30 + cost.buildings.length * 8));
     autoTable(doc, {
@@ -786,7 +794,7 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
   footers(doc, r, proposalEnd);
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const filename = `${[slug(client.name), slug(r.title)].filter(Boolean).join('_') || 'solar-proposal'}${shadow ? '_with-shadow-analysis' : ''}.pdf`;
-  doc.save(filename);
+  if (save) doc.save(filename); // save:false builds the PDF only (archiving a version)
   return { blob: doc.output('blob'), filename };
 }
 
@@ -855,7 +863,7 @@ function monthlyOutlookPages(doc, r, { monthly, fin, tariff, years, finance, mon
  * `spec` and `count` are the solar module and how many of them the chosen package / panel product gives; the
  * location and orientation use the defaults in `quote.system`.
  */
-export async function generateQuotePdf({ quote, name = '', company = {}, client = {}, designId = '', currency = 'INR', spec, count, tariff = 8, validUntil = null, cover }) {
+export async function generateQuotePdf({ quote, name = '', company = {}, client = {}, designId = '', currency = 'INR', spec, count, tariff = 8, validUntil = null, cover, subsidy = null, save = true }) {
   company = { name: 'Solar proposal', ...company };
   client = { name: '', ...(client || {}) };
   const brand = await loadBranding(company);
@@ -1004,7 +1012,7 @@ export async function generateQuotePdf({ quote, name = '', company = {}, client 
 
   const gstExtra = pricing.withGst !== false && pricing.gstTotal > 0;
   if (pricing.discountAmount > 0) {
-    autoTable(doc, { ...table(), startY: y, body: [['Discount', money(-pricing.discountAmount)]], theme: 'plain', styles: { fontSize: 9.5, textColor: BODY }, columnStyles: { 0: { cellWidth: CW - 42 }, 1: { halign: 'right', cellWidth: 42 } } });
+    autoTable(doc, { ...table(), startY: y, body: [[`Discount${pricing.discountRemark ? ` — ${pricing.discountRemark}` : ''}`, money(-pricing.discountAmount)]], theme: 'plain', styles: { fontSize: 9.5, textColor: BODY }, columnStyles: { 0: { cellWidth: CW - 42 }, 1: { halign: 'right', cellWidth: 42 } } });
     y = doc.lastAutoTable.finalY + 2;
   }
   if (gstExtra) {
@@ -1028,13 +1036,38 @@ export async function generateQuotePdf({ quote, name = '', company = {}, client 
   text(doc, gstExtra ? 'GRAND TOTAL (INCL. GST)' : 'TOTAL INVESTMENT', M + 4, y + 8.2, { size: 8.5, style: 'bold', color: brand.primaryFg });
   text(doc, `${totals.kwp.toFixed(2)} kWp system`, M + 68, y + 8.2, { size: 8.5, color: brand.primaryFg });
   text(doc, money(pricing.total), W - M - 4, y + 8.8, { size: 13, style: 'bold', color: brand.primaryFg, align: 'right' });
-  signOff(doc, r, onlineBlock(doc, r, y + 13 + 8) + 4);
+  y += 13;
+  const afterSubsidy = subsidyBlock(doc, r, y + 3, subsidy, pricing.total, money); // only when a subsidy applies
+  signOff(doc, r, onlineBlock(doc, r, (afterSubsidy > y + 3 ? afterSubsidy : y) + 8) + 4);
 
   footers(doc, r);
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const filename = `${[slug(client.name), slug(r.title)].filter(Boolean).join('_') || 'solar-proposal'}.pdf`;
-  doc.save(filename);
+  if (save) doc.save(filename); // save:false builds the PDF only (archiving a version)
   return { blob: doc.output('blob'), filename };
+}
+
+/**
+ * The subsidy block under the total: the central and state amounts taken off, then "Net payable after subsidy" in a
+ * soft band. Drawn only when a subsidy applies (see lib/subsidy.js). Returns the y below it.
+ */
+function subsidyBlock(doc, r, y, subsidy, total, money) {
+  const sub = subsidyOf(subsidy);
+  if (!sub.on) return y;
+  const brand = r.brand;
+  y = ensure(doc, r, y, 34);
+  const rows = [];
+  if (sub.central > 0) rows.push(['Central government subsidy', money(-sub.central)]);
+  if (sub.state > 0) rows.push(['State government subsidy', money(-sub.state)]);
+  autoTable(doc, { ...tableStyle(doc, r), startY: y, body: rows, theme: 'plain', styles: { fontSize: 9.5, textColor: BODY }, columnStyles: { 0: { cellWidth: CW - 42 }, 1: { halign: 'right', cellWidth: 42 } } });
+  y = doc.lastAutoTable.finalY + 2;
+  doc.setFillColor(...SOFT);
+  doc.setDrawColor(...brand.primary);
+  doc.setLineWidth(0.4);
+  doc.rect(M, y, CW, 12, 'FD');
+  text(doc, 'NET PAYABLE AFTER SUBSIDY', M + 4, y + 7.8, { size: 8.5, style: 'bold', color: brand.primary });
+  text(doc, money(netAfterSubsidy(total, subsidy)), W - M - 4, y + 8.3, { size: 12, style: 'bold', color: brand.primary, align: 'right' });
+  return y + 12;
 }
 
 /** "View this proposal online": the QR code and link, shown near the price and acceptance. Returns the y below it. */
@@ -1053,5 +1086,5 @@ function onlineBlock(doc, r, y) {
   return y + size + 6 + 6;
 }
 
-/** Building blocks for the other branded documents (receipts, invoices). */
+/** Building blocks for the other branded documents (bills, invoices). */
 export const pdfKit = { text, clip, wrap, tableStyle, numeric, placeImage, logoOrName, pageSize: { W, H, M, CW }, colors: { INK, BODY, MUTED, LINE, SOFT, WHITE } };

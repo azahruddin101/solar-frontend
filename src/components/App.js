@@ -1,6 +1,7 @@
 'use client';
 
-import { AlertCircle, ArrowRight, Check, ChevronDown, ChevronLeft, CloudOff, Download, Eye, FileStack, FileText, Loader2, MessageCircle, QrCode } from 'lucide-react';
+import { AlertCircle, ArrowRight, Check, Save, ChevronDown, ChevronLeft, CloudOff, Download, Eye, FileStack, FileText, Loader2, QrCode } from 'lucide-react';
+import WhatsAppIcon from './icons/WhatsAppIcon';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -37,7 +38,7 @@ import { cx } from './ui';
 const StepSimpleDesign = dynamic(() => import('./steps/StepSimpleDesign'), { ssr: false });
 const Step3D = dynamic(() => import('./steps/Step3D'), { ssr: false });
 
-function useSolar() {
+export function useSolar() {
   const origin = useStore((s) => s.origin);
   const patch = useStore((s) => s.patch);
   useEffect(() => {
@@ -53,7 +54,7 @@ function useSolar() {
 
 /** The company's own panels, poles and pricing — applied once the design itself has loaded.
  * Catalog and packages are fetched from separate endpoints and merged into one store value. */
-function useCatalog(ready, companyId) {
+export function useCatalog(ready, companyId) {
   const set = useStore((s) => s.set);
   useEffect(() => {
     if (!ready || !companyId) return;
@@ -136,6 +137,19 @@ export default function App({ designId, slug }) {
   const state = useStore();
   const design = useDesign();
   const [exporting, setExporting] = useState(false);
+  const saveVersion = async () => {
+    setExporting(true);
+    try {
+      const { blob, filename } = await generatePdf({ design, project: state.project, place: state.place, finance: state.finance, snapshot: state.snapshot, company, client: state.client, designId: state.designId, validUntil: state.validUntil, subsidy: state.subsidy, save: false });
+      const form = new FormData();
+      form.append('file', blob, filename);
+      await api(`/api/designs/${state.designId}/versions`, { method: 'POST', form });
+      toast.success('Version saved');
+    } catch (e) {
+      toast.error(e.message || 'Could not save the version');
+    }
+    setExporting(false);
+  };
   const [shareOpen, setShareOpen] = useState(false);
   const [coverFor, setCoverFor] = useState(null); // the export waiting for a front page: 'pdf' | 'combined'
 
@@ -230,7 +244,7 @@ export default function App({ designId, slug }) {
     const intent = coverFor;
     setExporting(true);
     try {
-      const { blob, filename } = await generatePdf({ design, project: state.project, place: state.place, finance: state.finance, snapshot: state.snapshot, company, client: state.client, designId: state.designId, validUntil: state.validUntil, cover });
+      const { blob, filename } = await generatePdf({ design, project: state.project, place: state.place, finance: state.finance, snapshot: state.snapshot, company, client: state.client, designId: state.designId, validUntil: state.validUntil, cover, subsidy: state.subsidy });
       setCoverFor(null);
       if (intent === 'whatsapp') {
         await archiveProposalPdfAndShareOnWhatsApp({
@@ -254,8 +268,9 @@ export default function App({ designId, slug }) {
   const noPanels = !design.totals.count;
   const has3d = Screen === Step3D || Screen === StepSimpleDesign; // the shadow renders come from the live 3D view
   const actions = [
+    !sync.readOnly && state.designId && !noPanels && { key: 'version', icon: Save, label: 'Save version', hint: 'Keep a copy of the proposal as it is now, with its PDF', disabled: exporting, onClick: saveVersion },
     last && { key: 'pdf', icon: Download, label: 'Download proposal (PDF)', hint: noPanels ? 'Place at least one panel first' : 'Branded proposal for your client', disabled: exporting || noPanels, onClick: () => chooseCover('pdf') },
-    last && canShare && !sync.readOnly && { key: 'whatsapp', icon: MessageCircle, label: 'Share on WhatsApp', hint: noPanels ? 'Place at least one panel first' : 'Create the proposal PDF and send a link to the client', disabled: exporting || noPanels, onClick: () => chooseCover('whatsapp') },
+    last && canShare && !sync.readOnly && { key: 'whatsapp', icon: WhatsAppIcon, label: 'Share on WhatsApp', hint: noPanels ? 'Place at least one panel first' : 'Create the proposal PDF and send a link to the client', disabled: exporting || noPanels, onClick: () => chooseCover('whatsapp') },
     has3d && { key: 'combined', icon: FileStack, label: 'Proposal + shadow analysis (PDF)', hint: noPanels ? 'Place at least one panel first' : 'One PDF: the proposal followed by the shadow report', disabled: exporting || noPanels, onClick: () => chooseCover('combined') },
     canShare && { key: 'share', icon: QrCode, label: 'Share link & QR code', hint: 'A public page anyone can open, no sign-in', onClick: () => setShareOpen(true) },
     has3d && { key: 'shadow', icon: FileText, label: 'Shadow analysis only (PDF)', hint: noPanels ? 'Place at least one panel first' : 'Hour-by-hour shading on the panels', disabled: noPanels, onClick: () => state.set({ shadowReport: 'report' }) },
