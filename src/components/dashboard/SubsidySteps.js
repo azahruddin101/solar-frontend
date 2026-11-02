@@ -4,6 +4,8 @@
 import { ArrowDown, ArrowUp, BadgeIndianRupee, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { ORG_MASTERS_API } from '@/lib/tenant';
+import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { Alert, Button, Card, CardHeader, EmptyState, IconButton, Input, LoadingBlock, PageHeader, showError, toast } from '../kit';
 
@@ -12,7 +14,8 @@ const MAX = 30;
 let seq = 0;
 const blank = (name = '') => ({ key: `new-${++seq}`, name, description: '' });
 
-export default function SubsidySteps() {
+export default function SubsidySteps({ canEditMasters = true, orgMasters = false }) {
+  const { reloadSession } = useSession();
   const saved = useResource('/api/subsidies/steps');
   const [steps, setSteps] = useState(null);
   const [dirty, setDirty] = useState(false);
@@ -34,9 +37,18 @@ export default function SubsidySteps() {
 
   const save = async (e) => {
     e.preventDefault();
+    if (!canEditMasters) return;
     setBusy(true);
     try {
-      load(await api('/api/subsidies/steps', { method: 'PUT', body: { steps: steps.map((s) => ({ name: s.name, description: s.description })) } }));
+      const url = orgMasters ? ORG_MASTERS_API.subsidySteps : '/api/subsidies/steps';
+      const body = { steps: steps.map((s) => ({ name: s.name, description: s.description })) };
+      if (orgMasters) {
+        await api(url, { method: 'PUT', body });
+        await reloadSession();
+        saved.reload();
+      } else {
+        load(await api(url, { method: 'PUT', body }));
+      }
       setDirty(false);
       toast.success('Subsidy steps saved');
     } catch (err) {
@@ -48,7 +60,7 @@ export default function SubsidySteps() {
   return (
     <form onSubmit={save}>
       <PageHeader title="Subsidy steps" description="The steps a client buying with a subsidy goes through, from documents to disbursement. Every new subsidy starts with a copy of this list, and the client can follow it in their portal.">
-        <Button type="submit" variant="primary" loading={busy} disabled={!dirty}>Save steps</Button>
+        <Button type="submit" variant="primary" loading={busy} disabled={!dirty || !canEditMasters}>Save steps</Button>
       </PageHeader>
       {saved.error && <Alert className="mb-6">{saved.error}</Alert>}
 

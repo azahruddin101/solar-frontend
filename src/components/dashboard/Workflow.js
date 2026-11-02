@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { agentRolesFor } from '@/lib/agents';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { ORG_MASTERS_API } from '@/lib/tenant';
 import { DEFAULT_STEP_PRIORITY, STEP_PRIORITIES, stepColor } from '@/lib/steps';
 import { useResource } from '@/lib/useResource';
 import { Alert, Button, Card, CardHeader, EmptyState, IconButton, Input, LoadingBlock, PageHeader, Select, showError, toast } from '../kit';
@@ -16,15 +17,15 @@ const MAX = 30;
 let seq = 0;
 const blank = (name = '') => ({ key: `new-${++seq}`, name, description: '', role: '', priority: DEFAULT_STEP_PRIORITY });
 
-export default function Workflow() {
-  const { company } = useSession();
+export default function Workflow({ canEditMasters = true, orgMasters = false }) {
+  const { company, reloadSession } = useSession();
   const roleOptions = agentRolesFor(company);
   const saved = useResource('/api/projects/steps');
   const [steps, setSteps] = useState(null);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const load = (list) => setSteps(list.map((s) => ({ key: s.id, name: s.name, description: s.description, role: s.role || '', priority: s.priority || DEFAULT_STEP_PRIORITY })));
+  const load = (list) => setSteps(list.map((s) => ({ key: s.id || s._id, name: s.name, description: s.description, role: s.role || '', priority: s.priority || DEFAULT_STEP_PRIORITY })));
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (saved.data && !steps) load(saved.data);
@@ -40,10 +41,20 @@ export default function Workflow() {
 
   const save = async (e) => {
     e.preventDefault();
+    if (!canEditMasters) return;
     setBusy(true);
     try {
-      load(await api('/api/projects/steps', { method: 'PUT', body: { steps: steps.map((s) => ({ name: s.name, description: s.description, role: s.role || null, priority: s.priority })) } }));
-      setDirty(false);
+      const url = orgMasters ? ORG_MASTERS_API.installationSteps : '/api/projects/steps';
+      const body = { steps: steps.map((s) => ({ name: s.name, description: s.description, role: s.role || null, priority: s.priority })) };
+      if (orgMasters) {
+        await api(url, { method: 'PUT', body });
+        await reloadSession();
+        saved.reload();
+        setDirty(false);
+      } else {
+        load(await api(url, { method: 'PUT', body }));
+        setDirty(false);
+      }
       toast.success('Installation steps saved');
     } catch (err) {
       showError(err, 'The steps were not saved');
@@ -54,7 +65,7 @@ export default function Workflow() {
   return (
     <form onSubmit={save}>
       <PageHeader title="Installation steps" description="The steps your company follows from an accepted proposal to a working system. Every new installation starts with a copy of this list.">
-        <Button type="submit" variant="primary" loading={busy} disabled={!dirty}>Save steps</Button>
+        <Button type="submit" variant="primary" loading={busy} disabled={!dirty || !canEditMasters}>Save steps</Button>
       </PageHeader>
       {saved.error && <Alert className="mb-6">{saved.error}</Alert>}
 

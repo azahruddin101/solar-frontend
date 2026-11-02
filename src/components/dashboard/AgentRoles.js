@@ -6,14 +6,15 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { MAX_AGENT_ROLES, agentRolesFor } from '@/lib/agents';
 import { useSession } from '@/lib/session';
+import { ORG_MASTERS_API } from '@/lib/tenant';
 import { Badge, Button, Card, Input, PageHeader, showError, toast } from '../kit';
 
 let seq = 0;
 
 const toRows = (roles) => roles.map((r) => ({ id: ++seq, role: r }));
 
-export default function AgentRolesPage() {
-  const { company, setCompany } = useSession();
+export default function AgentRolesPage({ canEditMasters = true, orgMasters = false }) {
+  const { company, setCompany, reloadSession } = useSession();
   const savedRoles = agentRolesFor(company);
   const [editing, setEditing] = useState(false);
   const [rows, setRows] = useState(() => toRows(savedRoles));
@@ -30,10 +31,16 @@ export default function AgentRolesPage() {
 
   const save = async (e) => {
     e.preventDefault();
+    if (!canEditMasters) return;
     setBusy(true);
     try {
       const agentRoles = rows.map((r) => r.role.trim()).filter(Boolean);
-      setCompany(await api('/api/company', { method: 'PUT', body: { agentRoles } }));
+      if (orgMasters) {
+        await api(ORG_MASTERS_API.companyProfile, { method: 'PUT', body: { agentRoles } });
+        await reloadSession();
+      } else {
+        setCompany(await api('/api/company', { method: 'PUT', body: { agentRoles } }));
+      }
       toast.success('Roles saved');
       setEditing(false);
     } catch (err) {
@@ -48,7 +55,7 @@ export default function AgentRolesPage() {
         title="Job titles"
         description="The field work your staff do (Electrician, Installer…). They decide which installation tasks someone can be given — they don’t open anything in the app."
       >
-        {!editing && (
+        {!editing && canEditMasters && (
           <Button variant="primary" icon={Pencil} onClick={() => setEditing(true)}>
             Edit
           </Button>

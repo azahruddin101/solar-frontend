@@ -22,6 +22,7 @@ import QuickAssign from './QuickAssign';
 import ScheduleField from './ScheduleField';
 import StatusCell from './StatusCell';
 import PreviousStaffCell from './PreviousStaffCell';
+import PreviouslyYoursBadge from './PreviouslyYoursBadge';
 import ReassignedMark, { LOG_TITLE } from './ReassignedMark';
 import { SCHEDULE_OPTIONS, toLocalInput } from '@/lib/leadSchedule';
 import LeadSourceTabs from '@/components/leads/LeadSourceTabs';
@@ -269,7 +270,10 @@ export default function ManualLeads() {
                           {l.assignedAt && <div className="text-xs text-slate-500">{formatDate(l.assignedAt)}</div>}
                         </>
                       ) : (
-                        <span className="text-slate-400">—</span>
+                        <>
+                          <span className="text-slate-400">—</span>
+                          <PreviouslyYoursBadge lead={l} className="mt-1" />
+                        </>
                       )}
                       <ReassignedMark lead={l} />
                     </Td>

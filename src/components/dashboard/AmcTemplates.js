@@ -8,6 +8,7 @@ import { formatMoney } from '@/lib/energy';
 import { api } from '@/lib/api';
 import { useResource } from '@/lib/useResource';
 import { useSession } from '@/lib/session';
+import { ORG_MASTERS_API } from '@/lib/tenant';
 import {
   Alert,
   Badge,
@@ -199,7 +200,8 @@ function VisitFormModal({ visit, isNew, onClose, onSaved, currency }) {
   );
 }
 
-export default function AmcTemplates() {
+export default function AmcTemplates({ canEditMasters = true, orgMasters = false }) {
+  const { reloadSession } = useSession();
   const currency = useSession((s) => s.company?.currency) || 'INR';
   const saved = useResource('/api/projects/amc-templates');
   const [rows, setRows] = useState(null);
@@ -234,10 +236,13 @@ export default function AmcTemplates() {
   const closeConfirm = () => { setConfirm(null); setModalError(''); };
 
   const persist = async (nextRows) => {
+    if (!canEditMasters) return;
     setBusy(true);
     try {
-      const body = await api('/api/projects/amc-templates', { method: 'PUT', body: { templates: rowsToApi(nextRows) } });
+      const url = orgMasters ? ORG_MASTERS_API.amcTemplates : '/api/projects/amc-templates';
+      const body = await api(url, { method: 'PUT', body: { templates: rowsToApi(nextRows) } });
       setRows(rowsFromApi(body));
+      if (orgMasters) await reloadSession();
       return body;
     } catch (err) {
       showError(err, 'The AMC schedule was not saved');
@@ -304,9 +309,11 @@ export default function AmcTemplates() {
         title="AMC schedule"
         description="Mandatory AMCs are scheduled on every job after installation — you assign the staff. Optional AMCs are requested by the client from their portal, or you add one to a proposal from the AMC tracker. Staff mark each visit completed. Free or paid is just the price."
       >
+        {canEditMasters && (
         <Button variant="primary" icon={Plus} disabled={busy || rows === null || rows.length >= MAX} onClick={openAdd}>
           Add visit
         </Button>
+        )}
       </PageHeader>
 
       {saved.error && <Alert className="mb-6">{saved.error}</Alert>}
@@ -356,8 +363,8 @@ export default function AmcTemplates() {
             title="No maintenance visits yet"
             description="Add your first visit (for example AMC1 at 60 days) with a checklist your field team can complete on site."
           >
-            <Button variant="primary" icon={Plus} onClick={openAdd}>Add first visit</Button>
-            <Button variant="secondary" onClick={loadExample} disabled={busy}>Load example schedule</Button>
+            {canEditMasters && <Button variant="primary" icon={Plus} onClick={openAdd}>Add first visit</Button>}
+            {canEditMasters && <Button variant="secondary" onClick={loadExample} disabled={busy}>Load example schedule</Button>}
           </EmptyState>
         ) : (
           <Table>

@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { DEFAULT_EXPENSE_REASONS, MAX_EXPENSE_REASONS, expenseReasonsFor } from '@/lib/expenses';
 import { useSession } from '@/lib/session';
+import { canEditOrgMasters, hasBranchOwnerAccess, ORG_MASTERS_API } from '@/lib/tenant';
 import { useResource } from '@/lib/useResource';
 import { Alert, Badge, Button, Card, Input, LoadingBlock, PageHeader, showError, toast } from '../kit';
 import { ExpenseTabs } from './shared';
@@ -13,9 +14,9 @@ import { ExpenseTabs } from './shared';
 let seq = 0;
 const toRows = (reasons) => reasons.map((r) => ({ id: ++seq, reason: r }));
 
-export default function ExpenseReasons({ basePath = '/dashboard/expenses' }) {
-  const { company, setCompany, user } = useSession();
-  const isOwner = user?.role === 'company';
+export default function ExpenseReasons({ basePath = '/dashboard/expenses', canEditMasters, orgMasters = false }) {
+  const { company, setCompany, user, reloadSession } = useSession();
+  const isOwner = canEditMasters ?? canEditOrgMasters(user);
   const saved = useResource('/api/expenses/reasons');
   const { reload } = saved;
   const list = Array.isArray(saved.data) ? saved.data : expenseReasonsFor(company);
@@ -37,8 +38,13 @@ export default function ExpenseReasons({ basePath = '/dashboard/expenses' }) {
     setBusy(true);
     try {
       const reasons = rows.map((r) => r.reason.trim()).filter(Boolean);
-      const updated = await api('/api/expenses/reasons', { method: 'PUT', body: { reasons } });
-      setCompany({ ...company, expenseReasons: updated });
+      const url = orgMasters ? ORG_MASTERS_API.expenseReasons : '/api/expenses/reasons';
+      const updated = await api(url, { method: 'PUT', body: { reasons } });
+      if (orgMasters) {
+        await reloadSession();
+      } else {
+        setCompany({ ...company, expenseReasons: updated });
+      }
       setRows(toRows(updated));
       toast.success('Expense reasons saved');
       setEditing(false);
@@ -66,8 +72,8 @@ export default function ExpenseReasons({ basePath = '/dashboard/expenses' }) {
             <h2 className="text-lg font-semibold text-slate-900">Expense reasons</h2>
             <p className="mt-1 text-sm text-slate-500">
               {isOwner
-                ? 'These appear in the reason dropdown when anyone adds or edits an expense. Each company has its own list.'
-                : 'Your company chooses these reasons. Only the company owner can change them.'}
+                ? 'These appear in the reason dropdown when anyone adds or edits an expense. Shared across all branches.'
+                : 'Your company chooses these reasons. Only the company admin can change them.'}
             </p>
           </div>
           {isOwner && !editing && (

@@ -15,20 +15,57 @@ function wipeWorkspace() {
   useStore.setState({ catalog: null });
 }
 
-const HOMES = { superadmin: '/admin', company: '/dashboard', agent: '/agent', client: '/portal' };
+const HOMES = { superadmin: '/admin', company: '/org', branch: '/dashboard', agent: '/agent', client: '/portal' };
 export const homeFor = (role) => HOMES[role] || '/login';
+
+const ORG_DASHBOARD_SCOPE_KEY = 'innovbit.orgDashboardScope';
+
+function readOrgDashboardScope() {
+  if (typeof window === 'undefined') return 'all';
+  const v = localStorage.getItem(ORG_DASHBOARD_SCOPE_KEY);
+  return v === 'all' || !v ? 'all' : v;
+}
 
 export const useSession = create((set, get) => ({
   status: 'loading', // loading | guest | ready
   user: null,
   company: null,
+  organization: null,
   impersonated: false,
+  /** On /org: `all` = combined metrics; otherwise active branch id for branch overview. */
+  orgDashboardScope: 'all',
 
   apply: (s) => {
-    if (get().company?.id !== s.company?.id) wipeWorkspace();
-    set({ status: 'ready', user: s.user, company: s.company, impersonated: Boolean(s.impersonated) });
+    const prev = get();
+    if (prev.company?.id !== s.company?.id || prev.organization?.id !== s.organization?.id) wipeWorkspace();
+    set({
+      status: 'ready',
+      user: s.user,
+      company: s.company,
+      organization: s.organization ?? null,
+      impersonated: Boolean(s.impersonated),
+    });
   },
   setCompany: (company) => set({ company }),
+
+  setOrgDashboardScope(scope) {
+    const next = scope === 'all' ? 'all' : String(scope);
+    if (typeof window !== 'undefined') localStorage.setItem(ORG_DASHBOARD_SCOPE_KEY, next);
+    set({ orgDashboardScope: next });
+  },
+
+  async reloadSession() {
+    if (!tokens.get()) return;
+    get().apply(await api('/api/auth/me'));
+  },
+
+  /** Org admin opens a branch workspace (new JWT with branch id). */
+  async switchBranch(branchId) {
+    const s = await api('/api/auth/branch', { method: 'POST', body: { branchId } });
+    tokens.set(s.token);
+    get().apply(s);
+    return s;
+  },
 
   /**
    * Re-reads who is signed in and what they may do — for staff whose roles the owner can change at any time. Runs when
@@ -50,10 +87,11 @@ export const useSession = create((set, get) => ({
     if (!tokens.get()) return set({ status: 'guest' });
     try {
       get().apply(await api('/api/auth/me'));
+      set({ orgDashboardScope: readOrgDashboardScope() });
     } catch {
       tokens.clear();
       wipeWorkspace();
-      set({ status: 'guest', user: null, company: null });
+      set({ status: 'guest', user: null, company: null, organization: null, orgDashboardScope: 'all' });
     }
   },
 
@@ -86,7 +124,7 @@ export const useSession = create((set, get) => ({
     } catch { /* session already gone */ }
     tokens.clear();
     wipeWorkspace();
-    set({ status: 'guest', user: null, company: null, impersonated: false });
+    set({ status: 'guest', user: null, company: null, organization: null, impersonated: false, orgDashboardScope: 'all' });
   },
 }));
 
@@ -100,5 +138,5 @@ setUnauthorizedHandler(() => {
   if (useSession.getState().status !== 'ready') return;
   tokens.clear();
   wipeWorkspace();
-  useSession.setState({ status: 'guest', user: null, company: null, impersonated: false });
+  useSession.setState({ status: 'guest', user: null, company: null, organization: null, impersonated: false, orgDashboardScope: 'all' });
 });

@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { api } from '@/lib/api';
-import { can } from '@/lib/permissions';
+import { can, canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/energy';
 import { generateLifecyclePdf } from '@/lib/lifecyclePdf';
 import { useSession } from '@/lib/session';
@@ -38,9 +38,9 @@ export default function Designs({ basePath = '/dashboard/designs', installations
   const canDelete = can(me, 'proposals', 'delete');
   const canChangeStatus = can(me, 'proposals', 'change_status');
   // other areas this page links into: only load or offer what the user may open
-  const canViewClients = can(me, 'clients', 'view');
+  const canViewClients = canView(me, 'clients'); // all clients, or their team's
   const canSeeBilling = can(me, 'finances', 'view');
-  const canViewTasks = can(me, 'tasks', 'view');
+  const canViewTasks = canView(me, 'tasks'); // links to installations (all, or their team's)
   const canStartTask = can(me, 'tasks', 'create');
   const clientId = params.get('client') || 'all';
   const show = SHOWS[params.get('show')] ? params.get('show') : '';
@@ -52,9 +52,7 @@ export default function Designs({ basePath = '/dashboard/designs', installations
   }, [clientId, show, addedFrom, addedTo]);
   const { items: data, setItems: setData, loading, error, hasMore, loadingMore, loadMore, total } = usePagedResource(listPath, { limit: 100 });
   const clients = useResource(canViewClients ? '/api/clients?limit=500' : null);
-  const projects = useResource(canViewTasks ? '/api/projects?limit=1000' : null);
   const clientList = clients.data?.items || [];
-  const projectList = projects.data?.items || [];
   const [query, setQuery] = useState('');
   const [editingProposal, setEditingProposal] = useState(null); // the proposal open in the Edit proposal dialog
   const [status, setStatus] = useState(() => (DESIGN_STATUSES.some((s) => s.id === params.get('status')) ? params.get('status') : 'all')); // ?status= from a dashboard link
@@ -68,7 +66,8 @@ export default function Designs({ basePath = '/dashboard/designs', installations
     return (data || []).filter((d) => (status === 'all' || d.status === status) && (clientId === 'all' || d.client?.id === clientId) && (!q || `${d.name} ${d.client?.name} ${d.summary?.address}`.toLowerCase().includes(q)));
   }, [data, query, status, clientId]);
 
-  const installationOf = useMemo(() => new Map((projects.data?.items || []).map((p) => [p.design?.id, p.id])), [projects.data]);
+  // each proposal from the server says whether it has an installation (no need to load every installation)
+  const installationOf = useMemo(() => new Map((data || []).filter((d) => d.installationId).map((d) => [d.id, d.installationId])), [data]);
 
   const downloadHistory = async (d) => {
     try {

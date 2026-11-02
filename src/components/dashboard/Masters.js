@@ -6,6 +6,7 @@ import { Check, ChevronDown } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useCounts } from '@/lib/counts';
+import { useSession } from '@/lib/session';
 import { cx } from '../kit';
 import AgentRoles from './AgentRoles';
 import Categories from './Categories';
@@ -18,6 +19,9 @@ import AmcTemplates from './AmcTemplates';
 import LoanSteps from './LoanSteps';
 import SubsidySteps from './SubsidySteps';
 import { useBreadcrumbTail } from '@/lib/breadcrumbs';
+import { canEditOrgMasters, tabAllowsOrgEdit } from '@/lib/tenant';
+import { Alert } from '../kit';
+import Link from 'next/link';
 
 const TABS = [
   { id: 'agent-roles', label: 'Job titles', count: 'agentRoles', Page: AgentRoles },
@@ -73,27 +77,42 @@ function MasterPicker({ tabs, active, counts, onPick }) {
   );
 }
 
-export default function Masters({ tabIds, pageProps }) {
+export default function Masters({ scope = 'branch', tabIds, pageProps }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const counts = useCounts((s) => s.counts);
+  const user = useSession((s) => s.user);
+  const hasBranches = useSession((s) => s.organization?.hasBranches) !== false;
   const tabs = tabIds ? TABS.filter((t) => tabIds.includes(t.id)) : TABS;
   const active = tabs.find((t) => t.id === params.get('tab')) || tabs[0];
   const Page = active.Page;
+  const orgScope = scope === 'organization';
+  // a company without branches has no admin above its owner: the owner edits the shared masters here
+  const canEditTab = orgScope || !tabAllowsOrgEdit(active.id) || canEditOrgMasters(user);
   useBreadcrumbTail(active.label);
 
   return (
     <>
+      {!canEditTab && (
+        <Alert tone="info" className="mb-6">
+          These settings are managed at company level. Ask your company admin to change them, or open the <Link href="/org/masters" className="font-medium text-brand hover:underline">Masters</Link> page if you are the admin.
+        </Alert>
+      )}
+      {orgScope && (
+        <Alert tone="info" className="mb-6">
+          Shared by every branch. Branch teams run daily work after you open <strong>Manage branch</strong> on the company dashboard.
+        </Alert>
+      )}
       <div className="mb-6 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="min-w-0 max-w-[18rem]">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Manage Masters</h1>
-          <p className="mt-1 text-sm text-slate-500">The lists your proposals, catalog and installations are built from.</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Masters</h1>
+          <p className="mt-1 text-sm text-slate-500">{hasBranches ? 'Shared lists and defaults for all branches.' : 'Your company’s lists and defaults.'}</p>
         </div>
         <MasterPicker tabs={tabs} active={active} counts={counts} onPick={(id) => router.replace(`${pathname}?tab=${id}`, { scroll: false })} />
       </div>
       <div role="tabpanel" className="border-t border-slate-200 pt-6" key={active.id}>
-        <Page {...pageProps} />
+        <Page {...pageProps} canEditMasters={canEditTab} orgMasters={orgScope} />
       </div>
     </>
   );

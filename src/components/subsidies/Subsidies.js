@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { formatMoney } from '@/lib/energy';
 import { useSession } from '@/lib/session';
+import { mastersHref } from '@/lib/tenant';
 import { useCan } from '@/lib/useCan';
 import { useResource } from '@/lib/useResource';
 import { Alert, Card, EmptyState, Input, LoadingBlock, PageHeader, Select, Table, Td, Th, Tr, buttonClass, capName, timeAgo } from '../kit';
@@ -18,7 +19,7 @@ export default function Subsidies({ basePath = '/dashboard/subsidies', designsPa
   const { data, loading, error } = useResource('/api/subsidies');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
-  const isOwner = user?.role === 'company';
+  const stepsLink = mastersHref(user, 'subsidy-steps');
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -29,7 +30,7 @@ export default function Subsidies({ basePath = '/dashboard/subsidies', designsPa
   return (
     <>
       <PageHeader title="Subsidies" description="Proposals bought on a subsidy, and how far each subsidy has got through your subsidy steps.">
-        {isOwner && <Link href={stepsPath} className={buttonClass({})}><ListChecks className="h-4 w-4" /> Subsidy steps</Link>}
+        {stepsLink && <Link href={stepsLink} className={buttonClass({})}><ListChecks className="h-4 w-4" /> Subsidy steps</Link>}
       </PageHeader>
       {error && <Alert className="mb-6">{error}</Alert>}
 

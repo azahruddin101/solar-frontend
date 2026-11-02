@@ -7,6 +7,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { assetUrl } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { isOrgAdmin } from '@/lib/tenant';
 import { useCounts } from '@/lib/counts';
 import { useUnread } from '@/lib/unread';
 import { Avatar, ImageFrame, Toaster, cx } from '../kit';
@@ -161,7 +162,7 @@ function NavItem({ item, active, onNavigate, pathname, withBadge, collapsed }) {
 // The desktop sidebar can be collapsed to an icon rail; the choice is remembered in this browser.
 const COLLAPSED_KEY = 'sp.sidebarCollapsed';
 
-export default function AppShell({ nav, workspace, children }) {
+export default function AppShell({ nav, workspace, headerExtra, children }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, company, impersonated, logout, stopImpersonating } = useSession();
@@ -183,7 +184,7 @@ export default function AppShell({ nav, workspace, children }) {
   const ticketsUnread = useUnread((s) => s.tickets);
   const clientSupportOpen = useUnread((s) => s.clientSupportOpen);
   const refreshUnread = useUnread((s) => s.refresh);
-  const notificationsHref = { agent: '/agent/notifications', company: '/dashboard/notifications', client: '/portal/notifications' }[user?.role] || null;
+  const notificationsHref = { agent: '/agent/notifications', company: '/dashboard/notifications', branch: '/dashboard/notifications', client: '/portal/notifications' }[user?.role] || null;
 
   // Unread badges for the footer bell and support links; refreshed on navigation and every minute.
   useEffect(() => {
@@ -201,7 +202,7 @@ export default function AppShell({ nav, workspace, children }) {
   const counts = useCounts((s) => s.counts);
   const refreshCounts = useCounts((s) => s.refresh);
   const refreshCountsSoon = useCounts((s) => s.refreshSoon);
-  const countsPath = { company: '/api/dashboard/counts', agent: '/api/my/counts', superadmin: '/api/admin/counts' }[user?.role] || '';
+  const countsPath = { company: '/api/dashboard/counts', branch: '/api/dashboard/counts', agent: '/api/my/counts', superadmin: '/api/admin/counts' }[user?.role] || '';
   const showCounts = Boolean(countsPath);
   useEffect(() => {
     if (!showCounts) return undefined;
@@ -358,6 +359,12 @@ export default function AppShell({ nav, workspace, children }) {
             </button>
           </div>
         )}
+        {!impersonated && isOrgAdmin(user) && workspace === 'Branch workspace' && (
+          <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-brand/20 bg-brand-soft px-4 py-2 text-[13px] text-brand-ink">
+            Managing branch: <span className="font-semibold">{company?.name}</span>
+            <Link href="/org" className="font-semibold text-brand hover:underline">Back to company dashboard</Link>
+          </div>
+        )}
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 lg:hidden">
           <button type="button" aria-label="Open menu" onClick={() => setOpen(true)} className="grid h-9 w-9 place-items-center rounded-md text-slate-600 hover:bg-slate-100"><Menu className="h-5 w-5" /></button>
           <span className="min-w-0 flex-1 truncate text-sm font-semibold">{company?.name || PRODUCT_NAME}</span>
@@ -369,8 +376,8 @@ export default function AppShell({ nav, workspace, children }) {
           )}
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto">
-          {/* every page uses the full width next to the sidebar */}
           <div className="w-full px-5 py-8 sm:px-8 lg:py-10">
+            {headerExtra ? <div className="mb-4 flex justify-start">{headerExtra}</div> : null}
             <Breadcrumbs nav={nav} />
             {children}
           </div>

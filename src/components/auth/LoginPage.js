@@ -76,7 +76,7 @@ export default function LoginPage() {
         <div className="w-full max-w-sm">
           <Link href="/" className="mb-10 inline-block lg:hidden"><BrandLogo /></Link>
           <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Sign in</h2>
-          <p className="mt-1.5 text-sm text-slate-500">Use the email and password for your company or admin account.</p>
+          <p className="mt-1.5 text-sm text-slate-500">Sign in with the email you were given — company admins open the company dashboard, branch owners and staff their own workspace.</p>
           <form onSubmit={submit} noValidate className="mt-8 space-y-4">
             {error && (
               <Alert>

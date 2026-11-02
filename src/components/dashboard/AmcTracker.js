@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { can } from '@/lib/permissions';
 import { useSession } from '@/lib/session';
+import { mastersHref } from '@/lib/tenant';
 import { cx } from '../kit';
 import AmcBoard from './AmcBoard';
 
@@ -15,7 +16,7 @@ export function CompanyAmc() {
       canAssign={can(me, 'tasks', 'assign')}
       canComplete={can(me, 'tasks', 'change_status')}
       canInvoiceParts={can(me, 'tasks', 'invoice_parts')}
-      settingsPath={me?.role === 'company' ? '/dashboard/masters?tab=amc-schedule' : null}
+      settingsPath={mastersHref(me, 'amc-schedule')}
     />
   );
 }

@@ -19,6 +19,7 @@ import { formatMoney } from '@/lib/energy';
 import { BILL_STATUS, EWAY_STATUS } from '@/lib/saleChain';
 import { useCan } from '@/lib/useCan';
 import { useSession } from '@/lib/session';
+import { hasBranchOwnerAccess } from '@/lib/tenant';
 import { useResource } from '@/lib/useResource';
 import { Alert, Badge, Button, Card, EmptyState, IconButton, LoadingBlock, Table, Td, Th, Tr, capName, cx, formatDate, showError, toast } from '../kit';
 import EwayBillModal, { CancelEwayBillDialog } from './EwayBillModal';
@@ -82,7 +83,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
   const canEway = may('finances', 'create_eway_bill');
   const canBill = may('finances', 'create_bill');
   const canInvoice = may('finances', 'create_invoice');
-  const isOwner = useSession((s) => s.user)?.role === 'company'; // voiding is the owner's alone
+  const isOwner = hasBranchOwnerAccess(useSession((s) => s.user));
   const params = useSearchParams();
   const { data, loading, error, reload } = useResource(designId ? `/api/billing/designs/${designId}` : `/api/billing/clients/${clientId}`);
   useBreadcrumb(capName(data?.design?.name || data?.client?.name));
@@ -279,7 +280,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
         </div>
         <div className="flex flex-wrap gap-2">
           {design && may('proposals', 'view') && <Link href={designHref({ id: designId, type: design.type, summary: design })} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"><PenLine className="h-4 w-4" />{may('proposals', 'update') ? 'Edit proposal' : 'Open proposal'}</Link>}
-          {!design && may('clients', 'view') && <Link href={`${basePath.replace(/\/billing$/, '')}/clients/${clientId}`} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"><PenLine className="h-4 w-4" />Open client</Link>}
+          {!design && (may('clients', 'view') || may('clients', 'view_team')) && <Link href={`${basePath.replace(/\/billing$/, '')}/clients/${clientId}`} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"><PenLine className="h-4 w-4" />Open client</Link>}
           {canEway && won && <Button variant="secondary" icon={Truck} onClick={() => setModal({ type: 'eway' })}>E-way bill</Button>}
           {canBill && won && <Button variant="secondary" icon={Wallet} onClick={() => setModal({ type: 'bill' })} title={openEwayBills ? `${openEwayBills} open e-way bill${openEwayBills === 1 ? '' : 's'}` : 'No open e-way bill: a bill for services only'}>Bill{openEwayBills ? ` (${openEwayBills})` : ''}</Button>}
           {canInvoice && won && <Button variant="primary" icon={ReceiptText} disabled={!uninvoicedBills} title={uninvoicedBills ? `${uninvoicedBills} paid bill${uninvoicedBills === 1 ? '' : 's'} to invoice` : 'Generate a bill first'} onClick={() => setModal({ type: 'invoice' })}>Invoice{uninvoicedBills ? ` (${uninvoicedBills})` : ''}</Button>}

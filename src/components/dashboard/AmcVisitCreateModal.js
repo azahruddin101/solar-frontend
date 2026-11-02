@@ -1,7 +1,7 @@
 'use client';
 
 // The company adds an AMC visit to an installation: which job, which AMC, when, and optionally who does it.
-import { useState } from 'react';
+import { useDeferredValue, useState } from 'react';
 import { api } from '@/lib/api';
 import { useResource } from '@/lib/useResource';
 import { FormField, FormModal, Input, Select, Textarea, toast } from '../kit';
@@ -10,7 +10,10 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 /** `amcs`: [{ name, kind }] from the AMC schedule. `staff`: active staff to pick from. */
 export default function AmcVisitCreateModal({ amcs, staff, onClose, onCreated }) {
-  const { data: projects, loading } = useResource('/api/projects?limit=1000');
+  // the job list is searched on the server (any job, however many there are); the latest 50 until something is typed
+  const [search, setSearch] = useState('');
+  const term = useDeferredValue(search.trim());
+  const { data: projects, loading } = useResource(`/api/projects?limit=50${term ? `&q=${encodeURIComponent(term)}` : ''}`);
   const jobs = projects?.items || [];
   const [project, setProject] = useState('');
   const [name, setName] = useState(amcs.find((a) => a.kind === 'optional')?.name || amcs[0]?.name || '');
@@ -38,8 +41,11 @@ export default function AmcVisitCreateModal({ amcs, staff, onClose, onCreated })
 
   return (
     <FormModal open onClose={onClose} size="md" title="Add an AMC visit" description="Add a maintenance visit to a job — for example an optional AMC the client asked for by phone." submitLabel="Add visit" busy={busy} error={error} onSubmit={submit}>
+      <FormField label="Find the job" optional hint="Type part of the proposal or client name.">
+        <Input value={search} onValue={setSearch} placeholder="e.g. Sharma or 5 kW" />
+      </FormField>
       <FormField label="Job">
-        <Select value={project} onValue={setProject} disabled={loading}>
+        <Select value={project} onValue={setProject} disabled={loading && !jobs.length}>
           <option value="">{loading ? 'Loading…' : 'Choose a job…'}</option>
           {jobs.map((p) => <option key={p.id} value={p.id}>{p.design?.name || 'Installation'}{p.client?.name ? ` — ${p.client.name}` : ''}</option>)}
         </Select>

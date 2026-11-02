@@ -11,6 +11,7 @@ import { api, assetUrl } from '@/lib/api';
 import { importLibrary, MAPS_API_KEY } from '@/lib/googleMaps';
 import { can } from '@/lib/permissions';
 import { useSession } from '@/lib/session';
+import { hasBranchOwnerAccess } from '@/lib/tenant';
 import { useResource } from '@/lib/useResource';
 import { useSignedUrl } from '@/lib/files';
 import { DEFAULT_STEP_PRIORITY, STEP_PRIORITIES, stepColor } from '@/lib/steps';
@@ -233,7 +234,7 @@ export default function ProjectView({ id, mode, basePath = '/dashboard/installat
     status: owner && can(me, 'tasks', 'change_status'),
     del: owner && can(me, 'tasks', 'delete'),
   };
-  const agents = useResource(may.assign ? (me?.role === 'company' ? '/api/agents' : '/api/projects/assignees') : null);
+  const agents = useResource(may.assign ? (hasBranchOwnerAccess(me) ? '/api/agents' : '/api/projects/assignees') : null);
   const [modal, setModal] = useState(null);
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState('');

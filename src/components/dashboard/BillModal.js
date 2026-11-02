@@ -47,10 +47,15 @@ export default function BillModal({ open, onClose, party, partyName, proposalDis
 
   const goods = useMemo(() => chosen.flatMap((e) => (e.pricing?.lines || e.lines || []).map((l) => ({ ...l, kind: 'goods', ewayNo: e.ewayNo }))), [chosen]);
   const serviceLines = useMemo(() => services.filter((s) => s.name.trim()).map((s) => ({ kind: 'service', name: s.name, detail: s.description, hsn: s.hsn, qty: Number(s.qty) || 1, unit: s.unit, rate: Number(s.rate) || 0, gstPercent: Number(s.gstPercent) || 0 })), [services]);
-  const summary = useMemo(
-    () => summarizeLinePricing({ lines: [...goods, ...serviceLines], gstIncluded: false, discount: discountActive ? discount : 0, discountIsPercent, withGst }),
-    [goods, serviceLines, discountActive, discount, discountIsPercent, withGst],
-  );
+  const summary = useMemo(() => {
+    const lines = [...goods, ...serviceLines];
+    // exactly as the server prices the bill (invoicePricing.service.js splitDiscounts): a % is taken of the rounded
+    // subtotal, rounded, and applied as an amount — so the total on the button is the total that gets charged
+    const base = summarizeLinePricing({ lines, gstIncluded: false, discount: 0, withGst }).subtotal;
+    const asked = discountActive ? (discountIsPercent ? (base * (Number(discount) || 0)) / 100 : Number(discount) || 0) : 0;
+    const amount = roundMoney(Math.min(base, Math.max(0, asked)));
+    return summarizeLinePricing({ lines, gstIncluded: false, discount: amount, discountIsPercent: false, withGst });
+  }, [goods, serviceLines, discountActive, discount, discountIsPercent, withGst]);
   const goodsValue = useMemo(() => roundMoney(goods.reduce((a, l) => a + (Number(l.qty) || 0) * (Number(l.rate) || 0), 0)), [goods]);
   const servicesValue = useMemo(() => roundMoney(serviceLines.reduce((a, l) => a + l.qty * l.rate, 0)), [serviceLines]);
 

@@ -431,7 +431,7 @@ export default function SubsidyDetail({ id, basePath = '/dashboard/subsidies', c
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <SubsidyStatusBadge status={subsidy.status} />
           {subsidy.design?.id && may('proposals', 'view') && <Link href={`${designsPath}/${subsidy.design.id}`} className="text-sm font-medium text-brand hover:underline">Open proposal</Link>}
-          {subsidy.client?.id && may('clients', 'view') && <Link href={`${clientsPath}/${subsidy.client.id}`} className="text-sm font-medium text-brand hover:underline">Open client</Link>}
+          {subsidy.client?.id && (may('clients', 'view') || may('clients', 'view_team')) && <Link href={`${clientsPath}/${subsidy.client.id}`} className="text-sm font-medium text-brand hover:underline">Open client</Link>}
         </div>
       </PageHeader>
 

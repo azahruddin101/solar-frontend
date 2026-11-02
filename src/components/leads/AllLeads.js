@@ -17,6 +17,7 @@ import ConvertToClient from './ConvertToClient';
 import QuickAssign from './QuickAssign';
 import StatusCell from './StatusCell';
 import PreviousStaffCell from './PreviousStaffCell';
+import PreviouslyYoursBadge from './PreviouslyYoursBadge';
 import ReassignedMark from './ReassignedMark';
 import { SCHEDULE_OPTIONS } from '@/lib/leadSchedule';
 import { Alert, Badge, Button, Card, EmptyState, FilterNotice, FormField, LoadingBlock, PageHeader, Select, Table, TablePagination, Td, Th, Tr, capName, cx, formatDate, toast } from '../kit';
@@ -60,7 +61,7 @@ export default function AllLeads() {
   const form = useResource('/api/leads/form');
   const fields = form.data?.fields || [];
   const statusesRes = useResource('/api/leads/statuses');
-  const assigneesRes = useResource(may.all ? '/api/leads/assignees' : null);
+  const assigneesRes = useResource(may.all || may.assign ? '/api/leads/assignees' : null);
   const metaFiltersRes = useResource(may.all ? '/api/leads/meta/filters' : null);
   const statuses = statusesRes.data || [];
   const assignees = assigneesRes.data || [];
@@ -288,7 +289,10 @@ export default function AllLeads() {
                           {l.assignedAt && <div className="text-xs text-slate-500">{formatDate(l.assignedAt)}</div>}
                         </>
                       ) : (
-                        <span className="text-slate-400">—</span>
+                        <>
+                          <span className="text-slate-400">—</span>
+                          <PreviouslyYoursBadge lead={l} className="mt-1" />
+                        </>
                       )}
                       <ReassignedMark lead={l} />
                     </Td>

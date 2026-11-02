@@ -11,6 +11,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { api, assetUrl } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { canEditOrgMasters } from '@/lib/tenant';
 import { THEME_PRESETS, foregroundOn, isHex, luminance } from '@/lib/theme';
 import { companySelfSchema, invoiceNumberingSchema, useValidation } from '@/lib/validation';
 import { Alert, Badge, Button, Card, CardHeader, FormField, ImageFrame, ImageSourceButtons, Input, NameInput, PhoneInput, PageHeader, Spinner, Tabs, Textarea, cx, showError, toast } from '../kit';
@@ -385,6 +386,21 @@ function settingsTabUrl(tab) {
   return tab === 'profile' ? '/dashboard/settings' : `/dashboard/settings?tab=${tab}`;
 }
 
+/**
+ * Branding and proposal text are shared by every branch and set by whoever manages the masters (the company admin, or
+ * the owner of a company without branches). Branch owners of a company with branches see them, read-only.
+ */
+function SharedSettings({ children }) {
+  const user = useSession((s) => s.user);
+  if (canEditOrgMasters(user)) return children;
+  return (
+    <>
+      <Alert tone="info" className="mb-6 max-w-3xl">These settings are shared by every branch and set by your company admin.</Alert>
+      <fieldset disabled aria-disabled="true" className="pointer-events-none select-none opacity-60">{children}</fieldset>
+    </>
+  );
+}
+
 export default function Settings() {
   const router = useRouter();
   const params = useSearchParams();
@@ -394,8 +410,8 @@ export default function Settings() {
       <PageHeader title="Settings" description="Company profile, branding, billing, support and integrations." />
       <Tabs className="mb-6 flex-wrap" tabs={TABS} value={tab} onChange={(t) => router.replace(settingsTabUrl(t), { scroll: false })} />
       {tab === 'profile' && <Profile />}
-      {tab === 'branding' && <Branding />}
-      {tab === 'proposal' && <Proposal />}
+      {tab === 'branding' && <SharedSettings><Branding /></SharedSettings>}
+      {tab === 'proposal' && <SharedSettings><Proposal /></SharedSettings>}
       {tab === 'invoices' && <InvoiceNumbering />}
       {tab === 'plan' && <PlanBilling embedded />}
       {tab === 'support' && <TicketList embedded basePath="/dashboard/support" />}

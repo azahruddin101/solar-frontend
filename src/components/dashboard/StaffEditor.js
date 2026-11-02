@@ -20,7 +20,7 @@ import { useBreadcrumb } from '@/lib/breadcrumbs';
 
 const TEAM_PATH = '/dashboard/team';
 
-const BLANK = { name: '', email: '', phone: '', roles: [], staffRoles: [], permissions: [], password: '', active: true };
+const BLANK = { name: '', email: '', phone: '', roles: [], staffRoles: [], permissions: [], password: '', active: true, manager: '' };
 
 /** Everything a person can do: the permissions of the roles picked plus the extra grants. */
 const effectiveOf = (roleIds, extra, roles) => normalizePermissions([...extra, ...roles.filter((r) => roleIds.includes(r.id)).flatMap((r) => r.permissions)]);
@@ -101,6 +101,7 @@ function Breadcrumb({ current }) {
 function StaffForm({ agent, roles, onRoleCreated, onDone, onCancel }) {
   const { company } = useSession();
   const jobTitles = agentRolesFor(company);
+  const team = useResource('/api/agents');
   const editing = Boolean(agent?.id);
   const catalog = useResource(roles.length ? null : '/api/roles/catalog'); // templates, only when there are no roles yet
   const [form, setForm] = useState(() => ({
@@ -109,6 +110,7 @@ function StaffForm({ agent, roles, onRoleCreated, onDone, onCancel }) {
     roles: agentRolesOf(agent),
     staffRoles: (agent?.staffRoles || []).map((r) => r.id),
     permissions: Array.isArray(agent?.permissions) ? agent.permissions : [],
+    manager: agent?.manager ? String(agent.manager) : '',
     password: '',
   }));
   const [showExtra, setShowExtra] = useState(() => Boolean(agent?.permissions?.length));
@@ -173,7 +175,7 @@ function StaffForm({ agent, roles, onRoleCreated, onDone, onCancel }) {
     setBusy(true);
     setError('');
     try {
-      const body = { ...checked, staffRoles: form.staffRoles, permissions: form.permissions };
+      const body = { ...checked, staffRoles: form.staffRoles, permissions: form.permissions, manager: form.manager || null };
       for (const k of ['effectivePermissions', 'stats', 'photo', 'jobTitle', 'openSteps']) delete body[k];
       let saved = editing ? await api(`/api/agents/${agent.id}`, { method: 'PUT', body }) : await api('/api/agents', { method: 'POST', body });
       const id = saved.id || agent.id;
@@ -253,6 +255,19 @@ function StaffForm({ agent, roles, onRoleCreated, onDone, onCancel }) {
             <p className="text-sm text-slate-500">No job titles yet.</p>
           )}
           <p className="mt-3 text-xs text-slate-400">Office staff with no field work can leave this empty.</p>
+        </Row>
+
+        <Row title="Reports to" help="Optional area manager — they can see this person’s leads and tasks when their role includes team visibility.">
+          <select
+            value={form.manager}
+            onChange={(e) => set({ manager: e.target.value })}
+            className="h-10 w-full max-w-md rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none focus:border-brand focus:ring-4 focus:ring-brand-muted/60"
+          >
+            <option value="">No manager</option>
+            {(team.data || []).filter((a) => a.id !== agent?.id).map((a) => (
+              <option key={a.id} value={a.id}>{a.name || a.email}</option>
+            ))}
+          </select>
         </Row>
 
         <Row

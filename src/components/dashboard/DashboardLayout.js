@@ -1,10 +1,13 @@
 'use client';
 
 import { BadgeIndianRupee, Boxes, CalendarClock, Truck, Headset, SlidersHorizontal, HardHat, Landmark, LayoutDashboard, WalletCards, Megaphone, PanelsTopLeft, PenTool, Receipt, Settings, UserCog, Users } from 'lucide-react';
+import { useMemo } from 'react';
 import AppShell from '../layout/AppShell';
 import AuthGuard from '../layout/AuthGuard';
+import { useSession } from '@/lib/session';
+import { isBranchOwner } from '@/lib/tenant';
 
-const NAV = [
+const NAV_BASE = [
   {
     items: [
       { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true },
@@ -27,16 +30,22 @@ const NAV = [
       { href: '/dashboard/team', label: 'Staff Management', icon: UserCog },
       { href: '/dashboard/catalog', label: 'Inventory', icon: PanelsTopLeft },
       { href: '/dashboard/suppliers', label: 'Suppliers', icon: Truck },
-      { href: '/dashboard/masters', label: 'Manage Masters', icon: SlidersHorizontal },
+      { href: '/dashboard/masters', label: 'Manage Masters', icon: SlidersHorizontal, branchOnly: true },
       { href: '/dashboard/settings', label: 'Settings', icon: Settings },
     ],
   },
 ];
 
 export default function DashboardLayout({ children }) {
+  const role = useSession((s) => s.user?.role);
+  const nav = useMemo(() => NAV_BASE.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => !item.branchOnly || isBranchOwner({ role })),
+  })), [role]);
+
   return (
-    <AuthGuard role="company">
-      <AppShell nav={NAV} workspace="Company workspace">{children}</AppShell>
+    <AuthGuard role={['branch', 'company']}>
+      <AppShell nav={nav} workspace={role === 'branch' ? 'Branch' : 'Branch workspace'}>{children}</AppShell>
     </AuthGuard>
   );
 }

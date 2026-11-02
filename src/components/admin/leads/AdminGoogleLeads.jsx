@@ -10,11 +10,12 @@ import { toLocalInput } from '@/lib/leadSchedule';
 import api from '@/lib/leads/api';
 import { can } from '@/lib/permissions';
 import { useSession } from '@/lib/session';
+import { hasBranchOwnerAccess } from '@/lib/tenant';
 import ExportAllLeadsButton from '@/components/admin/leads/ExportAllLeadsButton';
 import ConvertToClient from '@/components/leads/ConvertToClient';
 import { useRouter } from 'next/navigation';
 import LeadLog from '@/components/leads/LeadLog';
-import { Eye, X, ChevronLeft, ChevronRight, ChevronDown, UserPlus, ListChecks, Lock, MoreVertical, Users } from 'lucide-react';
+import { Eye, X, ChevronLeft, ChevronRight, ChevronDown, UserPlus, ListChecks, Lock, Megaphone, MoreVertical, Users } from 'lucide-react';
 import LeadListFilterBar from '@/components/leads/LeadListFilterBar';
 import { toast, FormField, Select } from '@/components/kit';
 import MetaLeadAssignModal from '@/components/admin/leads/MetaLeadAssignModal';
@@ -33,7 +34,7 @@ export default function AdminGoogleLeads() {
   const me = useSession((s) => s.user);
   const router = useRouter();
   const canAddClient = can(me, 'clients', 'create');
-  const isOwner = me?.role === 'company';
+  const isOwner = hasBranchOwnerAccess(me);
   const may = {
     all: can(me, 'leads', 'view_all'),
     status: can(me, 'leads', 'change_status'),
@@ -63,7 +64,6 @@ export default function AdminGoogleLeads() {
   const [quickAssign, setQuickAssign] = useState(false);
 
   const [selectedLead, setSelectedLead] = useState(null);
-  const [modalAssigneeId, setModalAssigneeId] = useState('');
   const [modalAssigning, setModalAssigning] = useState(false);
   const [statusForm, setStatusForm] = useState({ statusId: '', remark: '', scheduledAt: '' });
   const [savingStatus, setSavingStatus] = useState(false);
@@ -173,7 +173,6 @@ export default function AdminGoogleLeads() {
 
   const handleViewLead = (lead) => {
     setSelectedLead(lead);
-    setModalAssigneeId('');
     setStatusForm({ statusId: lead.currentStatus?._id || '', remark: '', scheduledAt: toLocalInput(lead.scheduledAt) });
   };
 
@@ -183,18 +182,21 @@ export default function AdminGoogleLeads() {
     fetchLeads();
   };
 
-  const handleAssignFromModal = async () => {
-    if (!selectedLead || !modalAssigneeId) return;
+  const handleAssignFromModal = async (assigneeId) => {
+    if (!selectedLead || !assigneeId || modalAssigning) return;
     setModalAssigning(true);
     try {
-      const unassign = modalAssigneeId === 'unassign';
+      const unassign = assigneeId === 'unassign';
       const response = await api.post('/leads/google/assign', {
         leadIds: [selectedLead._id],
-        counsellorId: unassign ? null : modalAssigneeId,
+        counsellorId: unassign ? null : assigneeId,
       });
       toast.success(response.data.message);
-      setModalAssigneeId('');
-      setSelectedLead(null);
+      const newOwner = unassign ? null : telecallers.find((tc) => tc._id === assigneeId);
+      setSelectedLead({
+        ...selectedLead,
+        assignedTo: newOwner ? { _id: newOwner._id, name: newOwner.name, email: newOwner.email } : null,
+      });
       fetchLeads();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Could not assign lead');
@@ -492,28 +494,20 @@ export default function AdminGoogleLeads() {
                     <label className="block text-xs font-semibold text-amber-800 uppercase tracking-wide mb-1.5">
                       {selectedLead.assignedTo ? `Reassign (currently with ${selectedLead.assignedTo.name})` : 'Assign to'}
                     </label>
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={modalAssigneeId}
-                        onChange={(e) => setModalAssigneeId(e.target.value)}
-                        className="input-field py-2 bg-white flex-1 min-w-0"
-                      >
-                        <option value="">Select a staff member…</option>
-                        {telecallers
-                          .filter((tc) => tc.status === 'active' && tc._id !== selectedLead.assignedTo?._id)
-                          .map((tc) => (
-                            <option key={tc._id} value={tc._id}>{tc.name}</option>
-                          ))}
-                        {selectedLead.assignedTo && <option value="unassign">Remove assignment</option>}
-                      </select>
-                      <button
-                        onClick={handleAssignFromModal}
-                        disabled={modalAssigning || !modalAssigneeId}
-                        className="btn-primary px-4 py-2 shrink-0 disabled:opacity-60"
-                      >
-                        <UserPlus className="w-4 h-4" /> {modalAssigning ? 'Assigning...' : 'Assign'}
-                      </button>
-                    </div>
+                    <select
+                      value=""
+                      onChange={(e) => { const v = e.target.value; if (v) handleAssignFromModal(v); }}
+                      disabled={modalAssigning}
+                      className="input-field py-2 bg-white w-full min-w-0 disabled:opacity-60"
+                    >
+                      <option value="">{modalAssigning ? 'Saving…' : 'Select a staff member…'}</option>
+                      {telecallers
+                        .filter((tc) => tc.status === 'active' && tc._id !== selectedLead.assignedTo?._id)
+                        .map((tc) => (
+                          <option key={tc._id} value={tc._id}>{tc.name}</option>
+                        ))}
+                      {selectedLead.assignedTo && <option value="unassign">Remove assignment</option>}
+                    </select>
                   </div>}
 
                   {may.status && isLeadStatusLocked(selectedLead, statuses) && (

@@ -35,9 +35,14 @@ function printableLine(l) {
  */
 function printablePricing(invoice, { quote, proposalPricing, catalog, packages }) {
   const stored = invoice.pricing;
-  if (stored?.fromBills && stored.lines?.length) {
+  // An issued invoice prints exactly what was stored when its lines carry their own taxable amount and GST (invoices
+  // from bills, AMC parts invoices): recomputing would re-guess rates - and turn a real 0 % GST into the default 18 %.
+  // Only older invoices without per-line amounts are worked out again below.
+  const numeric = (v) => v !== null && v !== '' && Number.isFinite(Number(v));
+  const storedLinesComplete = Boolean(stored?.lines?.length) && stored.lines.filter((l) => l?.name).every((l) => numeric(l.taxable) && numeric(l.gstAmount) && numeric(l.gstPercent));
+  if ((stored?.fromBills || storedLinesComplete) && stored.lines?.length) {
     const withGst = stored.withGst !== false && stored.invoiceGstMode !== 'without_gst';
-    return { pricing: { ...stored, gstIncluded: false, withGst }, lines: stored.lines.filter((l) => l?.name).map(printableLine), withGst };
+    return { pricing: { ...stored, gstIncluded: stored.fromBills ? false : stored.gstIncluded !== false, withGst }, lines: stored.lines.filter((l) => l?.name).map(printableLine), withGst };
   }
   const resolved = resolveProposalPricing({ pricing: stored || proposalPricing, quote, total: invoice.total, title: invoice.title });
   const raw = resolved?.lines?.length

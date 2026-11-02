@@ -2,7 +2,7 @@
 
 // Plan & usage. Payment is settled outside the app: the company asks for a plan (or a custom set of limits) and the
 // platform administrator approves it.
-import { ArrowUpCircle, Calendar, Check, Clock, Layers, Monitor, Sparkles, Users } from 'lucide-react';
+import { ArrowUpCircle, Calendar, Check, Clock, Monitor, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
@@ -41,7 +41,7 @@ function RequestCard({ req, busy, onCancel }) {
         <span className="ml-auto text-xs text-slate-400">Requested {formatDate(req.createdAt)}</span>
       </div>
       {req.type === 'custom' && (
-        <p className="mt-2 text-sm text-slate-600">{req.requestedLimits?.maxClients} clients · {req.requestedLimits?.maxDesigns} proposals · {req.requestedLimits?.maxConcurrentLogins} sign-ins</p>
+        <p className="mt-2 text-sm text-slate-600">{req.requestedLimits?.maxConcurrentLogins} sign-ins</p>
       )}
       {req.message && <p className="mt-2 text-sm text-slate-600">“{req.message}”</p>}
       {req.status === 'approved' && <p className="mt-2 text-sm text-emerald-700">{req.planName} is now active on your workspace.</p>}
@@ -62,8 +62,7 @@ function PresetCard({ plan, disabled, busy, onRequest }) {
       <h3 className="text-lg font-semibold text-slate-900">{plan.name}</h3>
       <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">₹{plan.priceMonthly}<span className="text-sm font-normal text-slate-500">/mo</span></p>
       <ul className="mt-4 flex-1 space-y-1.5 text-sm text-slate-600">
-        <li>{plan.maxClients} clients</li>
-        <li>{plan.maxDesigns} proposals</li>
+        <li>Unlimited clients & proposals</li>
         <li>{plan.maxConcurrentLogins} concurrent sign-ins</li>
         {plan.features?.map((f) => <li key={f} className="flex items-start gap-1.5"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />{f}</li>)}
       </ul>
@@ -79,7 +78,7 @@ export default function PlanBilling({ embedded = false }) {
   const current = useResource('/api/company/plan-request');
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(null);
-  const [custom, setCustom] = useState({ maxClients: '50', maxDesigns: '100', maxConcurrentLogins: '3', message: '' });
+  const [custom, setCustom] = useState({ maxConcurrentLogins: '3', message: '' });
   const [error, setError] = useState('');
 
   const plan = billing?.plan;
@@ -159,10 +158,9 @@ export default function PlanBilling({ embedded = false }) {
                 {plan.features.map((f) => <li key={f} className="flex items-start gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />{f}</li>)}
               </ul>
             )}
-            <div className="grid gap-3 p-6 sm:grid-cols-3">
-              <LimitPill icon={Users} label="Clients" value={limits.maxClients} />
-              <LimitPill icon={Layers} label="Proposals" value={limits.maxDesigns} />
+            <div className="grid gap-3 p-6 sm:grid-cols-2">
               <LimitPill icon={Monitor} label="Sign-ins" value={limits.maxConcurrentLogins} />
+              <p className="self-center text-sm text-slate-500">Clients and proposals are unlimited.</p>
             </div>
           </section>
 
@@ -187,12 +185,10 @@ export default function PlanBilling({ embedded = false }) {
                 </div>
                 <div className="space-y-4 p-6">
                   <div className="grid gap-4 md:grid-cols-3">
-                    <FormField label="Clients"><Input type="number" min={1} step="1" value={custom.maxClients} onValue={(v) => setCustom({ ...custom, maxClients: v })} /></FormField>
-                    <FormField label="Proposals"><Input type="number" min={1} step="1" value={custom.maxDesigns} onValue={(v) => setCustom({ ...custom, maxDesigns: v })} /></FormField>
                     <FormField label="Concurrent sign-ins"><Input type="number" min={1} step="1" value={custom.maxConcurrentLogins} onValue={(v) => setCustom({ ...custom, maxConcurrentLogins: v })} /></FormField>
                   </div>
-                  <FormField label="What do you need?"><Textarea rows={3} maxLength={2000} value={custom.message} onValue={(v) => setCustom({ ...custom, message: v })} placeholder="e.g. 5 field agents and about 300 clients this year" /></FormField>
-                  <Button variant="primary" icon={Check} loading={busy === 'custom'} disabled={!custom.message.trim()} onClick={() => send('custom', { type: 'custom', message: custom.message, requestedLimits: { maxClients: Number(custom.maxClients) || 1, maxDesigns: Number(custom.maxDesigns) || 1, maxConcurrentLogins: Number(custom.maxConcurrentLogins) || 1 } })}>Send request</Button>
+                  <FormField label="What do you need?"><Textarea rows={3} maxLength={2000} value={custom.message} onValue={(v) => setCustom({ ...custom, message: v })} placeholder="e.g. 5 field agents signed in at the same time" /></FormField>
+                  <Button variant="primary" icon={Check} loading={busy === 'custom'} disabled={!custom.message.trim()} onClick={() => send('custom', { type: 'custom', message: custom.message, requestedLimits: { maxConcurrentLogins: Number(custom.maxConcurrentLogins) || 1 } })}>Send request</Button>
                 </div>
               </Card>
             </section>

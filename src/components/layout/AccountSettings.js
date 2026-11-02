@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { api, tokens } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { roleLabel } from '@/lib/tenant';
 import { passwordChangeSchema, profileSchema, useValidation } from '@/lib/validation';
 import { Alert, Button, Card, CardHeader, FormField, Input, NameInput, PasswordInput, showError, toast } from '../kit';
 
@@ -50,7 +51,8 @@ export default function AccountSettings() {
         <CardHeader title="Your details" description="Shown in the sidebar and used as the sign-in email." />
         <form onSubmit={saveName} noValidate className="grid gap-4 p-6 sm:grid-cols-2">
           <FormField label="Name" optional error={vName.error('name')}><NameInput value={name} onValue={setName} maxLength={120} /></FormField>
-          <FormField label="Sign-in email" hint={user.role === 'company' ? 'Only the platform administrator can change this.' : user.role === 'agent' ? 'Only your company can change this.' : undefined}><Input value={user.email} disabled /></FormField>
+          <FormField label="Sign-in email" hint={user.role === 'company' ? 'Only the platform administrator can change this.' : user.role === 'branch' ? 'Only your company admin can change this.' : user.role === 'agent' ? 'Only your company can change this.' : undefined}><Input value={user.email} disabled /></FormField>
+          {user.role !== 'superadmin' && <p className="sm:col-span-2 text-sm text-slate-500">Signed in as {roleLabel(user)}.</p>}
           <div className="sm:col-span-2"><Button type="submit" variant="primary" loading={busy === 'name'}>Save</Button></div>
         </form>
       </Card>

@@ -18,7 +18,7 @@ export const useUnread = create((set, get) => ({
     const u = user && typeof user === 'object' ? user : get().user;
     if (u !== get().user) set({ user: u });
     if (!u) return;
-    const team = u.role === 'company' || u.role === 'agent';
+    const team = u.role === 'company' || u.role === 'branch' || u.role === 'agent';
     // only ask what this person may see (a refused request would also refresh the whole session)
     const [n, t, c] = await Promise.allSettled([
       team || u.role === 'client' ? api('/api/notifications/unread-count') : null,

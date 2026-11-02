@@ -16,6 +16,7 @@ import ConvertToClient from './ConvertToClient';
 import LeadForm from './LeadForm';
 import LeadViewSwitch, { leadPaths } from './LeadViewSwitch';
 import ManualLeadDetail from './ManualLeadDetail';
+import PreviouslyYoursBadge from './PreviouslyYoursBadge';
 import QuickAssign from './QuickAssign';
 import ScheduleField from './ScheduleField';
 import LeadSourceTabs from '@/components/leads/LeadSourceTabs';
@@ -41,6 +42,7 @@ function CardBody({ lead, locked, preview = false }) {
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
         <span className="inline-flex items-center gap-1 truncate"><Users className="h-3 w-3 text-slate-400" />{lead.assignedTo?.name || <span className="text-amber-700">Unassigned</span>}</span>
+        {!lead.assignedTo && <PreviouslyYoursBadge lead={lead} />}
         {lead.scheduledAt && <span className={cx('inline-flex items-center gap-1 whitespace-nowrap', isOverdue(lead.scheduledAt) ? 'font-medium text-red-600' : '')}><CalendarClock className="h-3 w-3" />{formatSchedule(lead.scheduledAt)}</span>}
         {lead.isReassigned && <span className="inline-flex items-center gap-1 text-violet-700"><ArrowLeftRight className="h-3 w-3" />Reassigned{lead.reassignedCount > 1 ? ` ×${lead.reassignedCount}` : ''}</span>}
         {lead.convertedClient && <span className="inline-flex items-center gap-1 text-emerald-700"><CircleCheck className="h-3 w-3" />{lead.convertedClientName || 'Client'}</span>}
@@ -83,7 +85,7 @@ export default function LeadBoard() {
   const may = { all: can('leads', 'view_all'), create: can('leads', 'create'), update: can('leads', 'update'), status: can('leads', 'change_status'), assign: can('leads', 'assign') };
   const canAddClient = can('clients', 'create');
   const statusesRes = useResource('/api/leads/statuses');
-  const assigneesRes = useResource(may.all ? '/api/leads/assignees' : null);
+  const assigneesRes = useResource(may.all || may.assign ? '/api/leads/assignees' : null);
   const form = useResource('/api/leads/form');
   const statuses = useMemo(() => statusesRes.data || [], [statusesRes.data]);
   const assignees = assigneesRes.data || [];

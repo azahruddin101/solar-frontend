@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { productUnitsFor } from '@/lib/catalog';
 import { CURRENCIES, formatMoney } from '@/lib/energy';
 import { useSession } from '@/lib/session';
+import { canEditOrgMasters, ORG_MASTERS_API } from '@/lib/tenant';
 import { useResource } from '@/lib/useResource';
 import { useCan } from '@/lib/useCan';
 import { Alert, Button, Card, CardHeader, ConfirmDialog, EmptyState, FilterNotice, FormField, Input, LoadingBlock, PageHeader, Select, Table, TablePagination, Tabs, Td, Th, Tr, buttonClass, showError, toast, usePagedItems } from '../kit';
@@ -60,16 +61,17 @@ function StockAlerts({ show, categories, onClear }) {
   );
 }
 
-function Pricing() {
-  const { company, setCompany } = useSession();
+function Pricing({ canEditPricing }) {
+  const { company, setCompany, reloadSession } = useSession();
   const [form, setForm] = useState({ currency: company.currency, tariff: company.tariff, otherCostPerKw: company.otherCostPerKw });
   const [busy, setBusy] = useState(false);
   const save = async (e) => {
     e.preventDefault();
+    if (!canEditPricing) return;
     setBusy(true);
     try {
-      const patch = await api('/api/company/catalog-settings', { method: 'PUT', body: form });
-      setCompany({ ...company, ...patch });
+      await api(ORG_MASTERS_API.catalogSettings, { method: 'PUT', body: form });
+      await reloadSession();
       toast.success('Pricing saved');
     } catch (err) {
       showError(err, 'Pricing was not saved');
@@ -83,7 +85,7 @@ function Pricing() {
         <FormField label="Currency"><Select value={form.currency} onValue={(v) => setForm({ ...form, currency: v })}>{Object.keys(CURRENCIES).map((c) => <option key={c}>{c}</option>)}</Select></FormField>
         <FormField label="Electricity price per unit (kWh)" hint="Converts a client’s bill into units and savings."><Input type="number" required min={0} step="any" value={form.tariff} onValue={(v) => setForm({ ...form, tariff: num(v) })} /></FormField>
         <FormField label="Balance-of-system cost per kW" hint="Inverter, cabling, protection and labour — added on top of panels and poles." className="sm:col-span-2"><Input type="number" required min={0} step="any" value={form.otherCostPerKw} onValue={(v) => setForm({ ...form, otherCostPerKw: num(v) })} /></FormField>
-        <div className="sm:col-span-2"><Button type="submit" variant="primary" loading={busy}>Save pricing</Button></div>
+        <div className="sm:col-span-2">{canEditPricing ? <Button type="submit" variant="primary" loading={busy}>Save pricing</Button> : <p className="text-sm text-slate-500">Pricing defaults are set by your company admin.</p>}</div>
       </form>
     </Card>
   );
@@ -91,7 +93,8 @@ function Pricing() {
 
 export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-categories' }) {
   const company = useSession((s) => s.company);
-  const isOwner = useSession((s) => s.user?.role === 'company'); // pricing defaults are a company master
+  const user = useSession((s) => s.user);
+  const canEditPricing = canEditOrgMasters(user);
   const may = useCan();
   const categories = useResource('/api/categories');
   const designer = useResource('/api/catalog'); // which of the products the designer picks up
@@ -196,7 +199,7 @@ export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-
       {tab === 'pricing' && !categories.loading && (
         <>
           {!list.length && <Card className="mb-6"><EmptyState icon={Tags} title="No categories yet" description="Create a category — solar panels, poles, inverters… — then add your products to it."><Link href={mastersPath} className={buttonClass({ variant: 'primary' })}>Create a category</Link></EmptyState></Card>}
-          {isOwner ? <Pricing /> : <Alert tone="info">Pricing settings are managed by your company admin.</Alert>}
+          {canEditPricing ? <Pricing canEditPricing /> : <Alert tone="info">Pricing settings are managed by your company admin.</Alert>}
         </>
       )}
       </>)}

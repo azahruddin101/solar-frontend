@@ -1,17 +1,17 @@
 'use client';
 
 // Super admin: add companies and control their access, plan, limits and features.
-import { Ban, Building2, CheckCircle2, KeyRound, LogIn, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Ban, Building, Building2, CheckCircle2, GitBranch, KeyRound, LogIn, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { api, assetUrl } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { adminCompanyCreateSchema, adminCompanyUpdateSchema, newPassword, useValidation } from '@/lib/validation';
-import { Alert, Button, Card, ConfirmDialog, EmptyState, FormField, FormModal, Input, NameInput, PhoneInput, LoadingBlock, LogoChip, PageHeader, PasswordInput, RowMenu, Select, Table, Tabs, Td, Textarea, Th, Toggle, Tr, formatDate, timeAgo, toast } from '../kit';
+import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, FormField, FormModal, Input, NameInput, PhoneInput, LoadingBlock, LogoChip, PageHeader, PasswordInput, RowMenu, Select, Table, Tabs, Td, Textarea, Th, Toggle, Tr, formatDate, timeAgo, toast } from '../kit';
 import { PlanBadge, StatusBadge } from './shared';
 
-const BLANK = { name: '', contactName: '', loginEmail: '', password: '', phone: '', address: '', website: '', taxId: '', pan: '', planId: '', status: 'active', notes: '', limits: { maxClients: 25, maxDesigns: 50, maxConcurrentLogins: 2 }, features: { pdfBranding: true, excelImport: true } };
+const BLANK = { hasBranches: false, branchName: '', branchOwnerName: '', branchOwnerEmail: '', branchOwnerPassword: '', name: '', contactName: '', loginEmail: '', password: '', phone: '', address: '', website: '', taxId: '', pan: '', planId: '', status: 'active', notes: '', limits: { maxConcurrentLogins: 2, maxBranches: 3 }, features: { pdfBranding: true, excelImport: true } };
 
 // always has a letter and a digit, as the password rules require
 const randomPassword = () => {
@@ -29,7 +29,10 @@ const randomPassword = () => {
 function CompanyForm({ company, onClose, onSaved }) {
   const plans = useResource('/api/admin/plans');
   const editing = Boolean(company?.id);
-  const [form, setForm] = useState(() => (editing ? { ...BLANK, ...company, planId: company.planId || company.planDetail?.id || '', limits: { ...BLANK.limits, ...company.limits }, features: { ...BLANK.features, ...company.features } } : { ...BLANK, password: randomPassword() }));
+  const [form, setForm] = useState(() => (editing
+    ? { ...BLANK, ...company, planId: company.planId || company.planDetail?.id || '', limits: { ...BLANK.limits, ...company.limits, ...(company.hasBranches && company.poolLogins != null ? { maxConcurrentLogins: company.poolLogins } : {}), maxBranches: company.maxBranches ?? 1 }, features: { ...BLANK.features, ...company.features } }
+    : { ...BLANK, password: randomPassword(), branchOwnerPassword: randomPassword() }));
+  const hasBranches = editing ? Boolean(company.hasBranches) : form.hasBranches;
   const [tab, setTab] = useState('profile');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -43,7 +46,7 @@ function CompanyForm({ company, onClose, onSaved }) {
     setForm((f) => ({
       ...f,
       planId,
-      limits: p && p.kind !== 'custom' ? { maxClients: p.maxClients, maxDesigns: p.maxDesigns, maxConcurrentLogins: p.maxConcurrentLogins } : f.limits,
+      limits: p && p.kind !== 'custom' ? { ...f.limits, maxConcurrentLogins: p.maxConcurrentLogins } : f.limits,
     }));
   };
 
@@ -62,7 +65,13 @@ function CompanyForm({ company, onClose, onSaved }) {
     setError('');
     try {
       const saved = editing ? await api(`/api/admin/companies/${company.id}`, { method: 'PATCH', body }) : await api('/api/admin/companies', { method: 'POST', body });
-      onSaved(saved, editing ? null : { email: form.loginEmail, password: form.password });
+      onSaved(saved, editing ? null : {
+        hasBranches: form.hasBranches,
+        email: form.loginEmail,
+        password: form.password,
+        branchOwnerEmail: form.hasBranches ? form.branchOwnerEmail : '',
+        branchOwnerPassword: form.hasBranches ? form.branchOwnerPassword : '',
+      });
     } catch (e) {
       setError(e.message);
       setBusy(false);
@@ -74,8 +83,39 @@ function CompanyForm({ company, onClose, onSaved }) {
       <Tabs value={tab} onChange={setTab} tabs={[{ id: 'profile', label: 'Company & sign-in' }, { id: 'access', label: 'Plan & limits' }, { id: 'features', label: 'Features' }]} />
       {/* keep every tab mounted so required fields still validate on submit */}
       <div className={tab === 'profile' ? 'grid gap-4 sm:grid-cols-2' : 'hidden'}>
+        {editing ? (
+          <div className="sm:col-span-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+            <Badge tone={hasBranches ? 'blue' : 'slate'}>{hasBranches ? 'With branches' : 'Single company'}</Badge>
+            {hasBranches && <span>The sign-in below is the owner of the branch {company.name}.</span>}
+          </div>
+        ) : (
+          <fieldset className="sm:col-span-2">
+            <legend className="mb-2 text-sm font-medium text-slate-800">Will this company have branches?</legend>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                { value: false, icon: Building, title: 'No — one company', text: 'One workspace and one sign-in. The owner runs everything, including masters.' },
+                { value: true, icon: GitBranch, title: 'Yes — with branches', text: 'A company admin manages the masters and branches; each branch has its own owner with a different email.' },
+              ].map((o) => {
+                const on = form.hasBranches === o.value;
+                const Icon = o.icon;
+                return (
+                  <button key={String(o.value)} type="button" aria-pressed={on} onClick={() => set({ hasBranches: o.value })}
+                    className={`flex gap-3 rounded-xl border p-4 text-left transition-colors ${on ? 'border-brand bg-brand-soft/40 ring-1 ring-brand' : 'border-slate-200 hover:border-slate-300'}`}>
+                    <Icon className={`mt-0.5 h-5 w-5 shrink-0 ${on ? 'text-brand' : 'text-slate-400'}`} aria-hidden />
+                    <span><span className="block text-sm font-semibold text-slate-900">{o.title}</span><span className="mt-0.5 block text-xs text-slate-500">{o.text}</span></span>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+        )}
         <FormField label="Company name" className="sm:col-span-2" error={v.error('name')}><NameInput kind="business" maxLength={120} value={form.name} onValue={(x) => set({ name: x })} placeholder="Sunrise Solar Pvt Ltd" /></FormField>
-        <FormField label="Sign-in email" error={v.error('loginEmail')}><Input type="email" value={form.loginEmail} onValue={(x) => set({ loginEmail: x })} placeholder="owner@company.com" /></FormField>
+        {editing && hasBranches && (
+          <FormField label="Company admin email" hint="Signs in to the company dashboard: masters and every branch." error={v.error('adminEmail')} className="sm:col-span-2">
+            <Input type="email" value={form.adminEmail || ''} onValue={(x) => set({ adminEmail: x })} />
+          </FormField>
+        )}
+        <FormField label={editing ? (hasBranches ? 'Branch owner email' : 'Owner sign-in email') : hasBranches ? 'Company admin email' : 'Owner sign-in email'} hint={!editing && hasBranches ? 'Signs in to the company dashboard: masters and every branch.' : undefined} error={v.error('loginEmail')}><Input type="email" value={form.loginEmail} onValue={(x) => set({ loginEmail: x })} placeholder={hasBranches && !editing ? 'admin@company.com' : 'owner@company.com'} /></FormField>
         {editing ? <FormField label="Contact person" optional error={v.error('contactName')}><NameInput value={form.contactName} onValue={(x) => set({ contactName: x })} /></FormField> : (
           <FormField label="Temporary password" hint="Share it with the company; they can change it after signing in." error={v.error('password')}>
             <div className="flex gap-2"><PasswordInput defaultVisible value={form.password} onValue={(x) => set({ password: x })} className="min-w-0 flex-1 font-mono" /><Button onClick={() => set({ password: randomPassword() })}>Generate</Button></div>
@@ -87,6 +127,17 @@ function CompanyForm({ company, onClose, onSaved }) {
         <FormField label="GSTIN" optional error={v.error('taxId')}><Input maxLength={15} value={form.taxId} onValue={(x) => set({ taxId: x.replace(/[^A-Za-z0-9]/g, '').toUpperCase() })} /></FormField>
         <FormField label="PAN" optional error={v.error('pan')}><Input maxLength={10} value={form.pan || ''} onValue={(x) => set({ pan: x.replace(/[^A-Za-z0-9]/g, '').toUpperCase() })} /></FormField>
         <FormField label="Address" optional className="sm:col-span-2" error={v.error('address')}><Textarea rows={2} maxLength={400} value={form.address} onValue={(x) => set({ address: x })} /></FormField>
+        {!editing && hasBranches && (
+          <fieldset className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4 sm:col-span-2 sm:grid-cols-2">
+            <legend className="px-1 text-sm font-semibold text-slate-900">First branch</legend>
+            <FormField label="Branch name" optional hint={`Defaults to “${form.name || 'Company'} — Main”.`} error={v.error('branchName')}><Input maxLength={120} value={form.branchName} onValue={(x) => set({ branchName: x })} placeholder="Pune HQ" /></FormField>
+            <FormField label="Branch owner name" optional error={v.error('branchOwnerName')}><NameInput value={form.branchOwnerName} onValue={(x) => set({ branchOwnerName: x })} /></FormField>
+            <FormField label="Branch owner email" hint="Their own sign-in — must differ from the company admin." error={v.error('branchOwnerEmail')}><Input type="email" value={form.branchOwnerEmail} onValue={(x) => set({ branchOwnerEmail: x })} placeholder="pune@company.com" /></FormField>
+            <FormField label="Branch owner password" error={v.error('branchOwnerPassword')}>
+              <div className="flex gap-2"><PasswordInput defaultVisible value={form.branchOwnerPassword} onValue={(x) => set({ branchOwnerPassword: x })} className="min-w-0 flex-1 font-mono" /><Button onClick={() => set({ branchOwnerPassword: randomPassword() })}>Generate</Button></div>
+            </FormField>
+          </fieldset>
+        )}
       </div>
       <div className={tab === 'access' ? 'grid gap-4 sm:grid-cols-2' : 'hidden'}>
         <FormField label="Plan" hint="Fixed plans only. Custom plans go through Custom requests after the company pays.">
@@ -96,15 +147,14 @@ function CompanyForm({ company, onClose, onSaved }) {
           </Select>
         </FormField>
         <FormField label="Status" hint="Suspended companies cannot sign in."><Select value={form.status} onValue={(v) => set({ status: v })}><option value="active">Active</option><option value="suspended">Suspended</option></Select></FormField>
-        <FormField label="Maximum clients" hint={customPlan ? 'Set limits for this custom plan.' : 'Copied from the plan.'}>
-          <Input type="number" min={1} step="1" disabled={!customPlan && Boolean(selectedPlan)} value={form.limits.maxClients} onValue={(x) => set({ limits: { ...form.limits, maxClients: x } })} />
-        </FormField>
-        <FormField label="Maximum proposals">
-          <Input type="number" min={1} step="1" disabled={!customPlan && Boolean(selectedPlan)} value={form.limits.maxDesigns} onValue={(x) => set({ limits: { ...form.limits, maxDesigns: x } })} />
-        </FormField>
-        <FormField label="Concurrent sign-ins" hint="Active devices (company + agents).">
+        <FormField label={hasBranches ? 'Concurrent sign-ins (whole company)' : 'Concurrent sign-ins'} hint={hasBranches ? 'Shared out between branches by the company admin; can’t be lower than what the branches already hold.' : customPlan ? 'Active devices (company + agents) for this custom plan.' : 'Active devices (company + agents). Copied from the plan.'}>
           <Input type="number" min={1} step="1" disabled={!customPlan && Boolean(selectedPlan)} value={form.limits.maxConcurrentLogins} onValue={(x) => set({ limits: { ...form.limits, maxConcurrentLogins: x } })} />
         </FormField>
+        {hasBranches && (
+          <FormField label="Maximum branches" hint="How many branch locations this company can create in the app.">
+            <Input type="number" min={1} step="1" value={form.limits.maxBranches ?? 1} onValue={(x) => set({ limits: { ...form.limits, maxBranches: x } })} />
+          </FormField>
+        )}
         <FormField label="Internal notes" optional hint="Only visible to super admins." className="sm:col-span-2"><Textarea value={form.notes} onValue={(v) => set({ notes: v })} maxLength={1000} /></FormField>
       </div>
       <div className={tab === 'features' ? 'space-y-5' : 'hidden'}>
@@ -117,6 +167,8 @@ function CompanyForm({ company, onClose, onSaved }) {
 
 function PasswordModal({ company, onClose }) {
   const [password, setPassword] = useState(randomPassword);
+  const [who, setWho] = useState('owner'); // with branches: this branch's owner, or the company admin
+  const target = who === 'admin' ? company.adminEmail : company.loginEmail;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const pwError = newPassword.safeParse(password).error?.issues[0]?.message;
@@ -126,8 +178,8 @@ function PasswordModal({ company, onClose }) {
     if (pwError) return;
     setBusy(true);
     try {
-      await api(`/api/admin/companies/${company.id}/password`, { method: 'POST', body: { password } });
-      toast.success(`Password reset for ${company.name}`);
+      await api(`/api/admin/companies/${company.id}/password`, { method: 'POST', body: { password, who } });
+      toast.success(`Password reset for ${target}`);
       onClose();
     } catch (e) {
       setError(e.message);
@@ -135,7 +187,15 @@ function PasswordModal({ company, onClose }) {
     }
   };
   return (
-    <FormModal open onClose={onClose} size="sm" title="Reset password" description={`${company.name} · ${company.loginEmail}`} submitLabel="Reset password" busy={busy} error={error} onSubmit={submit} noValidate>
+    <FormModal open onClose={onClose} size="sm" title="Reset password" description={`${company.name} · ${target}`} submitLabel="Reset password" busy={busy} error={error} onSubmit={submit} noValidate>
+      {company.hasBranches && company.adminEmail && (
+        <FormField label="Whose password">
+          <Select value={who} onValue={setWho}>
+            <option value="owner">Branch owner · {company.loginEmail}</option>
+            <option value="admin">Company admin · {company.adminEmail}</option>
+          </Select>
+        </FormField>
+      )}
       <FormField label="New password" hint="Copy it now — it is not shown again." error={tried ? pwError : undefined}>
         <div className="flex gap-2"><PasswordInput defaultVisible value={password} onValue={setPassword} className="min-w-0 flex-1 font-mono" /><Button onClick={() => setPassword(randomPassword())}>Generate</Button></div>
       </FormField>
@@ -208,7 +268,12 @@ export default function AdminCompanies() {
       {error && <Alert className="mb-6">{error}</Alert>}
       {created && (
         <Alert tone="success" className="mb-6">
-          <b>{created.name}</b> is ready. Share these sign-in details: <span className="font-mono">{created.email}</span> / <span className="font-mono">{created.password}</span>
+          <b>{created.name}</b> is ready. Share these sign-in details:{' '}
+          {created.hasBranches ? (
+            <>company admin <span className="font-mono">{created.email}</span> / <span className="font-mono">{created.password}</span>; branch owner <span className="font-mono">{created.branchOwnerEmail}</span> / <span className="font-mono">{created.branchOwnerPassword}</span></>
+          ) : (
+            <><span className="font-mono">{created.email}</span> / <span className="font-mono">{created.password}</span></>
+          )}
           <button type="button" className="ml-2 font-semibold underline" onClick={() => setCreated(null)}>Dismiss</button>
         </Alert>
       )}
@@ -234,14 +299,14 @@ export default function AdminCompanies() {
                   <Td>
                     <div className="flex items-center gap-3">
                       <LogoChip name={c.name} src={assetUrl(c.logo)} />
-                      <div className="min-w-0"><div className="max-w-[220px] truncate font-medium text-slate-900">{c.name}</div><div className="max-w-[220px] truncate text-xs text-slate-500">{c.loginEmail}</div></div>
+                      <div className="min-w-0"><div className="max-w-[220px] truncate font-medium text-slate-900">{c.name}</div><div className="max-w-[220px] truncate text-xs text-slate-500">{c.loginEmail}</div>{c.hasBranches && <div className="max-w-[220px] truncate text-xs text-slate-400" title={c.adminEmail ? `Company admin: ${c.adminEmail}` : undefined}>Branch of {c.organizationName || 'a company'}</div>}</div>
                     </div>
                   </Td>
                   <Td><PlanBadge plan={c.plan} planDetail={c.planDetail} max={14} /></Td>
                   <Td><StatusBadge status={c.status} /></Td>
                   <Td className="text-[13px] leading-snug whitespace-nowrap text-slate-500">
-                    <div><span className="text-slate-800 tabular-nums">{c.counts.clients}</span>{` / ${c.limits.maxClients}`} {c.counts.clients === 1 ? 'client' : 'clients'}</div>
-                    <div><span className="text-slate-800 tabular-nums">{c.counts.designs}</span>{` / ${c.limits.maxDesigns}`} {c.counts.designs === 1 ? 'proposal' : 'proposals'}</div>
+                    <div><span className="text-slate-800 tabular-nums">{c.counts.clients}</span> {c.counts.clients === 1 ? 'client' : 'clients'}</div>
+                    <div><span className="text-slate-800 tabular-nums">{c.counts.designs}</span> {c.counts.designs === 1 ? 'proposal' : 'proposals'}</div>
                   </Td>
                   <Td className="whitespace-nowrap text-slate-500">{timeAgo(c.lastLoginAt)}</Td>
                   <Td className="whitespace-nowrap text-slate-500">{formatDate(c.createdAt)}</Td>

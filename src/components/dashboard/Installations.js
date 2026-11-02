@@ -74,9 +74,8 @@ export default function Installations({ basePath = '/dashboard/installations', w
   const show = SHOWS[params.get('show')] ? params.get('show') : '';
   const listPath = useMemo(() => withDateRange(show ? `/api/projects?show=${show}` : '/api/projects', updatedFrom, updatedTo), [show, updatedFrom, updatedTo]);
   const { items: data, loading, error, hasMore, loadingMore, loadMore, total } = usePagedResource(listPath, { limit: 100 });
-  const allProjects = useResource('/api/projects?limit=1000'); // for "which designs still need an installation", not the table below
-  const designs = useResource('/api/designs?limit=500');
-  const designList = designs.data?.items || [];
+  // booked proposals without an installation, worked out by the server (lists are paged, so the page can't know)
+  const designs = useResource('/api/designs?installable=1&limit=200');
   const steps = useResource('/api/projects/steps');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState(() => (['active', 'completed'].includes(params.get('status')) ? params.get('status') : 'all')); // ?status= from a dashboard link
@@ -105,13 +104,10 @@ export default function Installations({ basePath = '/dashboard/installations', w
     return names;
   }, [steps.data, data]);
 
-  const free = useMemo(() => {
-    const taken = new Set((allProjects.data?.items || []).map((p) => p.design?.id));
-    return (designs.data?.items || []).filter((d) => !taken.has(d.id));
-  }, [allProjects.data, designs.data]);
+  const free = useMemo(() => designs.data?.items || [], [designs.data]);
 
   const filtered = Boolean(show || query.trim() || status !== 'all' || step !== 'all' || (updatedFrom && updatedTo));
-  const ready = !loading && !designs.loading && !allProjects.loading && !steps.loading;
+  const ready = !loading && !designs.loading && !steps.loading;
   const startButton = <Button variant="primary" icon={Plus} disabled={!free.length} title={free.length ? undefined : 'Every proposal already has an installation'} onClick={() => setStarting({})}>Start installation</Button>;
 
   return (

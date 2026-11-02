@@ -2,7 +2,7 @@
 
 // One manual lead in a dialog: its answers, status (with the booked date), who has it, and its activity. Shared by the
 // Manual leads page and the all-sources Leads page, so the lead looks and works the same from both.
-import { CircleCheck, Pencil, UserPlus } from 'lucide-react';
+import { CircleCheck, Pencil } from 'lucide-react';
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { leadValue, valueText } from '@/lib/leadForm';
@@ -11,6 +11,7 @@ import { toLocalInput } from '@/lib/leadSchedule';
 import { Badge, Button, Modal, Select, Textarea, cx, formatDate, timeAgo, toast } from '../kit';
 import LeadLog from './LeadLog';
 import ScheduleField from './ScheduleField';
+import PreviouslyYoursBadge from './PreviouslyYoursBadge';
 import { LOG_TITLE } from './ReassignedMark';
 
 const STATUS_TONE = { amber: 'amber', blue: 'blue', purple: 'violet', violet: 'violet', rose: 'red', red: 'red', emerald: 'green', green: 'green', slate: 'slate' };
@@ -20,7 +21,6 @@ const StatusBadge = ({ status }) => (status ? <Badge tone={STATUS_TONE[status.co
 export default function ManualLeadDetail({ fields, lead, statuses, assignees, may, onClose, onChanged, onEdit, onConverted }) {
   const [statusForm, setStatusForm] = useState({ statusId: lead.currentStatus?._id || '', remark: '', scheduledAt: toLocalInput(lead.scheduledAt) });
   const chosenStatus = statuses.find((s) => s._id === statusForm.statusId);
-  const [assignee, setAssignee] = useState('');
   const [busy, setBusy] = useState('');
   const run = async (key, fn, done) => {
     setBusy(key);
@@ -49,6 +49,13 @@ export default function ManualLeadDetail({ fields, lead, statuses, assignees, ma
     return res.leads.find((l) => l._id === lead._id) || lead;
   };
   const leadLocked = isLeadStatusLocked(lead, statuses);
+  const pickAssignee = (value) => {
+    if (!value || busy === 'assign') return;
+    run('assign', async () => {
+      await api('/api/leads/manual/assign', { method: 'POST', body: { leadIds: [lead._id], counsellorId: value === 'unassign' ? null : value } });
+      return reload();
+    }, value === 'unassign' ? 'Assignment removed' : 'Assignment saved');
+  };
   return (
     <Modal
       open
@@ -102,18 +109,20 @@ export default function ManualLeadDetail({ fields, lead, statuses, assignees, ma
 
             <div className="rounded-lg border border-slate-200 p-4">
               <div className="mb-2 text-[13px] font-semibold text-slate-900">Assigned to</div>
-              <div className="text-sm text-slate-700">{lead.assignedTo?.name || 'Nobody yet'}</div>
+              <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
+                <span>{lead.assignedTo?.name || 'Nobody yet'}</span>
+                <PreviouslyYoursBadge lead={lead} />
+              </div>
               {may.assign ? (
                 leadLocked ? (
                   <p className="mt-1 text-xs text-slate-500">{LEAD_CONVERTED_LOCK_HINT}</p>
                 ) : (
-                  <div className="mt-2.5 space-y-2">
-                    <Select value={assignee} onValue={setAssignee} aria-label="Assign to">
-                      <option value="">Choose a staff member…</option>
+                  <div className="mt-2.5">
+                    <Select value="" onValue={pickAssignee} aria-label="Assign to" disabled={busy === 'assign'}>
+                      <option value="">{busy === 'assign' ? 'Saving…' : 'Choose a staff member…'}</option>
                       {assignees.filter((a) => a._id !== lead.assignedTo?._id).map((a) => <option key={a._id} value={a._id}>{a.name}</option>)}
                       {lead.assignedTo && <option value="unassign">Remove assignment</option>}
                     </Select>
-                    <Button size="sm" icon={UserPlus} disabled={!assignee} loading={busy === 'assign'} onClick={() => run('assign', async () => { await api('/api/leads/manual/assign', { method: 'POST', body: { leadIds: [lead._id], counsellorId: assignee === 'unassign' ? null : assignee } }); setAssignee(''); return reload(); }, 'Assignment saved')}>Assign</Button>
                   </div>
                 )
               ) : <p className="mt-1 text-xs text-slate-500">You can’t change who has this lead.</p>}

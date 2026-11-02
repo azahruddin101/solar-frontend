@@ -190,28 +190,37 @@ export const companySelfSchema = obj({
 }).partial();
 
 const limits = obj({
-  maxClients: f.num({ min: 1, max: 1e6, int: true, label: 'Max clients' }).optional(),
-  maxDesigns: f.num({ min: 1, max: 1e6, int: true, label: 'Max designs' }).optional(),
   maxConcurrentLogins: f.num({ min: 1, max: 1000, int: true, label: 'Concurrent logins' }).optional(),
+  maxBranches: f.num({ min: 1, max: 500, int: true, label: 'Max branches' }).optional(),
 });
 
+// A company is set up with or without branches. With branches, `loginEmail` is the company admin and the first
+// branch has its own owner, who must sign in with a different email.
 export const adminCompanyCreateSchema = obj({
   ...companyProfile,
+  hasBranches: z.boolean().optional(),
   loginEmail: f.emailRequired,
   password: f.newPassword,
   contactName: f.personNameOptional,
+  branchName: f.textOptional(120, 'Branch name'),
+  branchOwnerName: f.personNameOptional,
+  branchOwnerEmail: f.emailOptional,
+  branchOwnerPassword: f.optionalNewPassword,
   notes: f.textOptional(1000, 'Notes'),
   limits: limits.optional(),
+}).superRefine((v, ctx) => {
+  if (!v.hasBranches) return;
+  if (!v.branchOwnerEmail) ctx.addIssue({ code: 'custom', path: ['branchOwnerEmail'], message: 'Enter the branch owner’s email' });
+  else if (v.branchOwnerEmail === v.loginEmail) ctx.addIssue({ code: 'custom', path: ['branchOwnerEmail'], message: 'Use a different email from the company admin' });
+  if (!v.branchOwnerPassword) ctx.addIssue({ code: 'custom', path: ['branchOwnerPassword'], message: 'Enter a password for the branch owner' });
 });
-export const adminCompanyUpdateSchema = obj({ ...companyProfile, notes: f.textOptional(1000, 'Notes'), limits: limits.optional() }).partial();
-export const passwordResetSchema = obj({ password: f.newPassword });
+export const adminCompanyUpdateSchema = obj({ ...companyProfile, loginEmail: f.emailOptional, adminEmail: f.emailOptional, notes: f.textOptional(1000, 'Notes'), limits: limits.optional() }).partial();
+export const passwordResetSchema = obj({ password: f.newPassword, who: z.enum(['owner', 'admin']).optional() });
 
 export const planSchema = obj({
   name: f.orgNameRequired,
   description: f.textOptional(300, 'Description'),
   priceMonthly: f.num({ min: 0, max: 1e7, label: 'Monthly price' }).optional(),
-  maxClients: f.num({ min: 1, max: 1e6, int: true, label: 'Max clients' }).optional(),
-  maxDesigns: f.num({ min: 1, max: 1e6, int: true, label: 'Max designs' }).optional(),
   maxConcurrentLogins: f.num({ min: 1, max: 1000, int: true, label: 'Concurrent logins' }).optional(),
   features: z.array(z.string().trim().max(100, 'A feature can be at most 100 characters')).max(20, 'A plan can list up to 20 features').optional(),
 });

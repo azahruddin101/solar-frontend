@@ -6,14 +6,15 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { MAX_PRODUCT_UNITS, productUnitsFor } from '@/lib/catalog';
 import { useSession } from '@/lib/session';
+import { ORG_MASTERS_API } from '@/lib/tenant';
 import { Badge, Button, Card, Input, PageHeader, showError, toast } from '../kit';
 
 let seq = 0;
 
 const toRows = (units) => units.map((u) => ({ id: ++seq, unit: u }));
 
-export default function ProductUnitsPage() {
-  const { company, setCompany } = useSession();
+export default function ProductUnitsPage({ canEditMasters = true }) {
+  const { company, reloadSession } = useSession();
   const savedUnits = productUnitsFor(company);
   const [editing, setEditing] = useState(false);
   const [rows, setRows] = useState(() => toRows(savedUnits));
@@ -30,11 +31,13 @@ export default function ProductUnitsPage() {
 
   const save = async (e) => {
     e.preventDefault();
+    if (!canEditMasters) return;
     setBusy(true);
     try {
       const productUnits = rows.map((r) => r.unit.trim()).filter(Boolean);
-      const patch = await api('/api/company/catalog-settings', { method: 'PUT', body: { productUnits } });
-      setCompany({ ...company, ...patch });
+      // units are a shared master, saved on the organization (company admin, or the owner of a company without branches)
+      await api(ORG_MASTERS_API.catalogSettings, { method: 'PUT', body: { productUnits } });
+      await reloadSession();
       toast.success('Units saved');
       setEditing(false);
     } catch (err) {
@@ -49,7 +52,7 @@ export default function ProductUnitsPage() {
         title="Product units"
         description="Names for the “Per” dropdown when you add catalog products (e.g. nos, piece, bundle)."
       >
-        {!editing && (
+        {!editing && canEditMasters && (
           <Button variant="primary" icon={Pencil} onClick={() => setEditing(true)}>
             Edit
           </Button>

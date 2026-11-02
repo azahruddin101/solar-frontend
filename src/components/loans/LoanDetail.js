@@ -440,7 +440,7 @@ export default function LoanDetail({ id, basePath = '/dashboard/loans', clientsP
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <LoanStatusBadge status={loan.status} />
           {loan.design?.id && may('proposals', 'view') && <Link href={`${designsPath}/${loan.design.id}`} className="text-sm font-medium text-brand hover:underline">Open proposal</Link>}
-          {loan.client?.id && may('clients', 'view') && <Link href={`${clientsPath}/${loan.client.id}`} className="text-sm font-medium text-brand hover:underline">Open client</Link>}
+          {loan.client?.id && (may('clients', 'view') || may('clients', 'view_team')) && <Link href={`${clientsPath}/${loan.client.id}`} className="text-sm font-medium text-brand hover:underline">Open client</Link>}
         </div>
       </PageHeader>
 

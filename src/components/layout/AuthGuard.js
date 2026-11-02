@@ -19,7 +19,7 @@ export default function AuthGuard({ role, permission, children }) {
   const { status, user, company, init } = useSession();
   const roles = Array.isArray(role) ? role : [role];
   const roleOk = status === 'ready' && roles.includes(user.role);
-  const denied = roleOk && permission && user.role !== 'company' && !user.permissions?.includes(permission);
+  const denied = roleOk && permission && user.role !== 'company' && user.role !== 'branch' && !user.permissions?.includes(permission);
 
   useEffect(() => {
     init();

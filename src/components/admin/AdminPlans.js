@@ -7,7 +7,7 @@ import { useResource } from '@/lib/useResource';
 import { planSchema, useValidation } from '@/lib/validation';
 import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, FormField, FormModal, IconButton, Input, NameInput, LoadingBlock, PageHeader, CardHeader, Select, Table, Td, Textarea, Th, Toggle, Tr, toast, RowMenu } from '../kit';
 
-const BLANK = { code: '', name: '', description: '', kind: 'fixed', priceMonthly: 30, maxClients: 25, maxDesigns: 50, maxConcurrentLogins: 2, features: [], selfServe: true, active: true, sortOrder: 0 };
+const BLANK = { code: '', name: '', description: '', kind: 'fixed', priceMonthly: 30, maxConcurrentLogins: 2, features: [], selfServe: true, active: true, sortOrder: 0 };
 
 const MAX_FEATURES = 20;
 
@@ -55,7 +55,7 @@ function PlanForm({ plan, onClose, onSaved }) {
     setBusy(true);
     setError('');
     try {
-      const body = { ...checked, priceMonthly: Number(checked.priceMonthly) || 0, maxClients: Number(checked.maxClients), maxDesigns: Number(checked.maxDesigns), maxConcurrentLogins: Number(checked.maxConcurrentLogins), features: (checked.features || []).map((f) => f.trim()).filter(Boolean), sortOrder: Number(form.sortOrder) || 0 };
+      const body = { ...checked, priceMonthly: Number(checked.priceMonthly) || 0, maxConcurrentLogins: Number(checked.maxConcurrentLogins), features: (checked.features || []).map((f) => f.trim()).filter(Boolean), sortOrder: Number(form.sortOrder) || 0 };
       const saved = editing ? await api(`/api/admin/plans/${plan.id}`, { method: 'PATCH', body }) : await api('/api/admin/plans', { method: 'POST', body });
       onSaved(saved);
     } catch (e) {
@@ -73,8 +73,6 @@ function PlanForm({ plan, onClose, onSaved }) {
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField label="Type"><Select value={form.kind} onValue={(v) => set({ kind: v, selfServe: v !== 'custom' })}><option value="fixed">Fixed (self-serve)</option><option value="custom">Custom (admin-assigned)</option></Select></FormField>
         <FormField label="Monthly price (₹)" hint={isCustom ? 'Custom plans are quoted separately.' : undefined} error={v.error('priceMonthly')}><Input type="number" min={0} disabled={isCustom} value={form.priceMonthly} onValue={(x) => set({ priceMonthly: x })} /></FormField>
-        <FormField label="Max clients" hint="At least 1" error={v.error('maxClients')}><Input type="number" min={1} step="1" value={form.maxClients} onValue={(x) => set({ maxClients: x })} /></FormField>
-        <FormField label="Max proposals" hint="At least 1" error={v.error('maxDesigns')}><Input type="number" min={1} step="1" value={form.maxDesigns} onValue={(x) => set({ maxDesigns: x })} /></FormField>
         <FormField label="Concurrent sign-ins" hint="Company owner devices signed in at once" error={v.error('maxConcurrentLogins')}><Input type="number" min={1} step="1" value={form.maxConcurrentLogins} onValue={(x) => set({ maxConcurrentLogins: x })} /></FormField>
         <FormField label="Sort order"><Input type="number" value={form.sortOrder} onValue={(v) => set({ sortOrder: v })} /></FormField>
       </div>
@@ -113,7 +111,7 @@ function PlanTable({ title, description, kind, plans, empty, onAdd, onEdit, onDe
               <Tr key={p.id}>
                 <Td><div className="max-w-[260px] truncate font-medium text-slate-900" title={p.name}>{p.name}</div><div className="text-xs text-slate-500">{p.code}</div></Td>
                 {!custom && <Td className="whitespace-nowrap tabular-nums">₹{p.priceMonthly}/mo</Td>}
-                <Td className="text-[13px] text-slate-600">{p.maxClients} clients · {p.maxDesigns} proposals · {p.maxConcurrentLogins} devices{p.features?.length ? ` · ${p.features.length} feature${p.features.length === 1 ? '' : 's'}` : ''}</Td>
+                <Td className="text-[13px] text-slate-600">{p.maxConcurrentLogins} devices{p.features?.length ? ` · ${p.features.length} feature${p.features.length === 1 ? '' : 's'}` : ''}</Td>
                 {!custom && <Td>{p.selfServe ? <Badge tone="green">Yes</Badge> : <Badge tone="slate">Admin only</Badge>}</Td>}
                 <Td>{p.active ? <Badge dot tone="green">Active</Badge> : <Badge dot tone="slate">Off</Badge>}</Td>
                 <Td>

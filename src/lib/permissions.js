@@ -8,6 +8,7 @@ export const PERMISSION_CATALOG = {
     description: 'Meta, Google Ads and manually added leads — staff see the leads assigned to them unless they may view all',
     actions: {
       view: 'Assigned to them',
+      view_team: 'Their team',
       view_all: 'View all',
       create: 'Add & import',
       change_status: 'Change status',
@@ -34,6 +35,7 @@ export const PERMISSION_CATALOG = {
     description: 'Client records',
     actions: {
       view: 'View',
+      view_team: 'Their team’s clients',
       create: 'Create',
       update: 'Edit',
       manage_login: 'Portal login',
@@ -65,6 +67,7 @@ export const PERMISSION_CATALOG = {
     description: 'Every installation, its steps and AMC visits — staff always see the steps and visits assigned to them',
     actions: {
       view: 'View all',
+      view_team: 'Their team’s installations',
       create: 'Start',
       update: 'Edit steps',
       assign: 'Assign steps',
@@ -123,19 +126,26 @@ export const PERMISSION_AREAS = Object.keys(PERMISSION_CATALOG);
 export const permissionKey = (area, action) => `${area}:${action}`;
 
 /** True for the company owner, or a staff account that holds this permission. Pass `useSession((s) => s.user)`. */
-export const can = (user, area, action) => user?.role === 'company' || (user?.role === 'agent' && Array.isArray(user.permissions) && user.permissions.includes(permissionKey(area, action)));
+export const can = (user, area, action) => user?.role === 'company' || user?.role === 'branch' || (user?.role === 'agent' && Array.isArray(user.permissions) && user.permissions.includes(permissionKey(area, action)));
 
-/** Whether a permission list includes `view` of this area (used for navigation: a page is only useful if it can be listed). */
-export const canView = (user, area) => can(user, area, 'view');
+/** Areas where `view` means "everything" and `view_team` the narrower "their team's" (same as the backend). */
+export const TEAM_SCOPED_AREAS = ['clients', 'tasks'];
 
-/** Unique, valid, sorted — and every action brings its area's `view` along (same rule as the backend). */
+/** Whether this person can list anything in the area (used for navigation): everything, or their team's. */
+export const canView = (user, area) => can(user, area, 'view') || (TEAM_SCOPED_AREAS.includes(area) && can(user, area, 'view_team'));
+
+/**
+ * Unique, valid, sorted — same rule as the backend (constants/permissions.js): any action brings its area's `view`
+ * along, except in a team-scoped area held with `view_team`; `view_all` implies `view_team`.
+ */
 export function normalizePermissions(list) {
-  const out = new Set();
-  for (const p of Array.isArray(list) ? list : []) {
-    const [area, action] = String(p).split(':');
-    if (!PERMISSION_CATALOG[area]?.actions[action]) continue;
-    out.add(p);
-    out.add(permissionKey(area, 'view'));
+  const valid = (p) => { const [area, action] = String(p).split(':'); return Boolean(PERMISSION_CATALOG[area]?.actions[action]); };
+  const given = new Set((Array.isArray(list) ? list : []).map((p) => String(p ?? '').trim()).filter(valid));
+  for (const p of [...given]) if (p.endsWith(':view_all')) given.add(p.replace(/:view_all$/, ':view_team'));
+  const out = new Set(given);
+  for (const p of given) {
+    const [area] = p.split(':');
+    if (!(TEAM_SCOPED_AREAS.includes(area) && given.has(permissionKey(area, 'view_team')))) out.add(permissionKey(area, 'view'));
   }
   return [...out].sort();
 }

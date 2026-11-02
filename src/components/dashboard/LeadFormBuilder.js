@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { FIELD_TYPE, FIELD_TYPES, FIXED_FIELDS, MAX_FIELDS, WITH_OPTIONS } from '@/lib/leadForm';
 import { useSession } from '@/lib/session';
+import { ORG_MASTERS_API } from '@/lib/tenant';
 import { Badge, Button, Card, CardHeader, ConfirmDialog, cx, FormField, FormModal, IconButton, Input, PageHeader, Textarea, Toggle, toast } from '../kit';
 import LeadFields from '../leads/LeadFields';
 
@@ -51,8 +52,8 @@ function FieldForm({ field, others, onClose, onSave }) {
   );
 }
 
-export default function LeadFormBuilder() {
-  const { company, setCompany } = useSession();
+export default function LeadFormBuilder({ canEditMasters = true, orgMasters = false }) {
+  const { company, setCompany, reloadSession } = useSession();
   const [fields, setFields] = useState(() => withIds(company?.leadForm || []));
   const [saved, setSaved] = useState(() => JSON.stringify(company?.leadForm || []));
   const [modal, setModal] = useState(null);
@@ -67,11 +68,12 @@ export default function LeadFormBuilder() {
     return next;
   });
   const save = async () => {
+    if (!canEditMasters || !orgMasters) return;
     setBusy(true);
     try {
-      const res = await api('/api/company/lead-form', { method: 'PUT', body: { fields: strip(fields) } });
-      const custom = res.fields.filter((f) => !f.fixed);
-      setCompany({ ...company, leadForm: custom });
+      await api(ORG_MASTERS_API.leadForm, { method: 'PUT', body: { fields: strip(fields) } });
+      await reloadSession();
+      const custom = useSession.getState().company?.leadForm || [];
       setFields(withIds(custom));
       setSaved(JSON.stringify(custom));
       toast.success('Lead form saved');
@@ -84,13 +86,13 @@ export default function LeadFormBuilder() {
   return (
     <>
       <PageHeader title="Lead form" description="The form your team fills in to add a lead by hand, and the columns of the Excel import. Name, Phone and Address are always on it; add the details your company needs.">
-        {dirty && <Button onClick={() => { setFields(withIds(JSON.parse(saved))); }}>Discard changes</Button>}
-        <Button variant="primary" onClick={save} loading={busy} disabled={!dirty}>Save form</Button>
+        {canEditMasters && orgMasters && dirty && <Button onClick={() => { setFields(withIds(JSON.parse(saved))); }}>Discard changes</Button>}
+        {canEditMasters && orgMasters && <Button variant="primary" onClick={save} loading={busy} disabled={!dirty}>Save form</Button>}
       </PageHeader>
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <Card className="overflow-hidden">
-          <CardHeader title="Fields" description={`${fields.length} of your own (up to ${MAX_FIELDS})`} action={<Button size="sm" variant="primary" icon={Plus} disabled={fields.length >= MAX_FIELDS} onClick={() => setModal({ type: 'field' })}>Add field</Button>} />
+          <CardHeader title="Fields" description={`${fields.length} of your own (up to ${MAX_FIELDS})`} action={canEditMasters && orgMasters ? <Button size="sm" variant="primary" icon={Plus} disabled={fields.length >= MAX_FIELDS} onClick={() => setModal({ type: 'field' })}>Add field</Button> : null} />
           <ul className="divide-y divide-slate-100">
             {FIXED_FIELDS.map((f) => (
               <li key={f.key} className="flex items-center gap-3 bg-slate-50/60 px-6 py-3">
@@ -112,12 +114,14 @@ export default function LeadFormBuilder() {
                     <div className="truncate text-xs text-slate-500">{T.label}{f.options?.length ? ` · ${f.options.join(', ')}` : ''}</div>
                   </div>
                   {f.required && <Badge tone="brand">Required</Badge>}
+                  {canEditMasters && orgMasters && (
                   <div className="flex shrink-0 items-center">
                     <IconButton icon={ArrowUp} label="Move up" disabled={i === 0} className="disabled:opacity-30" onClick={() => move(i, -1)} />
                     <IconButton icon={ArrowDown} label="Move down" disabled={i === fields.length - 1} className="disabled:opacity-30" onClick={() => move(i, 1)} />
                     <IconButton icon={Pencil} label={`Edit ${f.label}`} onClick={() => setModal({ type: 'field', index: i })} />
                     <IconButton icon={Trash2} label={`Remove ${f.label}`} tone="danger" onClick={() => setModal({ type: 'remove', index: i })} />
                   </div>
+                  )}
                 </li>
               );
             })}
