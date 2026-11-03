@@ -9,7 +9,8 @@ const App = dynamic(() => import('./App'), { ssr: false, loading: () => <FullPag
 
 export default function ClientApp({ designId, slug }) {
   return (
-    <AuthGuard role={['company', 'agent']} permission="proposals:view">
+    // the branch owner (role branch), the company admin working in a branch (role company), and staff
+    <AuthGuard role={['branch', 'company', 'agent']} permission="proposals:view">
       <App designId={designId} slug={slug} />
     </AuthGuard>
   );

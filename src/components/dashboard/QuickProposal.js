@@ -339,7 +339,8 @@ function Editor({ designId }) {
 
 export default function QuickProposal({ designId }) {
   return (
-    <AuthGuard role={['company', 'agent']} permission="proposals:view">
+    // the branch owner (role branch), the company admin working in a branch (role company), and staff
+    <AuthGuard role={['branch', 'company', 'agent']} permission="proposals:view">
       <Editor designId={designId} />
     </AuthGuard>
   );
