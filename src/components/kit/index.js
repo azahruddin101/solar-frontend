@@ -435,7 +435,7 @@ export function Toggle({ checked, onChange, label, description, disabled }) {
 
 export function Card({ className, children, ...props }) {
   return (
-    <div className={cx('rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]', className)} {...props}>
+    <div className={cx('dash-card', className)} {...props}>
       {children}
     </div>
   );
@@ -443,7 +443,7 @@ export function Card({ className, children, ...props }) {
 
 export function CardHeader({ title, description, action, className }) {
   return (
-    <div className={cx('flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4', className)}>
+    <div className={cx('flex flex-wrap items-center justify-between gap-3 border-b border-slate-100/80 px-6 py-4', className)}>
       <div className="min-w-0">
         <h2 className="text-[15px] font-semibold text-slate-900">{title}</h2>
         {description && <p className="mt-0.5 text-[13px] text-slate-500">{description}</p>}
@@ -467,23 +467,30 @@ export function PageHeader({ title, description, children }) {
   );
 }
 
-export function StatCard({ label, value, unit, icon: Icon, hint }) {
+export function StatCard({ label, value, unit, icon: Icon, hint, hintTone = 'neutral' }) {
+  const hintClass = hintTone === 'up' ? 'bg-emerald-50 text-emerald-700 ring-emerald-100'
+    : hintTone === 'down' ? 'bg-red-50 text-red-700 ring-red-100'
+      : 'text-slate-500';
   return (
-    <Card className="p-5">
-      <div className="flex items-center justify-between">
+    <div className="dash-kpi">
+      <div className="flex items-start justify-between gap-3">
         <span className="text-[13px] font-medium text-slate-500">{label}</span>
         {Icon && (
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-brand-soft text-brand">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand">
             <Icon className="h-[18px] w-[18px]" />
           </span>
         )}
       </div>
-      <div className="mt-3 flex items-baseline gap-1.5">
-        <span className="text-[28px] leading-none font-semibold tracking-tight text-slate-900 tabular-nums">{value}</span>
+      <div className="mt-4 flex items-baseline gap-1.5">
+        <span className="text-[1.75rem] leading-none font-semibold tracking-tight text-slate-900 tabular-nums">{value}</span>
         {unit && <span className="text-sm text-slate-500">{unit}</span>}
       </div>
-      {hint && <p className="mt-2 text-xs text-slate-500">{hint}</p>}
-    </Card>
+      {hint && (
+        <p className={cx('mt-2.5 text-xs leading-snug', hintTone === 'neutral' ? hintClass : cx('inline-flex w-fit rounded-full px-2 py-0.5 font-medium ring-1 ring-inset', hintClass))}>
+          {hint}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -543,9 +550,37 @@ export function Spinner({ className }) {
   return <Loader2 className={cx('h-5 w-5 animate-spin text-slate-400', className)} />;
 }
 
-export function LoadingBlock({ label = 'Loading…' }) {
+/** Full-page-style placeholder while a dashboard or branch view loads — avoids a lone spinner that looks broken. */
+export function DashboardLoadingShell({ title = 'Loading dashboard…', subtitle = 'This usually takes a few seconds.', className }) {
   return (
-    <div className="flex items-center justify-center gap-3 py-20 text-sm text-slate-500" role="status">
+    <div className={cx('space-y-6', className)} role="status" aria-live="polite" aria-busy="true">
+      <div className="flex items-start gap-3 rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-soft">
+          <Loader2 className="h-5 w-5 animate-spin text-brand" aria-hidden />
+        </div>
+        <div className="min-w-0 pt-0.5">
+          <p className="text-sm font-semibold text-slate-900">{title}</p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">{subtitle}</p>
+        </div>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }, (_, i) => (
+          <div key={i} className="h-[7.25rem] animate-pulse rounded-2xl border border-slate-200/60 bg-gradient-to-br from-slate-100 to-white" />
+        ))}
+      </div>
+      <div className="h-36 animate-pulse rounded-2xl border border-slate-200/60 bg-gradient-to-br from-slate-100 to-white" />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 3 }, (_, i) => (
+          <div key={i} className="h-20 animate-pulse rounded-2xl border border-slate-200/60 bg-slate-100/70" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function LoadingBlock({ label = 'Loading…', className }) {
+  return (
+    <div className={cx('flex items-center justify-center gap-3 py-20 text-sm text-slate-500', className)} role="status">
       <Spinner /> {label}
     </div>
   );

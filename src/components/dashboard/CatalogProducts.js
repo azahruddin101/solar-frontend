@@ -14,7 +14,7 @@ import { api } from '@/lib/api';
 import { DEFAULT_PRODUCT_UNITS, normalizeProductUnit, PILLAR_SHAPES } from '@/lib/catalog';
 import { exportPanels, importPanels } from '@/lib/excel';
 import { useResource } from '@/lib/useResource';
-import { useCan } from '@/lib/useCan';
+import { useCatalogCan } from '@/lib/useCan';
 import { Alert, Badge, Button, Card, EmptyState, FormField, Input, LoadingBlock, Modal, Select, Table, Td, Textarea, Th, Tr, cx, showError, toast } from '../kit';
 
 // first letter upper-case as it is typed (the rest is left alone, spaces included)
@@ -248,8 +248,8 @@ export function ProductForm({ product, category, categories, brands, units, onCl
 /* ───────────── one category's tab ───────────── */
 
 /** `modal` / `setModal` come from the Catalog page so its header button can open the form too. */
-export function CategoryProducts({ category, categories, money, units, excelImport, modal, setModal, onCount, catalogPath = '/dashboard/catalog' }) {
-  const may = useCan();
+export function CategoryProducts({ category, categories, money, units, excelImport, modal, setModal, onCount, catalogPath = '/dashboard/catalog', catalogOnly = false }) {
+  const may = useCatalogCan();
   const { data, setData, loading, error, reload } = useResource(`/api/products?category=${category.id}`);
   const [query, setQuery] = useState('');
   const [importNote, setImportNote] = useState(null);
@@ -287,18 +287,23 @@ export function CategoryProducts({ category, categories, money, units, excelImpo
 
   return (
     <>
-      {importNote && <Alert tone={importNote.tone} className="mb-4">{importNote.text}</Alert>}
+      {importNote && !catalogOnly && <Alert tone={importNote.tone} className="mb-4">{importNote.text}</Alert>}
       <Card className="overflow-hidden">
-        <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-6 py-4">
-          <div className="min-w-0 flex-1 basis-56">
-            <h2 className="truncate text-[15px] font-semibold text-slate-900">{category.name}</h2>
-            {category.description && <p className="truncate text-[13px] text-slate-500">{category.description}</p>}
-          </div>
-          <div className="relative w-64 max-w-full">
+        <div className={cx('flex flex-wrap items-center gap-3 border-b border-slate-100', catalogOnly ? 'px-4 py-3' : 'px-6 py-4')}>
+          {!catalogOnly && (
+            <div className="min-w-0 flex-1 basis-56">
+              <h2 className="truncate text-[15px] font-semibold text-slate-900">{category.name}</h2>
+              {category.description && <p className="truncate text-[13px] text-slate-500">{category.description}</p>}
+            </div>
+          )}
+          <div className={cx('relative max-w-full', catalogOnly ? 'min-w-0 flex-1 basis-48' : 'w-64')}>
             <Search className="pointer-events-none absolute top-3 left-3 h-4 w-4 text-slate-400" />
-            <Input aria-label={`Search ${category.name}`} placeholder="Search name, brand, SKU, HSN or attribute" value={query} onValue={setQuery} className="pl-9" />
+            <Input aria-label={`Search ${category.name}`} placeholder={catalogOnly ? 'Search products…' : 'Search name, brand, SKU, HSN or attribute'} value={query} onValue={setQuery} className="pl-9" />
           </div>
-          {panelTools && (
+          {catalogOnly && may('inventory', 'create') && (
+            <Button variant="primary" size="sm" icon={Plus} onClick={() => setModal({ type: 'product' })}>Add product</Button>
+          )}
+          {panelTools && !catalogOnly && (
             <>
               {excelImport && may('inventory', 'create') && may('inventory', 'update') && (
                 <>
@@ -311,7 +316,7 @@ export function CategoryProducts({ category, categories, money, units, excelImpo
           )}
         </div>
         {loading ? <LoadingBlock /> : error ? <p className="px-6 py-8 text-sm text-red-700">{error}</p> : !rows.length ? (
-          <EmptyState icon={Package} title={data?.length ? 'No products match' : `Nothing in ${category.name} yet`} description={data?.length ? 'Try a different search.' : 'Add a product and its attributes, then receive stock on its page.'}>
+          <EmptyState icon={Package} title={data?.length ? 'No products match' : 'No products yet'} description={data?.length ? 'Try a different search.' : catalogOnly ? undefined : 'Add a product and its attributes, then receive stock on its page.'}>
             {!data?.length && may('inventory', 'create') && <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'product' })}>Add product</Button>}
           </EmptyState>
         ) : (
@@ -321,8 +326,8 @@ export function CategoryProducts({ category, categories, money, units, excelImpo
                 <Th>Product</Th>
                 <Th>Attributes</Th>
                 <Th>Warranty</Th>
-                <Th className="text-right">In stock</Th>
-                <Th className="text-right"><span title="Retail price of the batch sold next (oldest with stock), else the newest batch">Price · from batches</span></Th>
+                {!catalogOnly && <Th className="text-right">In stock</Th>}
+                {!catalogOnly && <Th className="text-right"><span title="Retail price of the batch sold next (oldest with stock), else the newest batch">Price · from batches</span></Th>}
               </tr>
             </thead>
             <tbody>
@@ -336,12 +341,16 @@ export function CategoryProducts({ category, categories, money, units, excelImpo
                     </Td>
                     <Td><AttributeChips category={category} attributes={p.attributes} /></Td>
                     <Td className="text-[13px] whitespace-nowrap text-slate-500">{warrantyLabel(p.warrantyMonths) || '—'}</Td>
-                    <Td className="text-right whitespace-nowrap tabular-nums text-slate-700">
-                      {p.stock ?? 0}<span className="text-xs text-slate-500"> {p.unit}</span>
-                      {p.lowStock && <div><Badge tone="amber">{p.stock > 0 ? 'Low stock' : 'Out of stock'}</Badge></div>}
-                      {p.isSerialized && <div className="text-[11px] text-slate-400">by serial no.</div>}
-                    </Td>
-                    <Td className="text-right whitespace-nowrap tabular-nums">{p.price ? <>{money(p.price)}<span className="text-xs text-slate-500"> / {p.unit}</span></> : <span className="text-slate-400">No batch yet</span>}</Td>
+                    {!catalogOnly && (
+                      <Td className="text-right whitespace-nowrap tabular-nums text-slate-700">
+                        {p.stock ?? 0}<span className="text-xs text-slate-500"> {p.unit}</span>
+                        {p.lowStock && <div><Badge tone="amber">{p.stock > 0 ? 'Low stock' : 'Out of stock'}</Badge></div>}
+                        {p.isSerialized && <div className="text-[11px] text-slate-400">by serial no.</div>}
+                      </Td>
+                    )}
+                    {!catalogOnly && (
+                      <Td className="text-right whitespace-nowrap tabular-nums">{p.price ? <>{money(p.price)}<span className="text-xs text-slate-500"> / {p.unit}</span></> : <span className="text-slate-400">No batch yet</span>}</Td>
+                    )}
                   </Tr>
                 );
               })}
@@ -349,8 +358,8 @@ export function CategoryProducts({ category, categories, money, units, excelImpo
           </Table>
         )}
       </Card>
-      {panelTools && excelImport && <p className="mt-3 flex items-center gap-2 text-xs text-slate-500"><FileSpreadsheet className="h-4 w-4 shrink-0 text-emerald-600" /> Excel columns: Brand, Model, Watt, Warranty (years), Length (m), Width (m). Matching brand + model + watt rows in this category are updated; prices and stock are received as batches on each product’s page.</p>}
-      {category.attributes?.length > 0 && <p className="mt-3 flex items-center gap-2 text-xs text-slate-500"><Tags className="h-4 w-4 shrink-0" /> Attributes: {sortedDefs(category).map((a) => `${a.label}${a.isRequired ? ' (required)' : ''}`).join(', ')}</p>}
+      {panelTools && excelImport && !catalogOnly && <p className="mt-3 flex items-center gap-2 text-xs text-slate-500"><FileSpreadsheet className="h-4 w-4 shrink-0 text-emerald-600" /> Excel columns: Brand, Model, Watt, Warranty (years), Length (m), Width (m). Matching brand + model + watt rows in this category are updated; prices and stock are received as batches on each product’s page.</p>}
+      {category.attributes?.length > 0 && !catalogOnly && <p className="mt-3 flex items-center gap-2 text-xs text-slate-500"><Tags className="h-4 w-4 shrink-0" /> Attributes: {sortedDefs(category).map((a) => `${a.label}${a.isRequired ? ' (required)' : ''}`).join(', ')}</p>}
 
       {modal?.type === 'product' && data && <ProductForm product={modal.item} category={category} categories={categories} brands={brands} units={units} onClose={() => setModal(null)} onSaved={saved} />}
     </>

@@ -8,11 +8,13 @@
 import { BadgeIndianRupee, ArrowRight, Boxes, CalendarClock, Check, Clock, FileText, HandCoins, HardHat, Headset, History, Hourglass, IndianRupee, Landmark, Leaf, Megaphone, MessageSquare, Package, PackageX, Plus, ReceiptText, ShieldCheck, Sun, Target, UserPlus, Users, Wallet, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { assetUrl } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
-import { Alert, Avatar, Button, Card, CardHeader, LoadingBlock, TablePagination, buttonClass, capName, cx, formatDate, timeAgo, usePagedItems } from '../kit';
+import { branchAttentionItems, todoItems } from '@/components/dashboard/dashboardTodos';
+import AttentionDropdown from '@/components/org/AttentionDropdown';
+import { Alert, Avatar, Button, Card, CardHeader, DashboardLoadingShell, LoadingBlock, TablePagination, buttonClass, capName, cx, formatDate, timeAgo, usePagedItems } from '../kit';
 import { PipelineChart, compactMoney } from './DashboardCharts';
 import { BarList, CHIP_TONE, Chip, ColumnChart, DonutChart, LineChart, SERIES_COLORS, Sparkline, WORK } from './DashboardGraphs';
 import { DesignStatusBadge, NewDesignModal, designHref } from './shared';
@@ -45,28 +47,6 @@ const TABS = [
 function greeting() {
   const h = new Date().getHours();
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-}
-
-/** The to-do list: one line per thing that needs doing, most urgent first. */
-function todoItems(t) {
-  const items = [
-    { n: t.amc.overdue, urgent: true, icon: CalendarClock, text: (n) => `${plural(n, 'service visit')} ${n === 1 ? 'is' : 'are'} late`, href: '/dashboard/amc?view=overdue' },
-    { n: t.amc.dueToday, icon: CalendarClock, text: (n) => `${plural(n, 'service visit')} due today`, href: '/dashboard/amc?view=today' },
-    { n: t.proposals.changes, urgent: true, icon: MessageSquare, text: (n) => `${plural(n, 'client')} asked for changes to the quote`, href: '/dashboard/designs?show=changes' },
-    { n: t.installations.stuckCount, urgent: true, icon: Clock, text: (n) => `${plural(n, 'installation task')} stuck for over a week`, href: '/dashboard/installations?show=stuck' },
-    { n: t.support.unread, urgent: true, icon: Headset, text: (n) => `${plural(n, 'client message')} waiting for your reply`, href: '/dashboard/client-support?show=unread' },
-    { n: t.leads.unassigned, icon: UserPlus, text: (n) => `${plural(n, 'new lead')} not given to anyone`, href: '/dashboard/leads?assignedTo=unassigned' },
-    { n: t.expiring.count, icon: Hourglass, text: (n) => `${plural(n, 'quote')} will expire this week`, href: '/dashboard/designs?show=expiring' },
-    { n: t.proposals.noReply, icon: FileText, text: (n) => `${plural(n, 'quote')} with no reply for a week`, href: '/dashboard/designs?show=no_reply' },
-    { n: t.installations.notStarted, icon: HardHat, text: (n) => `${plural(n, 'booked job')} not started yet`, href: '/dashboard/designs?show=not_started' },
-    { n: t.installations.unassignedSteps, icon: HardHat, text: (n) => `${plural(n, 'installation task')} with nobody assigned`, href: '/dashboard/installations?show=unassigned' },
-    { n: t.proposals.noInvoice, icon: ReceiptText, text: (n) => `${plural(n, 'booked job')} without an invoice`, href: '/dashboard/billing?show=no_invoice' },
-    { n: t.subsidies.missing, icon: BadgeIndianRupee, text: (n) => `${plural(n, 'booked job')} with a subsidy that is not started`, href: '/dashboard/designs?show=subsidy_missing' },
-    { n: t.loans.missing, icon: Landmark, text: (n) => `${plural(n, 'client')} need${n === 1 ? 's' : ''} a loan that is not started`, href: '/dashboard/designs?show=loan_missing' },
-    { n: t.stock.outOfStock, icon: PackageX, text: (n) => `${plural(n, 'product')} out of stock`, href: '/dashboard/catalog?show=out' },
-    { n: t.stock.low, icon: Package, text: (n) => `${plural(n, 'product')} running low on stock`, href: '/dashboard/catalog?show=low' },
-  ];
-  return items.filter((i) => i.n > 0).sort((a, b) => Number(Boolean(b.urgent)) - Number(Boolean(a.urgent)));
 }
 
 function TodoTile({ n, urgent, icon: Icon, text, href }) {
@@ -129,23 +109,25 @@ function Figure({ value, label }) {
   return <div><div className="text-xl font-semibold text-slate-900 tabular-nums">{value}</div><div className="text-xs text-slate-500">{label}</div></div>;
 }
 
-export default function Overview() {
+export default function Overview({ embedded = false, branchSwitching = false, branchSwitchLabel = 'branch' }) {
   const { company, user } = useSession();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const dash = useResource('/api/dashboard');
-  const todayRes = useResource('/api/dashboard/today');
-  const team = useResource('/api/agents/analytics');
-  const clientsResource = useResource('/api/clients?limit=500');
+  const tab = TABS.find((x) => x.id === params.get('tab'))?.id || 'money';
+  const canLoadBranchData = !embedded || !branchSwitching;
+  const dash = useResource(canLoadBranchData ? '/api/dashboard' : null);
+  const todayRes = useResource(canLoadBranchData ? '/api/dashboard/today' : null);
+  const teamPath = embedded ? (tab === 'staff' ? '/api/agents/analytics' : null) : '/api/agents/analytics';
+  const team = useResource(canLoadBranchData && teamPath ? teamPath : null);
+  const clientsResource = useResource(embedded ? null : '/api/clients?limit=500');
   const clients = clientsResource.data?.items;
-  const catalog = useResource('/api/catalog');
+  const catalog = useResource(embedded ? null : '/api/catalog');
   const [creating, setCreating] = useState(false);
   const cur = company.currency;
   const money = (v) => compactMoney(v, cur);
   const d = dash.data;
   const t = todayRes.data;
-  const tab = TABS.find((x) => x.id === params.get('tab'))?.id || 'money';
 
   const setup = [
     { done: Boolean(company.logo), label: 'Upload your logo', href: '/dashboard/settings?tab=branding' },
@@ -156,17 +138,24 @@ export default function Overview() {
   ];
   const remaining = setup.filter((s) => !s.done);
   const todo = t ? todoItems(t) : [];
+  const branchAttention = useMemo(
+    () => (t ? branchAttentionItems(t, (href) => router.push(href)) : []),
+    [t, router],
+  );
   const ctx = { d, t, team: team.data, money, cur };
 
   return (
-    <div className="mx-auto max-w-[1400px] pb-10">
+    <div className={embedded ? 'pb-6' : 'mx-auto max-w-[1400px] pb-10'}>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{`${greeting()}${user.name ? `, ${user.name.split(' ')[0]}` : ''}`}</h1>
           <p className="mt-1 text-sm text-slate-500">{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {company.name}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Link href="/dashboard/classic" className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-900"><History className="h-4 w-4" />Classic view</Link>
+          {!embedded && t && <AttentionDropdown items={branchAttention} variant="branch" />}
+          {!embedded && (
+            <Link href="/dashboard/classic" className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-900"><History className="h-4 w-4" />Classic view</Link>
+          )}
           <Link href="/dashboard/clients?new=1" className={buttonClass()}><Users className="h-4 w-4" /> Add client</Link>
           <Button variant="primary" icon={Plus} disabled={!clients?.length} title={clients?.length ? undefined : 'Add a client first'} onClick={() => setCreating(true)}>New proposal</Button>
         </div>
@@ -174,7 +163,7 @@ export default function Overview() {
 
       {(dash.error || todayRes.error) && <Alert className="mb-4">{dash.error || todayRes.error}</Alert>}
 
-      {!catalog.loading && !clientsResource.loading && remaining.length > 0 && (
+      {!embedded && !catalog.loading && !clientsResource.loading && remaining.length > 0 && (
         <Card className="mb-5 border-brand-muted bg-brand-soft/60 px-4 py-3">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <span className="text-sm font-semibold text-slate-900">Finish setting up · {setup.length - remaining.length} of {setup.length} done</span>
@@ -183,18 +172,39 @@ export default function Overview() {
         </Card>
       )}
 
-      {!d || !t ? (dash.loading || todayRes.loading ? <LoadingBlock /> : null) : (
+      {(() => {
+        const waiting = branchSwitching || !d || !t;
+        if (!waiting) return null;
+        if (embedded) {
+          return (
+            <DashboardLoadingShell
+              title={branchSwitching ? `Opening ${branchSwitchLabel}` : 'Loading branch dashboard'}
+              subtitle={
+                branchSwitching
+                  ? 'Switching workspace and loading this branch’s numbers…'
+                  : 'Fetching payments, leads, inventory, and today’s tasks…'
+              }
+            />
+          );
+        }
+        if (branchSwitching || dash.loading || todayRes.loading) return <LoadingBlock />;
+        return null;
+      })()}
+      {!branchSwitching && d && t ? (
         <>
-          {/* always on top: what to do today */}
-          <div className="mb-3 flex flex-wrap items-baseline gap-x-3"><h2 className="text-lg font-semibold text-slate-900">To do today</h2>{todo.length > 0 && <p className="text-sm text-slate-500">{plural(todo.length, 'thing')} to look at</p>}</div>
-          {todo.length ? (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{todo.map((i) => <TodoTile key={i.text(i.n)} {...i} />)}</div>
-          ) : (
-            <Card className="flex items-center gap-3 border-emerald-200 bg-emerald-50/60 p-4 text-sm text-emerald-800"><Check className="h-5 w-5" />All caught up. Nothing needs your attention right now.</Card>
+          {!embedded && (
+            <>
+              <div className="mb-3 flex flex-wrap items-baseline gap-x-3"><h2 className="text-lg font-semibold text-slate-900">To do today</h2>{todo.length > 0 && <p className="text-sm text-slate-500">{plural(todo.length, 'thing')} to look at</p>}</div>
+              {todo.length ? (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{todo.map(({ key, ...item }) => <TodoTile key={key} {...item} />)}</div>
+              ) : (
+                <Card className="flex items-center gap-3 border-emerald-200 bg-emerald-50/60 p-4 text-sm text-emerald-800"><Check className="h-5 w-5" />All caught up. Nothing needs your attention right now.</Card>
+              )}
+            </>
           )}
 
           {/* the sections, one tab each */}
-          <div role="tablist" aria-label="Dashboard section" className="sticky top-0 z-20 -mx-1 mt-7 mb-5 flex gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50/95 px-1 backdrop-blur">
+          <div role="tablist" aria-label="Dashboard section" className={cx('sticky top-0 z-20 -mx-1 mb-5 flex gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50/95 px-1 backdrop-blur', embedded ? 'mt-5' : 'mt-7')}>
             {TABS.map((x) => {
               const on = x.id === tab;
               const n = x.alert(d, t);
@@ -218,7 +228,7 @@ export default function Overview() {
             {tab === 'staff' && <StaffTab {...ctx} />}
           </div>
         </>
-      )}
+      ) : null}
 
       {creating && <NewDesignModal clients={clients} onClose={() => setCreating(false)} />}
     </div>
@@ -269,7 +279,7 @@ function MoneyTab({ d, t, money }) {
             </>
           ) : <p className="text-sm text-slate-500">No payments in the last 12 months.</p>}
         </Panel>
-        <ListCard title="Latest payments" sub="Most recent bills paid" href="/dashboard/billing" empty="No payments recorded yet.">
+        <ListCard title="Latest payments" sub="Most recent invoices paid" href="/dashboard/billing" empty="No payments recorded yet.">
           {(d.recentPayments || []).map((p) => <Row key={p.id} href={p.designId ? `/dashboard/billing/${p.designId}` : '/dashboard/billing'} title={p.client || p.design} sub={`${formatDate(p.receivedOn)} · ${PAYMENT_MODES[p.mode] || p.mode}`} right={money(p.amount)} />)}
         </ListCard>
         <ListCard title="Invoice not made yet" sub="Booked jobs without an invoice" href="/dashboard/billing?show=no_invoice" empty="Every booked job has an invoice.">

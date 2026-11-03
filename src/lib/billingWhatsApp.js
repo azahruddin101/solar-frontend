@@ -53,7 +53,7 @@ export async function shareBillOnWhatsApp({ bill, company, client, currency }) {
   shareLinkOnWhatsApp({
     phone: client?.phone,
     pdfUrl,
-    message: `Hi${client?.name ? ` ${client.name.split(' ')[0]}` : ''}, here is your bill ${bill.billNo}${bill.title ? ` for ${bill.title}` : ''}. Thank you for your payment.`,
+    message: `Hi${client?.name ? ` ${client.name.split(' ')[0]}` : ''}, here is your invoice ${bill.billNo}${bill.title ? ` for ${bill.title}` : ''}. Thank you for your payment.`,
   });
   return pdfName;
 }
@@ -67,7 +67,7 @@ export async function shareEwayBillOnWhatsApp({ ewayBill, company, client, curre
   shareLinkOnWhatsApp({
     phone: client?.phone,
     pdfUrl,
-    message: `Hi${client?.name ? ` ${client.name.split(' ')[0]}` : ''}, here is the e-way bill ${ewayBill.ewayNo} for the goods dispatched${ewayBill.title ? ` for ${ewayBill.title}` : ''}.`,
+    message: `Hi${client?.name ? ` ${client.name.split(' ')[0]}` : ''}, here is the bill ${ewayBill.ewayNo} for the goods dispatched${ewayBill.title ? ` for ${ewayBill.title}` : ''}.`,
   });
   return pdfName;
 }

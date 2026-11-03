@@ -1,7 +1,7 @@
 'use client';
 
 // Shared pieces of the company's letterhead-style documents (profit & loss, …): logo and contact block, section
-// labels, party blocks and the page footer. Invoices, bills and e-way bills use the grid layout in gridPdf.js instead.
+// labels, party blocks and the page footer. Invoices and bills use the grid layout in gridPdf.js instead.
 import { formatMoney } from './energy.js';
 import { pdfKit } from './pdf.js';
 import { amountInWords, amountInWordsInr, fmtPdfDate, PAYMENT_MODE_LABEL } from './billingPdfShared.js';

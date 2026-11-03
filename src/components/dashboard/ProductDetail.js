@@ -11,7 +11,7 @@ import { PILLAR_SHAPES, productUnitsFor } from '@/lib/catalog';
 import { formatMoney } from '@/lib/energy';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
-import { useCan } from '@/lib/useCan';
+import { useCatalogCan } from '@/lib/useCan';
 import { Alert, Badge, Button, Card, ConfirmDialog, IconButton, LoadingBlock, capName, toast } from '@/components/kit';
 import { attributeRows } from './attributes';
 import { ProductForm, typeOf, warrantyLabel } from './CatalogProducts';
@@ -28,10 +28,10 @@ function Fact({ label, children }) {
   );
 }
 
-export default function ProductDetail({ id, catalogPath = '/dashboard/catalog' }) {
+export default function ProductDetail({ id, catalogPath = '/dashboard/catalog', catalogOnly = false }) {
   const router = useRouter();
   const company = useSession((s) => s.company);
-  const may = useCan();
+  const may = useCatalogCan(); // product edits only; stock is in ProductStock
   const productResource = useResource(`/api/products/${id}`);
   useBreadcrumb(capName(productResource.data?.name));
   const categoriesResource = useResource('/api/categories');
@@ -149,7 +149,7 @@ export default function ProductDetail({ id, catalogPath = '/dashboard/catalog' }
               )}
               {type === 'poles' && <Fact label="Pole type">{shapeLabel}</Fact>}
               <Fact label="Warranty">{product.warrantyMonths ? `${warrantyLabel(product.warrantyMonths)} from installation` : ''}</Fact>
-              <Fact label="Reorder level">{product.reorderLevel ? `${product.reorderLevel} ${product.unit}` : ''}</Fact>
+              {!catalogOnly && <Fact label="Reorder level">{product.reorderLevel ? `${product.reorderLevel} ${product.unit}` : ''}</Fact>}
               {product.description && (
                 <div className="sm:col-span-2 rounded-lg border border-slate-100 bg-slate-50 p-3.5">
                   <span className="text-xs font-semibold tracking-wide text-slate-500 uppercase">Notes</span>
@@ -177,23 +177,25 @@ export default function ProductDetail({ id, catalogPath = '/dashboard/catalog' }
         </div>
 
         <div className="space-y-6">
-          <Card className="p-5">
-            <h3 className="mb-3 text-xs font-semibold tracking-wider text-slate-500 uppercase">Inventory</h3>
-            <p className="text-3xl font-semibold tabular-nums text-slate-900">{product.stock ?? 0}</p>
-            <p className="mt-1 text-sm text-slate-500">{product.unit} in stock{batches.data ? ` across ${batches.data.filter((b) => b.qtyRemaining > 0).length} batch${batches.data.filter((b) => b.qtyRemaining > 0).length === 1 ? '' : 'es'}` : ''}</p>
-            {product.lowStock && <p className="mt-3 text-xs font-medium text-amber-700">{(product.stock ?? 0) > 0 ? `Low stock — at or below the reorder level of ${product.reorderLevel} ${product.unit}.` : 'Out of stock — receive a new batch.'}</p>}
-            <div className="mt-4 border-t border-slate-100 pt-3">
-              <span className="text-xs text-slate-400">Selling price on proposals</span>
-              <p className="mt-0.5 text-sm font-medium text-slate-900">{product.price ? <>{money(product.price)}<span className="font-normal text-slate-500"> / {product.unit}</span></> : '—'}</p>
-              <p className="mt-1 text-xs text-slate-500">Retail price of the batch sold next (the oldest with stock), else of the newest batch.</p>
-            </div>
-          </Card>
+          {!catalogOnly && (
+            <Card className="p-5">
+              <h3 className="mb-3 text-xs font-semibold tracking-wider text-slate-500 uppercase">Inventory</h3>
+              <p className="text-3xl font-semibold tabular-nums text-slate-900">{product.stock ?? 0}</p>
+              <p className="mt-1 text-sm text-slate-500">{product.unit} in stock{batches.data ? ` across ${batches.data.filter((b) => b.qtyRemaining > 0).length} batch${batches.data.filter((b) => b.qtyRemaining > 0).length === 1 ? '' : 'es'}` : ''}</p>
+              {product.lowStock && <p className="mt-3 text-xs font-medium text-amber-700">{(product.stock ?? 0) > 0 ? `Low stock — at or below the reorder level of ${product.reorderLevel} ${product.unit}.` : 'Out of stock — receive a new batch.'}</p>}
+              <div className="mt-4 border-t border-slate-100 pt-3">
+                <span className="text-xs text-slate-400">Selling price on proposals</span>
+                <p className="mt-0.5 text-sm font-medium text-slate-900">{product.price ? <>{money(product.price)}<span className="font-normal text-slate-500"> / {product.unit}</span></> : '—'}</p>
+                <p className="mt-1 text-xs text-slate-500">Retail price of the batch sold next (the oldest with stock), else of the newest batch.</p>
+              </div>
+            </Card>
+          )}
           <ProductDocumentsCard product={product} canEdit={may('inventory', 'update')} onChanged={(saved) => productResource.setData(saved)} />
         </div>
       </div>
 
-      <BatchesCard product={product} batches={batches} money={money} currency={company.currency} onChanged={refreshStock} />
-      {product.isSerialized && <UnitsCard product={product} onChanged={refreshStock} />}
+      {!catalogOnly && <BatchesCard product={product} batches={batches} money={money} currency={company.currency} onChanged={refreshStock} />}
+      {!catalogOnly && product.isSerialized && <UnitsCard product={product} onChanged={refreshStock} />}
 
       {modal?.type === 'edit' && category && (
         <ProductForm

@@ -11,7 +11,7 @@ import { adminCompanyCreateSchema, adminCompanyUpdateSchema, newPassword, useVal
 import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, FormField, FormModal, Input, NameInput, PhoneInput, LoadingBlock, LogoChip, PageHeader, PasswordInput, RowMenu, Select, Table, Tabs, Td, Textarea, Th, Toggle, Tr, formatDate, timeAgo, toast } from '../kit';
 import { PlanBadge, StatusBadge } from './shared';
 
-const BLANK = { hasBranches: false, branchName: '', branchOwnerName: '', branchOwnerEmail: '', branchOwnerPassword: '', name: '', contactName: '', loginEmail: '', password: '', phone: '', address: '', website: '', taxId: '', pan: '', planId: '', status: 'active', notes: '', limits: { maxConcurrentLogins: 2, maxBranches: 3 }, features: { pdfBranding: true, excelImport: true } };
+const BLANK = { hasBranches: false, branchName: '', branchOwnerName: '', branchOwnerEmail: '', branchOwnerPassword: '', name: '', contactName: '', loginEmail: '', password: '', phone: '', address: '', website: '', taxId: '', pan: '', planId: '', status: 'active', notes: '', limits: { maxConcurrentLogins: 2, maxBranches: 3, maxClients: 100, maxDesigns: 100 }, features: { pdfBranding: true, excelImport: true } };
 
 // always has a letter and a digit, as the password rules require
 const randomPassword = () => {
@@ -30,7 +30,7 @@ function CompanyForm({ company, onClose, onSaved }) {
   const plans = useResource('/api/admin/plans');
   const editing = Boolean(company?.id);
   const [form, setForm] = useState(() => (editing
-    ? { ...BLANK, ...company, planId: company.planId || company.planDetail?.id || '', limits: { ...BLANK.limits, ...company.limits, ...(company.hasBranches && company.poolLogins != null ? { maxConcurrentLogins: company.poolLogins } : {}), maxBranches: company.maxBranches ?? 1 }, features: { ...BLANK.features, ...company.features } }
+    ? { ...BLANK, ...company, planId: company.planId || company.planDetail?.id || '', limits: { ...BLANK.limits, ...company.limits, ...(company.hasBranches && company.poolLogins != null ? { maxConcurrentLogins: company.poolLogins } : {}), maxBranches: company.maxBranches ?? 1, ...(company.maxClients != null ? { maxClients: company.maxClients } : {}), ...(company.maxDesigns != null ? { maxDesigns: company.maxDesigns } : {}) }, features: { ...BLANK.features, ...company.features } }
     : { ...BLANK, password: randomPassword(), branchOwnerPassword: randomPassword() }));
   const hasBranches = editing ? Boolean(company.hasBranches) : form.hasBranches;
   const [tab, setTab] = useState('profile');
@@ -46,7 +46,7 @@ function CompanyForm({ company, onClose, onSaved }) {
     setForm((f) => ({
       ...f,
       planId,
-      limits: p && p.kind !== 'custom' ? { ...f.limits, maxConcurrentLogins: p.maxConcurrentLogins } : f.limits,
+      limits: p && p.kind !== 'custom' ? { ...f.limits, maxConcurrentLogins: p.maxConcurrentLogins, ...(p.maxBranches != null ? { maxBranches: p.maxBranches } : {}), ...(p.maxClients != null ? { maxClients: p.maxClients } : {}), ...(p.maxDesigns != null ? { maxDesigns: p.maxDesigns } : {}) } : f.limits,
     }));
   };
 
@@ -155,6 +155,12 @@ function CompanyForm({ company, onClose, onSaved }) {
             <Input type="number" min={1} step="1" value={form.limits.maxBranches ?? 1} onValue={(x) => set({ limits: { ...form.limits, maxBranches: x } })} />
           </FormField>
         )}
+        <FormField label="Max clients (across all branches)" hint="One combined total for the whole company, not per branch.">
+          <Input type="number" min={1} step="1" value={form.limits.maxClients ?? ''} onValue={(x) => set({ limits: { ...form.limits, maxClients: x } })} />
+        </FormField>
+        <FormField label="Max designs (across all branches)" hint="One combined total of proposals for the whole company, not per branch.">
+          <Input type="number" min={1} step="1" value={form.limits.maxDesigns ?? ''} onValue={(x) => set({ limits: { ...form.limits, maxDesigns: x } })} />
+        </FormField>
         <FormField label="Internal notes" optional hint="Only visible to super admins." className="sm:col-span-2"><Textarea value={form.notes} onValue={(v) => set({ notes: v })} maxLength={1000} /></FormField>
       </div>
       <div className={tab === 'features' ? 'space-y-5' : 'hidden'}>
@@ -203,6 +209,187 @@ function PasswordModal({ company, onClose }) {
   );
 }
 
+function groupAdminCompanyRows(companies) {
+  const orgMap = new Map();
+  const standalone = [];
+
+  for (const c of companies) {
+    const orgId = c.organization ? String(c.organization) : '';
+    if (c.hasBranches && orgId) {
+      if (!orgMap.has(orgId)) {
+        orgMap.set(orgId, {
+          type: 'organization',
+          orgId,
+          name: c.organizationName || c.name,
+          adminEmail: c.adminEmail || '',
+          branches: [],
+        });
+      }
+      const g = orgMap.get(orgId);
+      if (!g.adminEmail && c.adminEmail) g.adminEmail = c.adminEmail;
+      g.branches.push(c);
+    } else {
+      standalone.push({ type: 'single', company: c });
+    }
+  }
+
+  const orgRows = [...orgMap.values()].map((g) => {
+    g.branches.sort((a, b) => a.name.localeCompare(b.name));
+    const createdAt = g.branches.reduce((latest, b) => (latest && new Date(latest) > new Date(b.createdAt) ? latest : b.createdAt), null);
+    return { ...g, createdAt };
+  });
+
+  const rows = [
+    ...orgRows,
+    ...standalone.map((s) => ({ ...s, createdAt: s.company.createdAt })),
+  ];
+  rows.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return rows;
+}
+
+function orgTotals(branches) {
+  return branches.reduce(
+    (acc, b) => ({
+      clients: acc.clients + (b.counts?.clients ?? 0),
+      designs: acc.designs + (b.counts?.designs ?? 0),
+    }),
+    { clients: 0, designs: 0 },
+  );
+}
+
+function latestLogin(branches) {
+  let best = null;
+  for (const b of branches) {
+    if (!b.lastLoginAt) continue;
+    const t = new Date(b.lastLoginAt);
+    if (!best || t > best) best = t;
+  }
+  return best;
+}
+
+function OrgCompanyRow({ group, onOpen, onEdit, onPassword, onStatus, onDelete }) {
+  const primary = group.branches[0];
+  const totals = orgTotals(group.branches);
+  const lastLogin = latestLogin(group.branches);
+  const logoBranch = group.branches.find((b) => b.logo) || primary;
+  const status = group.branches.some((b) => b.status === 'suspended') ? 'suspended' : primary.status;
+  const orgActive = group.branches.some((b) => b.status === 'active');
+
+  const menuItems = [
+    ...(group.adminEmail ? [{
+      key: 'open-company',
+      icon: Building2,
+      label: 'Open company dashboard',
+      disabled: !orgActive,
+      onClick: () => onOpen(primary, 'admin'),
+    }] : []),
+    ...group.branches.map((b) => ({
+      key: `open-${b.id}`,
+      icon: GitBranch,
+      label: group.branches.length > 1 ? `Open ${b.name}` : 'Open branch dashboard',
+      disabled: b.status !== 'active',
+      onClick: () => onOpen(b, 'owner'),
+    })),
+    { key: 'edit', icon: Pencil, label: 'Edit company', onClick: () => onEdit(primary) },
+    { key: 'password', icon: KeyRound, label: 'Reset password', onClick: () => onPassword(primary) },
+    primary.status === 'active'
+      ? { key: 'suspend', icon: Ban, label: 'Suspend company', tone: 'danger', onClick: () => onStatus(primary, 'suspended') }
+      : { key: 'activate', icon: CheckCircle2, label: 'Activate company', onClick: () => onStatus(primary, 'active') },
+    { key: 'delete', icon: Trash2, label: group.branches.length > 1 ? 'Delete branch…' : 'Delete company', tone: 'danger', onClick: () => onDelete(primary) },
+  ];
+
+  return (
+    <Tr>
+      <Td>
+        <div className="flex items-start gap-3">
+          <LogoChip name={group.name} src={assetUrl(logoBranch?.logo)} />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="max-w-[240px] truncate font-medium text-slate-900">{group.name}</span>
+              <Badge tone="blue">{group.branches.length} branch{group.branches.length === 1 ? '' : 'es'}</Badge>
+            </div>
+            {group.adminEmail && (
+              <div className="mt-0.5 max-w-[280px] truncate text-xs text-slate-500" title="Company admin">
+                Admin · {group.adminEmail}
+              </div>
+            )}
+            {group.branches.length === 1 && (
+              <div className="mt-0.5 max-w-[280px] truncate text-xs text-slate-500">{primary.loginEmail}</div>
+            )}
+          </div>
+        </div>
+      </Td>
+      <Td>
+        <PlanBadge plan={primary.plan} planDetail={primary.planDetail} max={14} />
+        {primary.maxClients != null && (
+          <div className="mt-1 text-[11px] text-slate-500">
+            Caps: {primary.maxBranches} br · {primary.maxClients} clients · {primary.maxDesigns} designs
+          </div>
+        )}
+      </Td>
+      <Td><StatusBadge status={status} /></Td>
+      <Td className="text-[13px] leading-snug whitespace-nowrap text-slate-500">
+        <div><span className="text-slate-800 tabular-nums">{totals.clients}</span> {totals.clients === 1 ? 'client' : 'clients'}</div>
+        <div><span className="text-slate-800 tabular-nums">{totals.designs}</span> {totals.designs === 1 ? 'proposal' : 'proposals'}</div>
+      </Td>
+      <Td className="whitespace-nowrap text-slate-500">{timeAgo(lastLogin)}</Td>
+      <Td className="whitespace-nowrap text-slate-500">{formatDate(group.createdAt)}</Td>
+      <Td>
+        <div className="flex justify-end">
+          <RowMenu label={`Actions for ${group.name}`} items={menuItems} />
+        </div>
+      </Td>
+    </Tr>
+  );
+}
+
+function SingleCompanyRow({ company: c, onOpen, onEdit, onPassword, onStatus, onDelete }) {
+  return (
+    <Tr>
+      <Td>
+        <div className="flex items-center gap-3">
+          <LogoChip name={c.name} src={assetUrl(c.logo)} />
+          <div className="min-w-0">
+            <div className="max-w-[220px] truncate font-medium text-slate-900">{c.name}</div>
+            <div className="max-w-[220px] truncate text-xs text-slate-500">{c.loginEmail}</div>
+          </div>
+        </div>
+      </Td>
+      <Td>
+        <PlanBadge plan={c.plan} planDetail={c.planDetail} max={14} />
+        {c.maxClients != null && (
+          <div className="mt-1 text-[11px] text-slate-500">
+            Caps: {c.maxBranches} br · {c.maxClients} clients · {c.maxDesigns} designs
+          </div>
+        )}
+      </Td>
+      <Td><StatusBadge status={c.status} /></Td>
+      <Td className="text-[13px] leading-snug whitespace-nowrap text-slate-500">
+        <div><span className="text-slate-800 tabular-nums">{c.counts.clients}</span> {c.counts.clients === 1 ? 'client' : 'clients'}</div>
+        <div><span className="text-slate-800 tabular-nums">{c.counts.designs}</span> {c.counts.designs === 1 ? 'proposal' : 'proposals'}</div>
+      </Td>
+      <Td className="whitespace-nowrap text-slate-500">{timeAgo(c.lastLoginAt)}</Td>
+      <Td className="whitespace-nowrap text-slate-500">{formatDate(c.createdAt)}</Td>
+      <Td>
+        <div className="flex justify-end">
+          <RowMenu
+            label={`Actions for ${c.name}`}
+            items={[
+              { key: 'open', icon: LogIn, label: 'Open branch dashboard', disabled: c.status !== 'active', onClick: () => onOpen(c, 'owner') },
+              { key: 'edit', icon: Pencil, label: 'Edit company', onClick: () => onEdit(c) },
+              { key: 'password', icon: KeyRound, label: 'Reset password', onClick: () => onPassword(c) },
+              c.status === 'active'
+                ? { key: 'suspend', icon: Ban, label: 'Suspend company', tone: 'danger', onClick: () => onStatus(c, 'suspended') }
+                : { key: 'activate', icon: CheckCircle2, label: 'Activate company', onClick: () => onStatus(c, 'active') },
+              { key: 'delete', icon: Trash2, label: 'Delete company', tone: 'danger', onClick: () => onDelete(c) },
+            ]}
+          />
+        </div>
+      </Td>
+    </Tr>
+  );
+}
+
 export default function AdminCompanies() {
   const router = useRouter();
   const params = useSearchParams();
@@ -223,10 +410,25 @@ export default function AdminCompanies() {
     }
   }, [params, router]);
 
-  const rows = useMemo(() => {
+  const searched = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (data || []).filter((c) => (status === 'all' || c.status === status) && (!q || `${c.name} ${c.loginEmail} ${c.phone}`.toLowerCase().includes(q)));
-  }, [data, query, status]);
+    return (data || []).filter((c) => {
+      if (!q) return true;
+      const hay = `${c.name} ${c.loginEmail} ${c.phone || ''} ${c.organizationName || ''} ${c.adminEmail || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [data, query]);
+
+  const rows = useMemo(() => {
+    let list = groupAdminCompanyRows(searched);
+    if (status !== 'all') {
+      list = list.filter((row) => {
+        if (row.type === 'single') return row.company.status === status;
+        return row.branches.some((b) => b.status === status);
+      });
+    }
+    return list;
+  }, [searched, status]);
 
   const close = () => { setModal(null); setModalError(''); };
   const upsert = (c) => setData((list) => (list.some((x) => x.id === c.id) ? list.map((x) => (x.id === c.id ? c : x)) : [c, ...list]));
@@ -239,10 +441,10 @@ export default function AdminCompanies() {
       toast.error(e.message);
     }
   };
-  const openWorkspace = async (c) => {
+  const openWorkspace = async (c, who = 'owner') => {
     try {
-      await impersonate(c.id);
-      router.push('/dashboard');
+      await impersonate(c.id, { who });
+      router.push(who === 'admin' ? '/org' : '/dashboard');
     } catch (e) {
       toast.error(e.message);
     }
@@ -294,39 +496,28 @@ export default function AdminCompanies() {
           <Table>
             <thead><tr><Th>Company</Th><Th>Plan</Th><Th>Status</Th><Th>Usage</Th><Th>Last sign-in</Th><Th>Added</Th><Th className="text-right">Actions</Th></tr></thead>
             <tbody>
-              {rows.map((c) => (
-                <Tr key={c.id}>
-                  <Td>
-                    <div className="flex items-center gap-3">
-                      <LogoChip name={c.name} src={assetUrl(c.logo)} />
-                      <div className="min-w-0"><div className="max-w-[220px] truncate font-medium text-slate-900">{c.name}</div><div className="max-w-[220px] truncate text-xs text-slate-500">{c.loginEmail}</div>{c.hasBranches && <div className="max-w-[220px] truncate text-xs text-slate-400" title={c.adminEmail ? `Company admin: ${c.adminEmail}` : undefined}>Branch of {c.organizationName || 'a company'}</div>}</div>
-                    </div>
-                  </Td>
-                  <Td><PlanBadge plan={c.plan} planDetail={c.planDetail} max={14} /></Td>
-                  <Td><StatusBadge status={c.status} /></Td>
-                  <Td className="text-[13px] leading-snug whitespace-nowrap text-slate-500">
-                    <div><span className="text-slate-800 tabular-nums">{c.counts.clients}</span> {c.counts.clients === 1 ? 'client' : 'clients'}</div>
-                    <div><span className="text-slate-800 tabular-nums">{c.counts.designs}</span> {c.counts.designs === 1 ? 'proposal' : 'proposals'}</div>
-                  </Td>
-                  <Td className="whitespace-nowrap text-slate-500">{timeAgo(c.lastLoginAt)}</Td>
-                  <Td className="whitespace-nowrap text-slate-500">{formatDate(c.createdAt)}</Td>
-                  <Td>
-                    <div className="flex justify-end">
-                      <RowMenu
-                        label={`Actions for ${c.name}`}
-                        items={[
-                          { key: 'open', icon: LogIn, label: 'Open workspace', disabled: c.status !== 'active', onClick: () => openWorkspace(c) },
-                          { key: 'edit', icon: Pencil, label: 'Edit company', onClick: () => setModal({ type: 'form', company: c }) },
-                          { key: 'password', icon: KeyRound, label: 'Reset password', onClick: () => setModal({ type: 'password', company: c }) },
-                          c.status === 'active'
-                            ? { key: 'suspend', icon: Ban, label: 'Suspend company', tone: 'danger', onClick: () => setCompanyStatus(c, 'suspended') }
-                            : { key: 'activate', icon: CheckCircle2, label: 'Activate company', onClick: () => setCompanyStatus(c, 'active') },
-                          { key: 'delete', icon: Trash2, label: 'Delete company', tone: 'danger', onClick: () => setModal({ type: 'delete', company: c }) },
-                        ]}
-                      />
-                    </div>
-                  </Td>
-                </Tr>
+              {rows.map((row) => (
+                row.type === 'organization' ? (
+                  <OrgCompanyRow
+                    key={row.orgId}
+                    group={row}
+                    onOpen={openWorkspace}
+                    onEdit={(c) => setModal({ type: 'form', company: c })}
+                    onPassword={(c) => setModal({ type: 'password', company: c })}
+                    onStatus={setCompanyStatus}
+                    onDelete={(c) => setModal({ type: 'delete', company: c })}
+                  />
+                ) : (
+                  <SingleCompanyRow
+                    key={row.company.id}
+                    company={row.company}
+                    onOpen={openWorkspace}
+                    onEdit={(c) => setModal({ type: 'form', company: c })}
+                    onPassword={(c) => setModal({ type: 'password', company: c })}
+                    onStatus={setCompanyStatus}
+                    onDelete={(c) => setModal({ type: 'delete', company: c })}
+                  />
+                )
               ))}
             </tbody>
           </Table>

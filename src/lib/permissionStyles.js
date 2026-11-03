@@ -22,7 +22,7 @@ export const PLAIN = {
   leads: { view: 'See the leads given to them', view_team: 'See their team’s leads', view_all: 'See every lead', create: 'Add leads and import them from Excel', change_status: 'Update a lead’s status', update: 'Edit lead details and mark priority', assign: 'Give leads to other staff', export: 'Download leads to Excel' },
   proposals: { view: 'Open proposals', create: 'Make new proposals', update: 'Edit proposals', change_status: 'Mark proposals won or lost', change_client: 'Move a proposal to another client', share: 'Share proposal links with clients', delete: 'Delete proposals' },
   clients: { view: 'See client details', view_team: 'See clients their team works with', create: 'Add new clients', update: 'Edit client details', manage_login: 'Set up a client’s portal login', delete: 'Delete clients' },
-  finances: { view: 'See e-way bills, bills and invoices', create_eway_bill: 'Send goods out of stock on an e-way bill', create_bill: 'Make bills for e-way bills and services, taking the payment', create_invoice: 'Make invoices from bills' },
+  finances: { view: 'See bills and invoices', create_eway_bill: 'Send goods out of stock on a bill', create_bill: 'Make tax invoices for bills and services, taking the payment', create_invoice: 'Make AMC parts invoices' },
   inventory: { view: 'See products and packages', create: 'Add products and packages', update: 'Edit products and prices', delete: 'Delete products' },
   expenses: { view: 'See what was spent on each project', create: 'Record an expense on a project', update: 'Correct an expense', delete: 'Delete an expense' },
   loans: { view: 'See clients’ loans and their steps', update: 'Update loan details and move steps along' },

@@ -1,7 +1,7 @@
 'use client';
 
-// Generate an e-way bill: products picked from stock (the server takes the stock and prices each line from its batch),
-// how the goods travel, and the GST portal's number if one was generated there. The first step of the sale chain.
+// Generate a bill: products picked from stock (the server takes the stock and prices each line from its batch) and the
+// optional delivery details. The first step of the sale chain; the client pays on an invoice afterwards.
 import { Boxes, CircleCheck, ClipboardList, Plus, TriangleAlert, X } from 'lucide-react';
 import { Fragment, useMemo, useState } from 'react';
 import { formatMoney } from '@/lib/energy';
@@ -62,7 +62,6 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
   const [lines, setLines] = useState([blankLine()]);
   const [kind, setKind] = useState('tax');
   const [transport, setTransport] = useState({ mode: 'road', vehicleNo: '', transporter: '', transporterId: '', docNo: '', docDate: '', fromPlace: company?.address || '', toPlace: clientAddress || '', distanceKm: '', reason: 'supply' });
-  const [govtEwayNo, setGovtEwayNo] = useState('');
   const [issuedOn, setIssuedOn] = useState(today());
   const [note, setNote] = useState('');
   const [pickLine, setPickLine] = useState(null);
@@ -78,13 +77,13 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
   );
   const summary = useMemo(() => summarizeLinePricing({ lines: effective.filter((l) => l.productId), gstIncluded: false, withGst }), [effective, withGst]);
 
-  // the proposal's items, matched to inventory, with what earlier e-way bills already sent and what this one carries
+  // the proposal's items, matched to inventory, with what earlier bills already sent and what this one carries
   const proposalItems = useMemo(() => {
     if (!proposal) return [];
     const hasLines = proposal.pricing?.lines?.some((l) => l?.name) || proposal.quote?.items?.length || proposal.quote?.extraItems?.length;
     if (!hasLines) return [];
     const resolved = resolveProposalPricing({ pricing: proposal.pricing, quote: proposal.quote, total: proposal.total, title: proposal.title });
-    const sent = new Map(); // productId or normalised name → qty on earlier (not cancelled) e-way bills
+    const sent = new Map(); // productId or normalised name → qty on earlier (not cancelled) bills
     for (const e of ewayBills || []) {
       if (e.status === 'cancelled') continue;
       for (const l of e.lines || []) {
@@ -127,7 +126,7 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
     loadStock(p);
     if (p.isSerialized) setPickLine(i);
   };
-  /** From the side panel: put this proposal item on the e-way bill with what is still left to send (capped by stock). */
+  /** From the side panel: put this proposal item on the bill with what is still left to send (capped by stock). */
   const addFromProposal = (item) => {
     const p = item.product;
     const qty = Math.min(item.left || item.needed, p.stock > 0 ? p.stock : item.left || item.needed);
@@ -155,15 +154,12 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
       if (!(Number(l.qty) > 0)) return setError(`Enter the quantity of ${l.name}`);
       if (stock[l.productId] && !l.batch && !product?.isSerialized && Number(l.qty) > available) return setError(`Only ${available} ${l.unit} of ${l.name} in stock`);
     }
-    const digits = govtEwayNo.replace(/\D/g, '');
-    if (digits && digits.length !== 12) return setError('The e-way bill number from the GST portal has 12 digits');
     setError('');
     onSubmit({
       ...party,
       lines: used.map((l) => ({ productId: l.productId, priceType: l.priceType, qty: l.serials?.length ? l.serials.length : Number(l.qty) || 0, batch: l.batch || '', serials: l.serials || [], detail: l.detail })),
       withGst,
       transport: { ...transport, distanceKm: transport.distanceKm === '' ? null : Number(transport.distanceKm) },
-      govtEwayNo: digits,
       issuedOn,
       note,
     });
@@ -176,9 +172,9 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
       <FormModal
         open={open}
         onClose={onClose}
-        title={`E-way bill · ${partyName}`}
-        description={proposal ? 'Pick the products leaving stock and how they travel; the panel on the right shows what the proposal promised and what is still to send. Stock is reduced when the e-way bill is generated.' : 'Pick the products leaving stock and how they travel. Stock is reduced when the e-way bill is generated; the client pays on a bill afterwards.'}
-        submitLabel="Generate e-way bill"
+        title={`Bill · ${partyName}`}
+        description={proposal ? 'Pick the products leaving stock and, optionally, how they are delivered; the panel on the right shows what the proposal promised and what is still to send. Stock is reduced when the bill is generated.' : 'Pick the products leaving stock and, optionally, how they are delivered. Stock is reduced when the bill is generated; the client pays on an invoice afterwards.'}
+        submitLabel="Generate bill"
         busy={busy}
         error={error}
         onSubmit={submit}
@@ -284,7 +280,7 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
         </div>
 
         <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
-          <div className="mb-3 text-sm font-semibold text-amber-900">Transport</div>
+          <div className="mb-3 text-sm font-semibold text-amber-900">Delivery details <span className="font-normal text-slate-500">· optional</span></div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <FormField label="Mode">
               <Select value={transport.mode} onValue={(v) => setT({ mode: v })}>{Object.entries(TRANSPORT_MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
@@ -303,9 +299,8 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <FormField label="Date"><Input type="date" max={today()} value={issuedOn} onValue={setIssuedOn} /></FormField>
-          <FormField label="E-way bill no. from the GST portal" optional hint="12 digits, if you generated one on ewaybillgst.gov.in"><Input maxLength={14} inputMode="numeric" value={govtEwayNo} onValue={setGovtEwayNo} placeholder="1234 5678 9012" /></FormField>
           <FormField label="Note" optional><Input maxLength={300} value={note} onValue={setNote} placeholder="Printed under the declaration" /></FormField>
         </div>
         </div>
@@ -314,7 +309,7 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
           <aside className="rounded-xl border border-emerald-200 bg-emerald-50/40 lg:sticky lg:top-0">
             <div className="border-b border-emerald-100 px-4 py-2.5">
               <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900"><ClipboardList className="h-4 w-4" />In the proposal</div>
-              <p className="mt-0.5 text-[11px] text-slate-600">{doneItems} of {goodsItems.length} item{goodsItems.length === 1 ? '' : 's'} fully dispatched. “Add” puts what is left on this e-way bill.</p>
+              <p className="mt-0.5 text-[11px] text-slate-600">{doneItems} of {goodsItems.length} item{goodsItems.length === 1 ? '' : 's'} fully dispatched. “Add” puts what is left on this bill.</p>
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-emerald-100"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${goodsItems.length ? Math.round((doneItems / goodsItems.length) * 100) : 0}%` }} /></div>
             </div>
             <ul className="max-h-[60dvh] divide-y divide-emerald-100 overflow-y-auto bg-white">
@@ -328,7 +323,7 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
                     <div className="shrink-0 text-right tabular-nums text-slate-700">{it.needed} {it.line.unit || 'Nos'}</div>
                   </div>
                   {it.service ? (
-                    <div className="mt-1 text-[11px] text-slate-500">Service · goes on the bill, not the e-way bill</div>
+                    <div className="mt-1 text-[11px] text-slate-500">Service · goes on the invoice, not the bill</div>
                   ) : (
                     <div className="mt-1.5 flex items-center justify-between gap-2">
                       <div className="text-[11px] text-slate-600">
@@ -375,12 +370,12 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
   );
 }
 
-/** "Cancel this e-way bill?" — the goods go back into stock. `onConfirm(reason)`. */
+/** "Cancel this bill?" — the goods go back into stock. `onConfirm(reason)`. */
 export function CancelEwayBillDialog({ ewayBill, open, onClose, onConfirm, busy }) {
   const [reason, setReason] = useState('');
   return (
-    <ConfirmDialog open={open} onClose={onClose} onConfirm={() => onConfirm(reason)} title={`Cancel e-way bill ${ewayBill?.ewayNo}?`} confirmLabel="Cancel e-way bill" busy={busy}>
-      <p>Its {ewayBill?.itemCount ?? ''} item{ewayBill?.itemCount === 1 ? '' : 's'} go back into stock and the number {ewayBill?.ewayNo} is not reused. Only an e-way bill that is not on a bill yet can be cancelled.</p>
+    <ConfirmDialog open={open} onClose={onClose} onConfirm={() => onConfirm(reason)} title={`Cancel bill ${ewayBill?.ewayNo}?`} confirmLabel="Cancel bill" busy={busy}>
+      <p>Its {ewayBill?.itemCount ?? ''} item{ewayBill?.itemCount === 1 ? '' : 's'} go back into stock and the number {ewayBill?.ewayNo} is not reused. Only a bill that is not on an invoice yet can be cancelled.</p>
       <div className="mt-3">
         <Input maxLength={300} value={reason} onValue={setReason} placeholder="Reason (optional)" />
       </div>

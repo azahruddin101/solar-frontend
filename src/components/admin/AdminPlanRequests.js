@@ -20,6 +20,9 @@ function DecisionModal({ row, action, onClose, onDone }) {
   const [form, setForm] = useState({
     planName: `${row.companyName} Custom`,
     maxConcurrentLogins: row.requestedLimits?.maxConcurrentLogins ?? 2,
+    maxBranches: row.requestedLimits?.maxBranches ?? 1,
+    maxClients: row.requestedLimits?.maxClients ?? 100,
+    maxDesigns: row.requestedLimits?.maxDesigns ?? 100,
     priceMonthly: '',
     periodDays: 30,
     adminNotes: '',
@@ -52,6 +55,9 @@ function DecisionModal({ row, action, onClose, onDone }) {
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField label="Plan name" className="sm:col-span-2"><Input maxLength={80} value={form.planName} onValue={(v) => set({ planName: v })} /></FormField>
           <FormField label="Concurrent sign-ins"><Input type="number" min={1} step="1" value={form.maxConcurrentLogins} onValue={(v) => set({ maxConcurrentLogins: v })} /></FormField>
+          <FormField label="Branches"><Input type="number" min={1} step="1" value={form.maxBranches} onValue={(v) => set({ maxBranches: v })} /></FormField>
+          <FormField label="Clients" hint="Total across all branches"><Input type="number" min={1} step="1" value={form.maxClients} onValue={(v) => set({ maxClients: v })} /></FormField>
+          <FormField label="Designs" hint="Total across all branches"><Input type="number" min={1} step="1" value={form.maxDesigns} onValue={(v) => set({ maxDesigns: v })} /></FormField>
           <FormField label="Monthly price (₹)" optional hint="Empty = calculated from the pricing rules."><Input type="number" min={0} value={form.priceMonthly} onValue={(v) => set({ priceMonthly: v })} /></FormField>
         </div>
       )}
@@ -88,7 +94,7 @@ export default function AdminPlanRequests() {
                   <Tr key={r.id}>
                     <Td className="font-medium text-slate-900">{r.companyName}</Td>
                     <Td className="text-[13px]">
-                      {r.type === 'preset' ? <>Standard: <b>{r.requestedPlan?.name || '—'}</b></> : <>Custom: {r.requestedLimits?.maxConcurrentLogins} sign-ins</>}
+                      {r.type === 'preset' ? <>Standard: <b>{r.requestedPlan?.name || '—'}</b></> : <>Custom: {r.requestedLimits?.maxConcurrentLogins} sign-ins · {r.requestedLimits?.maxBranches ?? '—'} branches · {r.requestedLimits?.maxClients ?? '—'} clients · {r.requestedLimits?.maxDesigns ?? '—'} designs (clients and designs across all branches){r.quotedLimits?.maxClients != null && <div className="text-xs text-slate-500">Quoted: {r.quotedLimits.maxConcurrentLogins} sign-ins · {r.quotedLimits.maxBranches} branches · {r.quotedLimits.maxClients} clients · {r.quotedLimits.maxDesigns} designs</div>}</>}
                       {r.message && <div className="max-w-xs truncate text-xs text-slate-500" title={r.message}>“{r.message}”</div>}
                     </Td>
                     <Td><Badge dot tone={s.tone}>{s.label}</Badge></Td>

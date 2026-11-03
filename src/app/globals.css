@@ -61,9 +61,17 @@
 }
 
 body {
-  background: #f1f5f9;
+  background: #f4f6f9;
   color: #0f172a;
   font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* Dashboard cards & KPI tiles — soft Harbor-style elevation */
+@utility dash-card {
+  @apply rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_rgba(15,23,42,0.05)];
+}
+@utility dash-kpi {
+  @apply dash-card flex flex-col p-5 transition-shadow hover:shadow-[0_2px_4px_rgba(15,23,42,0.06),0_16px_40px_rgba(15,23,42,0.07)];
 }
 
 /* Edge-length labels drawn on the Google map */

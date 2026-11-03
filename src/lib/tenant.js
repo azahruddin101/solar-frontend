@@ -21,6 +21,15 @@ export function canEditOrgMasters(user) {
   return isOrgAdmin(user) || user?.managesMasters === true;
 }
 
+/**
+ * Whether this person may change the product catalog (categories, parent categories, products). The catalog is shared
+ * by all branches, so in a company with branches only the company admin changes it; stock stays per branch.
+ * Still subject to the inventory permissions. The server sends `editsCatalog` (backend auth.service.js userView).
+ */
+export function canEditCatalog(user) {
+  return user?.editsCatalog !== false;
+}
+
 /** Where this person edits a master tab: the company admin on /org, an owner in their own workspace. */
 export function mastersHref(user, tab) {
   if (isOrgAdmin(user)) return `/org/masters?tab=${tab}`;

@@ -1,6 +1,7 @@
 'use client';
 
-// The e-way bill / delivery challan: the goods leaving stock for a client, how they travel, and their value with GST.
+// The bill / delivery challan: the goods leaving stock for a client, the optional delivery details, and their value
+// with GST.
 // Same grid layout as the tax invoice (gridPdf.js).
 import { jsPDF } from 'jspdf';
 import { loadBranding } from './branding.js';
@@ -25,12 +26,12 @@ export function transportRows(t = {}, fmtDate = fmtPdfDate) {
   ].filter(([, v]) => String(v ?? '').trim());
 }
 
-/** Build the e-way bill PDF bytes. `client` is the consignee (the client record). */
+/** Build the bill PDF bytes. `client` is the consignee (the client record). */
 export async function buildEwayBillPdfBlob({ ewayBill, company = {}, client = {}, currency = 'INR' }) {
   const brand = await loadBranding(company);
   const { company: co, client: cl, money } = ctx(company, client, currency);
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
-  doc.setProperties({ title: `E-way bill ${ewayBill.ewayNo}`, author: co.name, subject: `E-way bill for ${cl.name || 'client'}`, creator: co.name });
+  doc.setProperties({ title: `Bill ${ewayBill.ewayNo}`, author: co.name, subject: `Bill for ${cl.name || 'client'}`, creator: co.name });
 
   const pricing = ewayBill.pricing || {};
   const withGst = pricing.withGst !== false && pricing.invoiceGstMode !== 'without_gst';
@@ -42,11 +43,10 @@ export async function buildEwayBillPdfBlob({ ewayBill, company = {}, client = {}
   const { amt, rs, words } = moneyFormats(currency, money);
   const fmtDate = fmtPdfDate;
 
-  let y = titleBar(doc, brand, IM, 'E-WAY BILL', 'Delivery Challan');
+  let y = titleBar(doc, brand, IM, 'BILL', 'Delivery Challan');
   const metaRows = [
-    ['E-way Bill No.', ewayBill.ewayNo],
+    ['Bill No.', ewayBill.ewayNo],
     ['Dated', fmtDate(ewayBill.issuedOn)],
-    ['GST Portal EWB No.', ewayBill.govtEwayNo || '—'],
     ['Reference', ewayBill.title || '—'],
   ];
   if (ewayBill.status === 'cancelled') metaRows.push(['Status', `Cancelled${ewayBill.cancelReason ? ` — ${ewayBill.cancelReason}` : ''}`]);
@@ -67,6 +67,6 @@ export async function buildEwayBillPdfBlob({ ewayBill, company = {}, client = {}
   });
 
   finishDocument(doc, co, brand, 'This is a Computer Generated Document');
-  const filename = `${['eway-bill', ewayBill.ewayNo, pdfSlug(cl.name)].filter(Boolean).join('_')}.pdf`;
+  const filename = `${['bill', ewayBill.ewayNo, pdfSlug(cl.name)].filter(Boolean).join('_')}.pdf`;
   return { blob: doc.output('blob'), filename };
 }

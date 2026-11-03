@@ -1,15 +1,18 @@
 'use client';
 
-// Generate a bill: the party's open e-way bills (one or more), any service charges, GST, an optional discount — and
-// the payment, because a bill is paid when it is made. The server freezes the pricing and records the payment.
+// Generate an invoice (backend Bill): the party's open bills (one or more), any service charges, GST, an optional
+// discount, the optional buyer company, reference & delivery details and terms — and the payment, because an invoice is
+// paid when it is made. The server freezes the pricing and records the payment. It is the GST tax invoice.
 import { BadgePercent, Plus, Truck, Wrench, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { formatMoney } from '@/lib/energy';
 import { PAYMENT_MODE_LABEL } from '@/lib/billingPdfShared';
+import { EMPTY_INVOICE_DETAILS, INVOICE_DETAIL_FIELDS } from '@/lib/invoiceDetails';
+import { useSession } from '@/lib/session';
 import { roundMoney, summarizeLinePricing } from '@/lib/pricing';
 import { partyQuery } from '@/lib/saleChain';
 import { useResource } from '@/lib/useResource';
-import { Alert, FormField, FormModal, Input, Select, cx, formatDate } from '../kit';
+import { Alert, FormField, FormModal, Input, RichTextEditor, Select, cx, formatDate } from '../kit';
 
 const today = () => new Date().toISOString().slice(0, 10);
 let seq = 0;
@@ -24,14 +27,21 @@ const field = 'h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-
 
 /**
  * `party` is `{ design }` or `{ client }` (ids). `proposalDiscount` ({ discount, discountIsPercent, discountRemark }) is
- * shown as a hint so the proposal's agreed discount can be applied here. `onSubmit(body)` posts to /api/billing/bills.
+ * shown as a hint so the proposal's agreed discount can be applied here. `seed` carries what the billing page knows:
+ * nextInvoiceNo, previousTermsAndConditions, previousBillToCompany. `onSubmit(body)` posts to /api/billing/bills.
  */
-export default function BillModal({ open, onClose, party, partyName, proposalDiscount = null, currency = 'INR', busy, onSubmit }) {
+export default function BillModal({ open, onClose, party, partyName, seed = {}, proposalDiscount = null, currency = 'INR', busy, onSubmit }) {
+  const company = useSession((s) => s.company);
+  const [billToCompany, setBillToCompany] = useState(seed.previousBillToCompany || '');
+  const [details, setDetails] = useState(EMPTY_INVOICE_DETAILS);
+  const [editedTerms, setEditedTerms] = useState(null);
+  const seedTerms = seed.previousTermsAndConditions || company?.pdfTerms || '';
+  const termsAndConditions = editedTerms ?? seedTerms;
   const { data: openEways, loading, error: loadError } = useResource(open ? `/api/billing/eway-bills/open?${partyQuery(party)}` : null);
   const { data: charges } = useResource(open ? '/api/installation-charges' : null);
-  const [unticked, setUnticked] = useState([]); // every open e-way bill is on the bill unless unticked
+  const [unticked, setUnticked] = useState([]); // every open bill is on the invoice unless unticked
   const [services, setServices] = useState([]);
-  const [kind, setKind] = useState(null); // null: follow the e-way bills
+  const [kind, setKind] = useState(null); // null: follow the bills
   const [discountActive, setDiscountActive] = useState(false);
   const [discount, setDiscount] = useState(0);
   const [discountIsPercent, setDiscountIsPercent] = useState(false);
@@ -49,7 +59,7 @@ export default function BillModal({ open, onClose, party, partyName, proposalDis
   const serviceLines = useMemo(() => services.filter((s) => s.name.trim()).map((s) => ({ kind: 'service', name: s.name, detail: s.description, hsn: s.hsn, qty: Number(s.qty) || 1, unit: s.unit, rate: Number(s.rate) || 0, gstPercent: Number(s.gstPercent) || 0 })), [services]);
   const summary = useMemo(() => {
     const lines = [...goods, ...serviceLines];
-    // exactly as the server prices the bill (invoicePricing.service.js splitDiscounts): a % is taken of the rounded
+    // exactly as the server prices the invoice (invoicePricing.service.js splitDiscounts): a % is taken of the rounded
     // subtotal, rounded, and applied as an amount — so the total on the button is the total that gets charged
     const base = summarizeLinePricing({ lines, gstIncluded: false, discount: 0, withGst }).subtotal;
     const asked = discountActive ? (discountIsPercent ? (base * (Number(discount) || 0)) / 100 : Number(discount) || 0) : 0;
@@ -74,12 +84,12 @@ export default function BillModal({ open, onClose, party, partyName, proposalDis
   };
 
   const submit = () => {
-    if (!chosen.length && !serviceLines.length) return setError('Choose at least one e-way bill or add a service');
+    if (!chosen.length && !serviceLines.length) return setError('Choose at least one bill or add a service');
     for (const s of services) {
       if (!s.name.trim()) return setError('Give every service a name, or remove the empty row');
       if (!(Number(s.rate) >= 0)) return setError(`Enter the price of ${s.name}`);
     }
-    if (!(summary.total > 0)) return setError('The bill total must be greater than zero');
+    if (!(summary.total > 0)) return setError('The invoice total must be greater than zero');
     setError('');
     onSubmit({
       ...party,
@@ -91,6 +101,9 @@ export default function BillModal({ open, onClose, party, partyName, proposalDis
       discountRemark: discountActive ? discountRemark : '',
       issuedOn,
       payment,
+      billToCompany: billToCompany.trim(),
+      details,
+      termsAndConditions,
     });
   };
 
@@ -99,9 +112,9 @@ export default function BillModal({ open, onClose, party, partyName, proposalDis
     <FormModal
       open={open}
       onClose={onClose}
-      title={`Bill · ${partyName}`}
-      description="Tick the e-way bills this bill covers, add services if any, and record how it was paid. A bill is paid when it is generated and is the client’s payment document."
-      submitLabel={`Generate bill · ${money(summary.total)}`}
+      title={`Invoice · ${partyName}`}
+      description="Tick the bills this invoice covers, add services if any, and record how it was paid. An invoice is paid when it is generated and is the client’s tax invoice."
+      submitLabel={`Generate invoice · ${money(summary.total)}`}
       busy={busy}
       error={error}
       onSubmit={submit}
@@ -120,11 +133,11 @@ export default function BillModal({ open, onClose, party, partyName, proposalDis
 
       <section className="rounded-xl border border-sky-200 bg-sky-50/40">
         <div className="flex items-center justify-between gap-2 border-b border-sky-100 px-4 py-2.5">
-          <div className="flex items-center gap-2 text-sm font-semibold text-sky-900"><Truck className="h-4 w-4" />E-way bills</div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-sky-900"><Truck className="h-4 w-4" />Bills</div>
           <span className="text-xs text-slate-600">{chosen.length} of {eways.length} chosen · goods <b className="text-slate-900">{money(goodsValue)}</b></span>
         </div>
         {loading ? <p className="px-4 py-3 text-sm text-slate-500">Loading…</p> : !eways.length ? (
-          <p className="px-4 py-3 text-sm text-slate-600">No open e-way bills. Generate one first, or make a bill for services only.</p>
+          <p className="px-4 py-3 text-sm text-slate-600">No open bills. Generate one first, or make an invoice for services only.</p>
         ) : (
           <ul className="divide-y divide-sky-100 bg-white">
             {eways.map((e) => {
@@ -134,7 +147,7 @@ export default function BillModal({ open, onClose, party, partyName, proposalDis
                   <label className={cx('flex cursor-pointer items-start gap-3 px-4 py-2.5 text-sm hover:bg-sky-50/60', on && 'bg-sky-50/40')}>
                     <input type="checkbox" checked={on} onChange={() => toggle(e.id)} className="mt-1 h-4 w-4 accent-[var(--color-brand,#0F6E56)]" />
                     <span className="min-w-0 flex-1">
-                      <span className="flex flex-wrap items-center gap-x-2 font-medium text-slate-900">{e.ewayNo}<span className="text-xs font-normal text-slate-500">{formatDate(e.issuedOn)}{e.transport?.vehicleNo ? ` · ${e.transport.vehicleNo}` : ''}{e.govtEwayNo ? ` · EWB ${e.govtEwayNo}` : ''}</span></span>
+                      <span className="flex flex-wrap items-center gap-x-2 font-medium text-slate-900">{e.ewayNo}<span className="text-xs font-normal text-slate-500">{formatDate(e.issuedOn)}{e.transport?.vehicleNo ? ` · ${e.transport.vehicleNo}` : ''}</span></span>
                       <span className="block truncate text-xs text-slate-500">{(e.lines || []).map((l) => `${l.qty} × ${l.name}`).join(', ')}</span>
                     </span>
                     <span className="shrink-0 text-right text-sm font-semibold tabular-nums text-slate-900">{money(e.total)}<span className="block text-[11px] font-normal text-slate-500">{e.pricing?.withGst === false ? 'no GST' : 'incl. GST'}</span></span>
@@ -233,10 +246,38 @@ export default function BillModal({ open, onClose, party, partyName, proposalDis
           <FormField label="Payment mode"><Select value={payment.mode} onValue={(v) => setPayment((p) => ({ ...p, mode: v }))}>{Object.entries(PAYMENT_MODE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></FormField>
           <FormField label={payment.mode === 'cheque' ? 'Cheque number' : 'Reference / Transaction no.'} optional={!needsRef}><Input maxLength={80} value={payment.reference} onValue={(v) => setPayment((p) => ({ ...p, reference: v }))} placeholder={payment.mode === 'upi' ? 'UPI transaction ID' : payment.mode === 'bank_transfer' ? 'UTR / reference number' : ''} /></FormField>
           <FormField label="Paid on"><Input type="date" max={today()} value={payment.receivedOn} onValue={(v) => setPayment((p) => ({ ...p, receivedOn: v }))} /></FormField>
-          <FormField label="Bill date"><Input type="date" max={today()} value={issuedOn} onValue={setIssuedOn} /></FormField>
+          <FormField label="Invoice date"><Input type="date" max={today()} value={issuedOn} onValue={setIssuedOn} /></FormField>
           <FormField label="Note" optional className="sm:col-span-2 lg:col-span-4"><Input maxLength={300} value={payment.note} onValue={(v) => setPayment((p) => ({ ...p, note: v }))} placeholder="e.g. Paid by the client’s brother" /></FormField>
         </div>
       </section>
+
+      {seed.nextInvoiceNo && <p className="text-sm text-slate-500">Invoice no. <b className="font-mono text-slate-900">{seed.nextInvoiceNo}</b> · {withGst ? 'Tax invoice (GST)' : 'Invoice without GST'}</p>}
+
+      <details className="group rounded-xl border border-slate-200 px-4 py-3">
+        <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium text-slate-800 [&::-webkit-details-marker]:hidden">
+          <span>More details <span className="font-normal text-slate-400">· buyer company, reference &amp; delivery, terms · optional</span></span>
+          <span className="text-xs text-slate-400 group-open:hidden">Show</span><span className="hidden text-xs text-slate-400 group-open:inline">Hide</span>
+        </summary>
+        <div className="mt-3 max-w-md">
+          <FormField label="Company name (Bill to)" optional hint="Printed above the client’s name on the invoice.">
+            <Input maxLength={120} value={billToCompany} onValue={setBillToCompany} placeholder="If billing a company" />
+          </FormField>
+        </div>
+        <p className="mt-4 text-sm font-medium text-slate-800">Reference &amp; delivery details</p>
+        <p className="mt-1 text-xs text-slate-500">Anything you fill in is printed on the invoice. Leave the rest blank.</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {INVOICE_DETAIL_FIELDS.map((f) => (
+            <FormField key={f.key} label={f.label} optional className={f.full ? 'sm:col-span-2' : undefined}>
+              <Input type={f.type === 'date' ? 'date' : 'text'} maxLength={f.key === 'termsOfDelivery' ? 300 : 120} value={details[f.key]} onValue={(v) => setDetails((d) => ({ ...d, [f.key]: v }))} placeholder={f.placeholder} />
+            </FormField>
+          ))}
+        </div>
+        <div className="mt-4">
+          <FormField label="Terms & Conditions" hint="Will appear on the invoice PDF.">
+            <RichTextEditor value={seedTerms} onChange={setEditedTerms} placeholder="Enter terms and conditions for this invoice..." maxLength={3000} minHeight={120} />
+          </FormField>
+        </div>
+      </details>
     </FormModal>
   );
 }

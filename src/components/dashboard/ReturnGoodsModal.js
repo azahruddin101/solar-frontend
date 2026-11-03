@@ -1,8 +1,8 @@
 'use client';
 
-// Some of the goods on a paid bill came back: pick the products (how many, or which serial numbers), say why, and record
-// the refund. The server prices the returned goods from the bill (with their share of GST and discount), puts them back
-// into stock, takes the refund off the bill's payment and numbers a credit note. `onSubmit(body)` posts it.
+// Some of the goods on an invoice came back: pick the products (how many, or which serial numbers), say why, and record
+// the refund. The server prices the returned goods from the invoice (with their share of GST and discount), puts them
+// back into stock, takes the refund off the invoice's payment and numbers a credit note. `onSubmit(body)` posts it.
 import { useMemo, useState } from 'react';
 import { formatMoney } from '@/lib/energy';
 import { PAYMENT_MODE_LABEL } from '@/lib/billingPdfShared';
@@ -52,7 +52,7 @@ export default function ReturnGoodsModal({ open, onClose, bill, currency = 'INR'
       open={open}
       onClose={onClose}
       title={`Return goods · ${bill.billNo}`}
-      description="Only the products that came back. They go into stock, a credit note is made, and the refund comes off what was paid on this bill. The bill and its invoice stay as they are."
+      description="Only the products that came back. They go into stock, a credit note is made against this invoice, and the refund comes off what was paid on it. The invoice itself stays as it is."
       submitLabel={`Make credit note${estimate > 0 ? ` · about ${money(estimate)}` : ''}`}
       busy={busy}
       error={error || loadError}
@@ -61,7 +61,7 @@ export default function ReturnGoodsModal({ open, onClose, bill, currency = 'INR'
       noValidate
     >
       {loading ? <LoadingBlock /> : !lines.length ? (
-        <Alert tone="warn">Nothing on this bill can be returned: it has no goods, or all of its goods have already been returned.</Alert>
+        <Alert tone="warn">Nothing on this invoice can be returned: it has no goods, or all of its goods have already been returned.</Alert>
       ) : (
         <>
           <section className="space-y-2">
@@ -71,7 +71,7 @@ export default function ReturnGoodsModal({ open, onClose, bill, currency = 'INR'
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <div className="font-medium text-slate-900">{l.name}</div>
-                    <div className="text-xs text-slate-500">{[l.ewayNo, l.batchNo && `Batch ${l.batchNo}`, `${l.qty} ${l.unit} on the bill`, `${money(l.lineTotal)} with GST`].filter(Boolean).join(' · ')}</div>
+                    <div className="text-xs text-slate-500">{[l.ewayNo, l.batchNo && `Batch ${l.batchNo}`, `${l.qty} ${l.unit} on the invoice`, `${money(l.lineTotal)} with GST`].filter(Boolean).join(' · ')}</div>
                   </div>
                   {l.serials.length === 0 && (
                     <div className="w-36">

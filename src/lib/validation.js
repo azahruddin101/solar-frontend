@@ -192,6 +192,8 @@ export const companySelfSchema = obj({
 const limits = obj({
   maxConcurrentLogins: f.num({ min: 1, max: 1000, int: true, label: 'Concurrent logins' }).optional(),
   maxBranches: f.num({ min: 1, max: 500, int: true, label: 'Max branches' }).optional(),
+  maxClients: f.num({ min: 1, max: 10000000, int: true, label: 'Max clients' }).optional(),
+  maxDesigns: f.num({ min: 1, max: 10000000, int: true, label: 'Max designs' }).optional(),
 });
 
 // A company is set up with or without branches. With branches, `loginEmail` is the company admin and the first
@@ -222,6 +224,9 @@ export const planSchema = obj({
   description: f.textOptional(300, 'Description'),
   priceMonthly: f.num({ min: 0, max: 1e7, label: 'Monthly price' }).optional(),
   maxConcurrentLogins: f.num({ min: 1, max: 1000, int: true, label: 'Concurrent logins' }).optional(),
+  maxBranches: f.num({ min: 1, max: 500, int: true, label: 'Branches' }).optional(),
+  maxClients: f.num({ min: 1, max: 10000000, int: true, label: 'Clients' }).optional(),
+  maxDesigns: f.num({ min: 1, max: 10000000, int: true, label: 'Designs' }).optional(),
   features: z.array(z.string().trim().max(100, 'A feature can be at most 100 characters')).max(20, 'A plan can list up to 20 features').optional(),
 });
 export const planUpdateSchema = planSchema.partial();

@@ -7,11 +7,28 @@ import { useState } from 'react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
+import UsageBar, { usageTone } from './UsageBar';
 import { Alert, Badge, Button, Card, FormField, Input, LoadingBlock, PageHeader, Textarea, showError, toast } from '../kit';
 
 function formatDate(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function LimitRow({ label, hint, used, max }) {
+  const tone = usageTone(used, max);
+  const color = tone.full ? 'text-red-600' : tone.warn ? 'text-amber-600' : 'text-slate-500';
+  return (
+    <div className="rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
+        <span className="font-medium text-slate-800">{label}</span>
+        <span className={`tabular-nums ${color}`}>{used} of {max}{hint ? ` (${hint})` : ''}</span>
+      </div>
+      <UsageBar used={used} max={max} className="mt-2" />
+      {tone.full && <p className="mt-1.5 text-xs text-red-600">Limit reached. Upgrade your plan to add more.</p>}
+      {!tone.full && tone.warn && <p className="mt-1.5 text-xs text-amber-600">Nearly full. Consider upgrading your plan.</p>}
+    </div>
+  );
 }
 
 function LimitPill({ icon: Icon, label, value }) {
@@ -41,7 +58,7 @@ function RequestCard({ req, busy, onCancel }) {
         <span className="ml-auto text-xs text-slate-400">Requested {formatDate(req.createdAt)}</span>
       </div>
       {req.type === 'custom' && (
-        <p className="mt-2 text-sm text-slate-600">{req.requestedLimits?.maxConcurrentLogins} sign-ins</p>
+        <p className="mt-2 text-sm text-slate-600">{req.requestedLimits?.maxConcurrentLogins} sign-ins · {req.requestedLimits?.maxBranches} branches · {req.requestedLimits?.maxClients} clients · {req.requestedLimits?.maxDesigns} designs (clients and designs across all branches)</p>
       )}
       {req.message && <p className="mt-2 text-sm text-slate-600">“{req.message}”</p>}
       {req.status === 'approved' && <p className="mt-2 text-sm text-emerald-700">{req.planName} is now active on your workspace.</p>}
@@ -62,7 +79,9 @@ function PresetCard({ plan, disabled, busy, onRequest }) {
       <h3 className="text-lg font-semibold text-slate-900">{plan.name}</h3>
       <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">₹{plan.priceMonthly}<span className="text-sm font-normal text-slate-500">/mo</span></p>
       <ul className="mt-4 flex-1 space-y-1.5 text-sm text-slate-600">
-        <li>Unlimited clients & proposals</li>
+        <li>{plan.maxBranches} branches</li>
+        <li>{plan.maxClients} clients (all branches combined)</li>
+        <li>{plan.maxDesigns} designs (all branches combined)</li>
         <li>{plan.maxConcurrentLogins} concurrent sign-ins</li>
         {plan.features?.map((f) => <li key={f} className="flex items-start gap-1.5"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />{f}</li>)}
       </ul>
@@ -76,9 +95,10 @@ export default function PlanBilling({ embedded = false }) {
   const billing = company?.billing;
   const upgrades = useResource('/api/company/subscription/upgrades'); // 403 for companies on a custom plan → no preset options
   const current = useResource('/api/company/plan-request');
+  const usageRes = useResource('/api/company/subscription/usage');
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(null);
-  const [custom, setCustom] = useState({ maxConcurrentLogins: '3', message: '' });
+  const [custom, setCustom] = useState({ maxConcurrentLogins: '3', maxBranches: '1', maxClients: '100', maxDesigns: '100', message: '' });
   const [error, setError] = useState('');
 
   const plan = billing?.plan;
@@ -158,9 +178,15 @@ export default function PlanBilling({ embedded = false }) {
                 {plan.features.map((f) => <li key={f} className="flex items-start gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />{f}</li>)}
               </ul>
             )}
-            <div className="grid gap-3 p-6 sm:grid-cols-2">
-              <LimitPill icon={Monitor} label="Sign-ins" value={limits.maxConcurrentLogins} />
-              <p className="self-center text-sm text-slate-500">Clients and proposals are unlimited.</p>
+            <div className="p-6">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Plan limits</h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {usageRes.data && ['maxBranches', 'maxClients', 'maxDesigns'].map((k) => {
+                  const m = { maxBranches: ['Branches', 'branches', ''], maxClients: ['Clients', 'clients', 'all branches combined'], maxDesigns: ['Designs', 'designs', 'all branches combined'] }[k];
+                  return <LimitRow key={k} label={m[0]} hint={m[2]} used={usageRes.data.usage?.[m[1]] ?? 0} max={usageRes.data.limits?.[k] ?? 0} />;
+                })}
+                <LimitPill icon={Monitor} label="Sign-ins at once" value={limits.maxConcurrentLogins} />
+              </div>
             </div>
           </section>
 
@@ -186,9 +212,12 @@ export default function PlanBilling({ embedded = false }) {
                 <div className="space-y-4 p-6">
                   <div className="grid gap-4 md:grid-cols-3">
                     <FormField label="Concurrent sign-ins"><Input type="number" min={1} step="1" value={custom.maxConcurrentLogins} onValue={(v) => setCustom({ ...custom, maxConcurrentLogins: v })} /></FormField>
+                    <FormField label="Branches"><Input type="number" min={1} step="1" value={custom.maxBranches} onValue={(v) => setCustom({ ...custom, maxBranches: v })} /></FormField>
+                    <FormField label="Clients" hint="Total across all branches"><Input type="number" min={1} step="1" value={custom.maxClients} onValue={(v) => setCustom({ ...custom, maxClients: v })} /></FormField>
+                    <FormField label="Designs" hint="Total across all branches"><Input type="number" min={1} step="1" value={custom.maxDesigns} onValue={(v) => setCustom({ ...custom, maxDesigns: v })} /></FormField>
                   </div>
                   <FormField label="What do you need?"><Textarea rows={3} maxLength={2000} value={custom.message} onValue={(v) => setCustom({ ...custom, message: v })} placeholder="e.g. 5 field agents signed in at the same time" /></FormField>
-                  <Button variant="primary" icon={Check} loading={busy === 'custom'} disabled={!custom.message.trim()} onClick={() => send('custom', { type: 'custom', message: custom.message, requestedLimits: { maxConcurrentLogins: Number(custom.maxConcurrentLogins) || 1 } })}>Send request</Button>
+                  <Button variant="primary" icon={Check} loading={busy === 'custom'} disabled={!custom.message.trim()} onClick={() => send('custom', { type: 'custom', message: custom.message, requestedLimits: { maxConcurrentLogins: Number(custom.maxConcurrentLogins) || 1, maxBranches: Number(custom.maxBranches) || 1, maxClients: Number(custom.maxClients) || 1, maxDesigns: Number(custom.maxDesigns) || 1 } })}>Send request</Button>
                 </div>
               </Card>
             </section>

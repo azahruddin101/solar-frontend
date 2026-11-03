@@ -35,27 +35,27 @@ export async function downloadInvoiceDocument({ invoice, pdfName, payments, comp
 }
 
 export async function viewEwayBillDocument({ ewayBill, pdfName, company, client, currency }) {
-  const title = `E-way bill ${ewayBill.ewayNo}`;
+  const title = `Bill ${ewayBill.ewayNo}`;
   if (pdfName) return viewStoredPdf(pdfName, title);
   const { blob, filename } = await buildEwayBillPdfBlob({ ewayBill, company, client, currency });
   openPdfViewer({ title, blob, downloadName: filename });
 }
 
 export async function downloadEwayBillDocument({ ewayBill, pdfName, company, client, currency }) {
-  if (pdfName) return downloadStoredPdf(pdfName, `eway-bill_${ewayBill.ewayNo}.pdf`);
+  if (pdfName) return downloadStoredPdf(pdfName, `bill_${ewayBill.ewayNo}.pdf`);
   const { blob, filename } = await buildEwayBillPdfBlob({ ewayBill, company, client, currency });
   downloadBlob(blob, filename);
 }
 
 export async function viewBillDocument({ bill, pdfName, company, client, currency }) {
-  const title = `Bill ${bill.billNo}`;
+  const title = `Invoice ${bill.billNo}`;
   if (pdfName) return viewStoredPdf(pdfName, title);
   const { blob, filename } = await buildBillPdfBlob({ bill, company, client, currency });
   openPdfViewer({ title, blob, downloadName: filename });
 }
 
 export async function downloadBillDocument({ bill, pdfName, company, client, currency }) {
-  if (pdfName) return downloadStoredPdf(pdfName, `bill_${bill.billNo}.pdf`);
+  if (pdfName) return downloadStoredPdf(pdfName, `invoice_${bill.billNo}.pdf`);
   const { blob, filename } = await buildBillPdfBlob({ bill, company, client, currency });
   downloadBlob(blob, filename);
 }

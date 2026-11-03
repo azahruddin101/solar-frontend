@@ -6,6 +6,7 @@
 import { ArrowDownRight, ArrowUpRight, Table2 } from 'lucide-react';
 import { useState } from 'react';
 import { CURRENCIES } from '@/lib/energy';
+import { PieChart2D, PIE_SLICE_GAP_DEG } from './DashboardGraphs';
 import { Card, CardHeader, cx } from '../kit';
 
 /** ₹3.7 L / ₹1.2 Cr for rupees, a compact form (1.2M) for other currencies. */
@@ -75,7 +76,7 @@ export function RevenueChart({ data, currency }) {
       <CardHeader
         className="shrink-0 py-3"
         title="Money received"
-        description={`${compactMoney(total, currency)} in the last ${range} months · payments taken on bills`}
+        description={`${compactMoney(total, currency)} in the last ${range} months · payments taken on invoices`}
         action={
           <div className="flex items-center gap-2">
             <div role="group" aria-label="Range" className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5">
@@ -140,23 +141,6 @@ const BASE_STAGES = [
   { id: 'lost', label: 'Lost', hint: 'Not going ahead', fill: '#e2e8f0' },
 ];
 
-function polar(cx, cy, r, deg) {
-  const rad = ((deg - 90) * Math.PI) / 180;
-  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
-}
-
-function donutSegment(cx, cy, ro, ri, start, end) {
-  const span = Math.min(end - start, 359.98);
-  if (span <= 0) return '';
-  const e = start + span;
-  const so = polar(cx, cy, ro, start);
-  const eo = polar(cx, cy, ro, e);
-  const si = polar(cx, cy, ri, e);
-  const ei = polar(cx, cy, ri, start);
-  const large = span > 180 ? 1 : 0;
-  return `M ${so.x} ${so.y} A ${ro} ${ro} 0 ${large} 1 ${eo.x} ${eo.y} L ${si.x} ${si.y} A ${ri} ${ri} 0 ${large} 0 ${ei.x} ${ei.y} Z`;
-}
-
 /** Donut by proposal value; Booked uses brand colour. Hover a slice or legend row for detail. `fills` ({ won: '#…' }) recolours stages. */
 export function PipelineChart({ stages, currency, winRate, fills }) {
   const [hover, setHover] = useState(null);
@@ -169,20 +153,27 @@ export function PipelineChart({ stages, currency, winRate, fills }) {
     return { ...s, ...st, weight };
   }).filter((s) => s.weight > 0);
   const sum = slices.reduce((a, s) => a + s.weight, 0);
-  const gap = slices.length > 1 ? 2.2 : 0;
+  const gap = slices.length > 1 ? PIE_SLICE_GAP_DEG : 0;
   let cursor = 0;
-  const arcs = slices.map((s, i) => {
+  const arcs = slices.map((s) => {
     const share = sum > 0 ? (s.weight / sum) * (360 - gap * slices.length) : 0;
     const start = cursor + gap / 2;
     const end = start + share;
     cursor = end + gap / 2;
-    return { ...s, i, start, end, pct: sum > 0 ? Math.round((s.weight / sum) * 100) : 0 };
+    return { ...s, start, end, pct: sum > 0 ? Math.round((s.weight / sum) * 100) : 0 };
   });
-  const active = hover != null ? arcs.find((a) => a.i === hover) : null;
-  const pieX = 50;
-  const pieY = 50;
-  const ro = 42;
-  const ri = 26;
+  const active = hover != null ? arcs.find((a) => a.id === hover) : null;
+  const pieArcs = arcs.map((a) => ({
+    key: a.id,
+    label: a.label,
+    value: a.weight,
+    color: a.fill,
+    start: a.start,
+    end: a.end,
+    pct: a.pct,
+  }));
+  const holeTitle = active ? active.label : 'Total value';
+  const holeValue = active ? compactMoney(active.value, currency) : compactMoney(totalValue, currency);
 
   return (
     <Card className="flex h-full min-h-0 flex-col">
@@ -190,45 +181,37 @@ export function PipelineChart({ stages, currency, winRate, fills }) {
       {!totalCount ? <div className="px-5 pb-6 text-sm text-slate-400">No proposals yet.</div> : (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-5 pt-1 pb-4">
           <div className="grid min-h-0 flex-1 grid-cols-1 content-start gap-x-4 gap-y-3 overflow-hidden sm:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] sm:items-start">
-            <div className="relative mx-auto aspect-square w-full max-w-[11rem] min-w-0 sm:mx-0 sm:max-w-[min(100%,15rem)] sm:justify-self-center" onPointerLeave={() => setHover(null)}>
-              <svg viewBox="0 0 100 100" className="h-full w-full drop-shadow-sm" role="img" aria-label={`Proposal pipeline by value: ${compactMoney(totalValue, currency)} across ${totalCount} proposals`}>
-                {arcs.map((a) => {
-                  const mid = (a.start + a.end) / 2;
-                  const push = hover === a.i ? 2.8 : 0;
-                  const tx = Math.cos(((mid - 90) * Math.PI) / 180) * push;
-                  const ty = Math.sin(((mid - 90) * Math.PI) / 180) * push;
-                  return (
-                    <g key={a.id} transform={`translate(${tx} ${ty})`} className="transition-transform duration-200">
-                      <path
-                        d={donutSegment(pieX, pieY, ro, ri, a.start, a.end)}
-                        fill={a.fill}
-                        className="cursor-pointer transition-opacity duration-200"
-                        style={{ opacity: hover == null || hover === a.i ? 1 : 0.42 }}
-                        onPointerEnter={() => setHover(a.i)}
-                        onFocus={() => setHover(a.i)}
-                        onBlur={() => setHover(null)}
-                        tabIndex={0}
-                        aria-label={`${a.label}: ${a.pct}% · ${compactMoney(a.value, currency)} · ${a.count} proposal${a.count === 1 ? '' : 's'}`}
-                      />
-                    </g>
-                  );
-                })}
-              </svg>
+            <div className="min-w-0 sm:justify-self-center" onPointerLeave={() => setHover(null)}>
+              <PieChart2D
+                arcs={pieArcs}
+                format={(v) => compactMoney(v, currency)}
+                hover={hover}
+                setHover={setHover}
+                clickable={false}
+                pickSlice={() => {}}
+                donut
+                center={(
+                  <div className="min-w-0 max-w-full">
+                    <div className="text-base font-semibold leading-tight text-slate-900 tabular-nums">{holeValue}</div>
+                    <div className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-slate-500">{holeTitle}</div>
+                  </div>
+                )}
+              />
             </div>
             <ul className="min-h-0 min-w-0 space-y-0.5 overflow-y-auto sm:max-h-full">
               {STAGES.map((s) => {
                 const st = stages[s.id];
                 const arc = arcs.find((a) => a.id === s.id);
-                const on = hover === (arc?.i ?? -1);
+                const on = hover === s.id;
                 return (
                   <li key={s.id}>
                     <button
                       type="button"
                       disabled={!st.count}
-                      onPointerEnter={() => arc && setHover(arc.i)}
-                      onFocus={() => arc && setHover(arc.i)}
+                      onPointerEnter={() => arc && setHover(arc.id)}
+                      onFocus={() => arc && setHover(arc.id)}
                       onBlur={() => setHover(null)}
-                      onClick={() => arc && setHover((h) => (h === arc.i ? null : arc.i))}
+                      onClick={() => arc && setHover((h) => (h === arc.id ? null : arc.id))}
                       className={cx(
                         'grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 rounded-lg px-2 py-1.5 text-left transition-colors sm:gap-x-2.5',
                         st.count && 'hover:bg-slate-50',

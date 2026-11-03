@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { categorySchema, parentCategorySchema, useValidation } from '@/lib/validation';
 import { api } from '@/lib/api';
 import { useResource } from '@/lib/useResource';
-import { useCan } from '@/lib/useCan';
+import { useCatalogCan } from '@/lib/useCan';
 import { Alert, Badge, Button, Card, CardHeader, ConfirmDialog, EmptyState, FormField, FormModal, IconButton, Input, LoadingBlock, PageHeader, Select, Table, Td, Th, Tr, buttonClass, cx, toast, RowMenu } from '../kit';
 import { PRODUCT_TYPES, typeOf } from './CatalogProducts';
 import { ATTRIBUTE_TYPES, MAX_ATTRIBUTES, sortedDefs } from './attributes';
@@ -149,7 +149,7 @@ function CategoryForm({ category, parents, onClose, onSaved }) {
 }
 
 export default function Categories({ catalogPath = '/dashboard/catalog' }) {
-  const may = useCan();
+  const may = useCatalogCan();
   const canCreate = may('inventory', 'create');
   const canEdit = may('inventory', 'update');
   const canDelete = may('inventory', 'delete');

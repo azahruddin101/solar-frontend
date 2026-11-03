@@ -42,7 +42,7 @@ export default function PushNotifications() {
   const Icon = denied ? BellOff : granted ? BellRing : Bell;
   const label = denied ? 'Notifications blocked in browser' : granted ? 'Notifications on' : 'Turn on notifications';
   return (
-    <button type="button" onClick={granted || denied ? undefined : enable} disabled={granted} aria-label={label} title={label} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-white/50 hover:bg-white/10 hover:text-white disabled:cursor-default disabled:hover:bg-transparent">
+    <button type="button" onClick={granted || denied ? undefined : enable} disabled={granted} aria-label={label} title={label} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:cursor-default disabled:hover:bg-transparent">
       <Icon className={granted ? 'h-4 w-4 text-emerald-400' : 'h-4 w-4'} />
     </button>
   );

@@ -103,12 +103,13 @@ export const useSession = create((set, get) => ({
     return s;
   },
 
-  /** Super admin opens a company's workspace. */
-  async impersonate(companyId) {
-    const s = await api(`/api/admin/companies/${companyId}/impersonate`, { method: 'POST' });
+  /** Super admin opens a company workspace. `who`: `admin` → company dashboard (/org); `owner` → branch owner (/dashboard). */
+  async impersonate(companyId, { who = 'owner' } = {}) {
+    const s = await api(`/api/admin/companies/${companyId}/impersonate`, { method: 'POST', body: { who } });
     tokens.setAdmin(tokens.get());
     tokens.set(s.token);
     get().apply(s);
+    if (who === 'admin') get().setOrgDashboardScope('all');
   },
 
   async stopImpersonating() {

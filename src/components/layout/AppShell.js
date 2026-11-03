@@ -31,6 +31,7 @@ const COUNT_FOR = {
   '/agent/client-support': { key: 'clientSupport' },
   '/dashboard/team': { key: 'team' },
   '/dashboard/catalog': { key: 'products' },
+  '/org/catalog': { key: 'products' },
   '/dashboard/suppliers': { key: 'suppliers' },
   '/dashboard/leads': { key: 'leads' }, // all three sources together
   '/agent/leads': { key: 'leads' },
@@ -58,6 +59,9 @@ const COUNT_FOR = {
   '/admin/plan-requests': { key: 'planRequests' },
 };
 
+const NAV_LINK_ACTIVE = 'bg-white/10 text-white shadow-[inset_3px_0_0_#ffffff]';
+const NAV_LINK_IDLE = 'text-white hover:bg-white/5';
+
 function NavLink({ item, active, onNavigate, compact, nested, collapsed }) {
   if (collapsed) {
     // icon only; the name shows on hover (and is read out by screen readers)
@@ -68,10 +72,17 @@ function NavLink({ item, active, onNavigate, compact, nested, collapsed }) {
         aria-current={active ? 'page' : undefined}
         aria-label={item.label}
         title={item.label}
-        className={cx('relative mx-auto grid h-10 w-10 place-items-center rounded-lg transition-colors', active ? 'bg-white/10 text-white' : 'text-white/80 hover:bg-white/5 hover:text-white')}
+        className={cx(
+          'relative mx-auto grid h-10 w-10 place-items-center rounded-lg transition-colors',
+          active ? 'bg-white/10 text-white' : 'text-white/80 hover:bg-white/5 hover:text-white',
+        )}
       >
         {item.icon && <item.icon className="h-[18px] w-[18px]" />}
-        {item.badge !== undefined && item.badge !== 0 && <span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-white/20 px-1 text-[10px] leading-none font-semibold text-white">{item.badge}</span>}
+        {item.badge !== undefined && item.badge !== 0 && (
+          <span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-white/20 px-1 text-[10px] leading-none font-semibold text-white">
+            {item.badge}
+          </span>
+        )}
       </Link>
     );
   }
@@ -84,12 +95,12 @@ function NavLink({ item, active, onNavigate, compact, nested, collapsed }) {
         'group flex items-center rounded-lg font-medium transition-colors',
         compact ? 'gap-2.5 px-2 py-1.5 text-[13px]' : 'gap-3 px-3 py-2 text-sm',
         nested && 'py-1.5 pl-9 pr-3 text-[13px]',
-        active ? 'bg-white/10 text-white shadow-[inset_3px_0_0_#ffffff]' : 'text-white hover:bg-white/5',
+        active ? NAV_LINK_ACTIVE : NAV_LINK_IDLE,
       )}
     >
       {item.icon && <item.icon className={cx('shrink-0 text-white', compact || nested ? 'h-4 w-4' : 'h-[18px] w-[18px]')} />}
       <span className="flex-1 truncate">{item.label}</span>
-      {item.badge !== undefined && <span className="rounded-full bg-white/10 px-2 py-px text-xs text-white/70">{item.badge}</span>}
+      {item.badge !== undefined && <span className="rounded-full bg-white/10 px-2 py-px text-xs text-white/70 tabular-nums">{item.badge}</span>}
     </Link>
   );
 }
@@ -125,12 +136,12 @@ function NavItem({ item, active, onNavigate, pathname, withBadge, collapsed }) {
           aria-current={onAllLeads ? 'page' : undefined}
           className={cx(
             'flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-1 transition-colors',
-            onAllLeads ? 'bg-white/10 text-white shadow-[inset_3px_0_0_#ffffff]' : 'hover:bg-white/5',
+            onAllLeads ? NAV_LINK_ACTIVE : 'hover:bg-white/5',
           )}
         >
           <item.icon className="h-[18px] w-[18px] shrink-0 text-white" />
           <span className="flex-1 truncate text-left">{item.label}</span>
-          {groupBadge !== undefined && <span className="rounded-full bg-white/10 px-2 py-px text-xs text-white/70">{groupBadge}</span>}
+          {groupBadge !== undefined && <span className="rounded-full bg-white/10 px-2 py-px text-xs text-white/70 tabular-nums">{groupBadge}</span>}
         </Link>
         <button
           type="button"
@@ -261,7 +272,7 @@ export default function AppShell({ nav, workspace, headerExtra, children }) {
 
   // `rail`: the collapsed desktop sidebar (icons only). The mobile drawer is always the full sidebar.
   const renderSidebar = (rail) => (
-    <div className={cx('relative isolate flex h-full flex-col border-r border-white/5 bg-slate-900 transition-[width] duration-200', rail ? 'w-[4.5rem]' : 'w-64')}>
+    <div className={cx('relative isolate flex h-full flex-col border-r border-white/5 bg-slate-900 text-white transition-[width] duration-200', rail ? 'w-[4.5rem]' : 'w-64')}>
       {rail ? (
         <div className="flex flex-col items-center gap-2 pt-4 pb-2">
           {company?.logo ? <ImageFrame src={assetUrl(company.logo)} className="h-10 w-10 rounded-lg" /> : company ? <Avatar name={company.name} square size={36} /> : <BrandMark size={36} />}
@@ -271,7 +282,7 @@ export default function AppShell({ nav, workspace, headerExtra, children }) {
           <ImageFrame src={assetUrl(company.logo)} className="h-14 w-full rounded-xl" />
           <div className="mt-3 px-1">
             <div className="truncate text-sm font-semibold text-white" title={company.name}>{company.name}</div>
-            <div className="truncate text-xs text-slate-400">{workspace}</div>
+            {workspace && <div className="truncate text-xs text-slate-400">{workspace}</div>}
           </div>
         </div>
       ) : (
@@ -279,7 +290,7 @@ export default function AppShell({ nav, workspace, headerExtra, children }) {
           {company ? <Avatar name={company.name} square size={36} /> : <BrandMark size={36} />}
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-white" title={company?.name}>{company?.name || PRODUCT_NAME}</div>
-            <div className="truncate text-xs text-slate-400">{workspace}</div>
+            {workspace && <div className="truncate text-xs text-slate-400">{workspace}</div>}
           </div>
         </div>
       )}
@@ -327,7 +338,7 @@ export default function AppShell({ nav, workspace, headerExtra, children }) {
   );
 
   return (
-    <div className="flex h-dvh bg-slate-50 text-slate-900">
+    <div className="flex h-dvh bg-[#f4f6f9] text-slate-900">
       <aside className="relative hidden shrink-0 lg:block">
         {renderSidebar(collapsed)}
         {/* expand / collapse, on the sidebar's edge */}
@@ -337,7 +348,7 @@ export default function AppShell({ nav, workspace, headerExtra, children }) {
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-expanded={!collapsed}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="absolute top-5 -right-3.5 z-10 grid h-7 w-7 place-items-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
+          className="absolute top-5 -right-3.5 z-10 grid h-7 w-7 place-items-center rounded-full border border-slate-600 bg-slate-800 text-slate-200 shadow-md transition-colors hover:bg-slate-700 hover:text-white"
         >
           {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
         </button>

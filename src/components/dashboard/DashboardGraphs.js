@@ -25,7 +25,30 @@ function Legend({ series }) {
  * Columns per row (month), one or more series side by side — or stacked with `stacked`.
  * rows: [{ key, label, [series.key]: number }]; series: [{ key, label, color }]; format: value → text.
  */
-export function ColumnChart({ title, description, rows, series, format = (v) => String(Math.round(v)), stacked = false, empty = 'Nothing to show yet.', footer }) {
+function ColumnChartTooltip({ row, series, format, val, stacked, total }) {
+  return (
+    <div className="w-max min-w-[8.5rem] max-w-[15rem] rounded-lg bg-slate-900 px-2.5 py-1.5 text-white shadow-lg">
+      <div className="mb-0.5 truncate text-[11px] text-slate-300">{row.label}</div>
+      {series.map((s) => (
+        <div key={s.key} className="flex items-center justify-between gap-3 text-xs">
+          <span className="inline-flex min-w-0 items-center gap-1.5 text-slate-300">
+            <span className="h-0.5 w-2.5 shrink-0" style={{ background: s.color === SERIES_COLORS[2] ? '#e2e8f0' : s.color }} aria-hidden />
+            <span className="truncate">{s.label}</span>
+          </span>
+          <span className="shrink-0 font-semibold whitespace-nowrap tabular-nums">{format(val(row, s))}</span>
+        </div>
+      ))}
+      {stacked && series.length > 1 && (
+        <div className="mt-0.5 flex justify-between gap-3 border-t border-slate-700 pt-0.5 text-xs">
+          <span className="text-slate-300">Total</span>
+          <span className="font-semibold tabular-nums">{format(total)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ColumnChart({ title, description, rows, series, format = (v) => String(Math.round(v)), stacked = false, empty = 'Nothing to show yet.', footer, onBarClick }) {
   const [hover, setHover] = useState(null);
   const [table, setTable] = useState(false);
   const val = (r, s) => Number(r[s.key]) || 0;
@@ -37,7 +60,7 @@ export function ColumnChart({ title, description, rows, series, format = (v) => 
   const top = counts ? Math.max(2, nice % 2 ? nice + 1 : nice) : nice;
   const ticks = [0, top / 2, top];
   const short = (label) => label.split(' ')[0];
-  const shown = hover != null ? rows[hover] : null;
+  const axisLabel = (r) => (rows.length <= 6 ? r.label : short(r.label));
   const every = rows.length > 14 ? Math.ceil(rows.length / 8) : 1; // long series (days): label every few columns, always the latest
   const barMax = series.length > 1 && !stacked ? 'max-w-3' : 'max-w-6';
 
@@ -61,44 +84,56 @@ export function ColumnChart({ title, description, rows, series, format = (v) => 
         ) : peak === 0 ? (
           <div className="grid min-h-[12rem] flex-1 place-items-center px-6 text-center text-sm text-slate-400">{empty}</div>
         ) : (
-          <div className="flex min-h-[12rem] flex-1 gap-2">
+          <div className="flex min-h-[12rem] flex-1 gap-2 overflow-visible pt-1">
             <div className="relative mb-[22px] w-12 shrink-0 text-right text-[11px] text-slate-400 tabular-nums" aria-hidden>
               {ticks.map((t) => <span key={t} className="absolute right-0 -translate-y-1/2" style={{ top: `${100 - (t / top) * 100}%` }}>{t === 0 ? '0' : format(t)}</span>)}
             </div>
-            <div className="flex min-w-0 flex-1 flex-col">
-              <div className="relative flex-1" role="img" aria-label={title}>
+            <div className="flex min-w-0 flex-1 flex-col overflow-visible">
+              <div className="relative min-h-0 flex-1 overflow-visible" role="img" aria-label={title}>
                 {ticks.map((t) => <div key={t} className="absolute inset-x-0 border-t border-slate-200" style={{ top: `${100 - (t / top) * 100}%` }} aria-hidden />)}
-                <div className="absolute inset-0 flex items-end gap-1.5" onPointerLeave={() => setHover(null)}>
-                  {rows.map((r, i) => (
-                    <div key={r.key} tabIndex={0} aria-label={`${r.label}: ${series.map((s) => `${s.label} ${format(val(r, s))}`).join(', ')}`}
-                      onPointerEnter={() => setHover(i)} onFocus={() => setHover(i)} onBlur={() => setHover(null)}
-                      className={cx('relative flex h-full min-w-0 flex-1 items-end justify-center gap-[2px] rounded-sm outline-none', hover === i && 'bg-slate-100')}>
-                      {stacked ? (
-                        totals[i] > 0 && (
-                          <div className={cx('flex w-full flex-col-reverse gap-[2px] transition-opacity', barMax, hover != null && hover !== i && 'opacity-60')} style={{ height: `${(totals[i] / top) * 100}%` }}>
-                            {series.map((s) => val(r, s) > 0 && <div key={s.key} className="w-full last:rounded-t-[4px]" style={{ flexGrow: val(r, s), flexBasis: 0, background: s.color, minHeight: 2 }} />)}
+                <div className="absolute inset-0 flex items-end gap-1.5 overflow-visible" onPointerLeave={() => setHover(null)}>
+                  {rows.map((r, i) => {
+                    const barH = stacked ? (totals[i] / top) * 100 : Math.max(...series.map((s) => (val(r, s) / top) * 100), 0);
+                    const tipAlign = i === 0 ? 'left-0 translate-x-0' : i === rows.length - 1 ? 'right-0 left-auto translate-x-0' : 'left-1/2 -translate-x-1/2';
+                    return (
+                      <div key={r.key} tabIndex={onBarClick ? 0 : undefined} aria-label={`${r.label}: ${series.map((s) => `${s.label} ${format(val(r, s))}`).join(', ')}`}
+                        onPointerEnter={() => setHover(i)} onFocus={() => setHover(i)} onBlur={() => setHover(null)}
+                        onClick={() => onBarClick?.(r)}
+                        onKeyDown={(e) => { if (onBarClick && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onBarClick(r); } }}
+                        className={cx('relative flex h-full min-w-0 flex-1 items-end justify-center gap-[2px] overflow-visible rounded-sm outline-none', hover === i && 'bg-slate-100', onBarClick && 'cursor-pointer')}>
+                        {hover === i && barH > 0 && (
+                          <div
+                            className={cx('pointer-events-none absolute z-20 -translate-y-2', tipAlign)}
+                            style={{ bottom: `${barH}%` }}
+                          >
+                            <ColumnChartTooltip row={r} series={series} format={format} val={val} stacked={stacked} total={totals[i]} />
                           </div>
-                        )
-                      ) : series.map((s) => val(r, s) > 0 && (
-                        <div key={s.key} className={cx('w-full rounded-t-[4px] transition-opacity', barMax, hover != null && hover !== i && 'opacity-60')} style={{ height: `${(val(r, s) / top) * 100}%`, background: s.color }} />
-                      ))}
-                    </div>
-                  ))}
-                </div>
-                {shown && (
-                  <div className="pointer-events-none absolute top-0 z-10 -translate-x-1/2 rounded-lg bg-slate-900 px-2.5 py-1.5 text-white shadow-lg" style={{ left: `${Math.min(80, Math.max(20, ((hover + 0.5) / rows.length) * 100))}%`, minWidth: '8.5rem' }}>
-                    <div className="mb-0.5 text-[11px] text-slate-300">{shown.label}</div>
-                    {series.map((s) => (
-                      <div key={s.key} className="flex items-center justify-between gap-3 text-xs">
-                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-slate-300"><span className="h-0.5 w-2.5 shrink-0" style={{ background: s.color === SERIES_COLORS[2] ? '#e2e8f0' : s.color }} />{s.label}</span>
-                        <span className="font-semibold whitespace-nowrap tabular-nums">{format(val(shown, s))}</span>
+                        )}
+                        {stacked ? (
+                          totals[i] > 0 && (
+                            <div className={cx('flex w-full flex-col-reverse gap-[2px] transition-opacity', barMax, hover != null && hover !== i && 'opacity-60')} style={{ height: `${barH}%` }}>
+                              {series.map((s) => val(r, s) > 0 && (
+                                <div
+                                  key={s.key}
+                                  role={onBarClick ? 'button' : undefined}
+                                  tabIndex={onBarClick ? 0 : undefined}
+                                  className={cx('w-full last:rounded-t-[4px]', onBarClick && 'cursor-pointer hover:brightness-95')}
+                                  style={{ flexGrow: val(r, s), flexBasis: 0, background: s.color, minHeight: 2 }}
+                                  onClick={(e) => { e.stopPropagation(); onBarClick?.(r, s.key); }}
+                                  onKeyDown={(e) => { if (onBarClick && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); onBarClick(r, s.key); } }}
+                                />
+                              ))}
+                            </div>
+                          )
+                        ) : series.map((s) => val(r, s) > 0 && (
+                          <div key={s.key} className={cx('w-full rounded-t-[4px] transition-opacity', barMax, hover != null && hover !== i && 'opacity-60')} style={{ height: `${(val(r, s) / top) * 100}%`, background: s.color }} />
+                        ))}
                       </div>
-                    ))}
-                    {stacked && series.length > 1 && <div className="mt-0.5 flex justify-between gap-3 border-t border-slate-700 pt-0.5 text-xs"><span className="text-slate-300">Total</span><span className="font-semibold tabular-nums">{format(totals[hover])}</span></div>}
-                  </div>
-                )}
+                    );
+                  })}
+                </div>
               </div>
-              <div className="mt-1.5 flex gap-1.5 text-[11px] text-slate-400" aria-hidden>{rows.map((r, i) => <div key={r.key} className="min-w-0 flex-1 text-center whitespace-nowrap">{(rows.length - 1 - i) % every === 0 ? short(r.label) : ''}</div>)}</div>
+              <div className="mt-1.5 flex gap-1.5 text-[11px] text-slate-500" aria-hidden>{rows.map((r, i) => <div key={r.key} className="min-w-0 flex-1 truncate text-center" title={r.label}>{(rows.length - 1 - i) % every === 0 ? axisLabel(r) : ''}</div>)}</div>
             </div>
           </div>
         )}
@@ -108,7 +143,27 @@ export function ColumnChart({ title, description, rows, series, format = (v) => 
   );
 }
 
-/** Distinct hues for the slices of a part-to-whole chart, in a fixed order checked for colour-blind separation. */
+/** Semi-circle progress (0–100). Used on the company dashboard. */
+export function ArcGauge({ pct, title, subtitle, className }) {
+  const p = Math.min(100, Math.max(0, Math.round(Number(pct) || 0)));
+  const r = 38;
+  const track = Math.PI * r;
+  const filled = (p / 100) * track;
+  const path = `M ${50 - r} 54 A ${r} ${r} 0 0 1 ${50 + r} 54`;
+  return (
+    <div className={cx('flex flex-col items-center justify-center px-2 py-3 text-center', className)}>
+      <svg viewBox="0 0 100 64" className="h-[7.5rem] w-full max-w-[12rem]" role="img" aria-label={`${title}: ${p}%`}>
+        <path d={path} fill="none" stroke="#e2e8f0" strokeWidth="9" strokeLinecap="round" />
+        <path d={path} fill="none" stroke="var(--brand)" strokeWidth="9" strokeLinecap="round" strokeDasharray={`${filled} ${track}`} />
+      </svg>
+      <div className="-mt-6 text-[1.65rem] leading-none font-semibold tracking-tight text-slate-900 tabular-nums">{p}%</div>
+      <div className="mt-1.5 text-[13px] font-semibold text-slate-800">{title}</div>
+      {subtitle && <p className="mt-0.5 max-w-[12rem] text-xs leading-snug text-slate-500">{subtitle}</p>}
+    </div>
+  );
+}
+
+/** Distinct hues for part-to-whole slices, in a fixed order checked for colour-blind separation. */
 export const CATEGORY_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'];
 const OTHER_COLOR = '#cbd5e1';
 
@@ -123,51 +178,189 @@ function arc(cx, cy, ro, ri, start, end) {
   return `M${x1},${y1}A${ro},${ro} 0 ${large} 1 ${x2},${y2}L${x3},${y3}A${ri},${ri} 0 ${large} 0 ${x4},${y4}Z`;
 }
 
+/** Degrees of space between adjacent slices (each slice loses half on each side). */
+export const PIE_SLICE_GAP_DEG = 0.35;
+
+function pieSector(cx, cy, r, start, end) {
+  const span = Math.min(end - start, 359.99);
+  const large = span > 180 ? 1 : 0;
+  const rad = (deg) => ((deg - 90) * Math.PI) / 180;
+  const [x1, y1] = [cx + r * Math.cos(rad(start)), cy + r * Math.sin(rad(start))];
+  const [x2, y2] = [cx + r * Math.cos(rad(start + span)), cy + r * Math.sin(rad(start + span))];
+  return `M${cx},${cy}L${x1},${y1}A${r},${r} 0 ${large} 1 ${x2},${y2}Z`;
+}
+
+/** Flat 2D pie or donut; legend and captions live in the parent. */
+export function PieChart2D({
+  arcs,
+  format,
+  hover,
+  setHover,
+  clickable,
+  pickSlice,
+  donut = false,
+  center,
+}) {
+  const chartCx = 50;
+  const chartCy = 50;
+  const ro = 46;
+  const ri = donut ? 30 : 0;
+  const pathFor = (a) => (ri > 0 ? arc(chartCx, chartCy, ro, ri, a.start, a.end) : pieSector(chartCx, chartCy, ro, a.start, a.end));
+
+  return (
+    <div className={cx('relative mx-auto aspect-square w-full', donut ? 'max-w-[11rem]' : 'max-w-[11.5rem]')}>
+      <svg viewBox="0 0 100 100" className="h-full w-full" role="img" aria-label={arcs.map((a) => `${a.label}: ${format(a.value)} (${a.pct}%)`).join(', ')}>
+        {arcs.map((a) => (
+          <path
+            key={a.key}
+            d={pathFor(a)}
+            fill={a.color}
+            stroke={donut ? '#fff' : 'none'}
+            strokeWidth={donut ? 0.75 : 0}
+            tabIndex={clickable && !a.other ? 0 : undefined}
+            aria-label={`${a.label}: ${format(a.value)}, ${a.pct}%`}
+            onPointerEnter={() => setHover(a.key)}
+            onFocus={() => setHover(a.key)}
+            onBlur={() => setHover(null)}
+            onClick={() => pickSlice(a)}
+            onKeyDown={(e) => { if (clickable && !a.other && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pickSlice(a); } }}
+            className={cx('outline-none transition-opacity duration-150', clickable && !a.other ? 'cursor-pointer' : 'cursor-default')}
+            style={{ opacity: hover && hover !== a.key ? 0.4 : 1 }}
+          />
+        ))}
+      </svg>
+      {center && (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center px-2 text-center">
+          {center}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * A donut for a part-to-whole split. rows: [{ key, label, value }]. More than 7 slices fold into "Other". The legend
  * carries every name, count and share, so nothing depends on telling colours apart; hover or focus a slice or a row.
  */
-export function DonutChart({ rows, format = (v) => String(v), unit = '' }) {
+export function DonutChart({
+  rows,
+  format = (v) => String(v),
+  unit = '',
+  sortByValue = true,
+  layout = 'horizontal',
+  holeLabel = '',
+  onSliceClick,
+}) {
   const [hover, setHover] = useState(null);
-  const sorted = [...rows].filter((r) => r.value > 0).sort((a, b) => b.value - a.value);
+  const clickable = Boolean(onSliceClick);
+  const pickSlice = (a) => {
+    if (!onSliceClick || a.other) return;
+    onSliceClick(a);
+  };
+  const filtered = rows.filter((r) => r.value > 0);
+  const sorted = sortByValue ? [...filtered].sort((a, b) => b.value - a.value) : filtered;
   const slices = sorted.length > 8 ? [...sorted.slice(0, 7), { key: 'other', label: 'Other', value: sorted.slice(7).reduce((a, r) => a + r.value, 0), other: true }] : sorted;
   const total = slices.reduce((a, r) => a + r.value, 0);
-  const gap = slices.length > 1 ? 1.6 : 0; // degrees of surface between slices
+  const gap = slices.length > 1 ? PIE_SLICE_GAP_DEG : 0;
   const degrees = (v) => (total ? (v / total) * 360 : 0);
   const arcs = slices.map((s, i) => {
     const at = slices.slice(0, i).reduce((sum, p) => sum + degrees(p.value), 0); // where this slice starts
-    return { ...s, color: s.other ? OTHER_COLOR : CATEGORY_COLORS[i], start: at + gap / 2, end: at + degrees(s.value) - gap / 2, pct: total ? Math.round((s.value / total) * 100) : 0 };
+    return { ...s, color: s.other ? OTHER_COLOR : (s.color || CATEGORY_COLORS[i]), start: at + gap / 2, end: at + degrees(s.value) - gap / 2, pct: total ? Math.round((s.value / total) * 100) : 0 };
   });
   const on = arcs.find((a) => a.key === hover);
   if (!total) return null;
+
+  const holeTitle = on ? on.label : (holeLabel || unit || 'Total');
+  const holeValue = format(on ? on.value : total);
+
+  const legend = (
+    <ul className={cx('min-w-0 space-y-1', layout === 'vertical' && 'w-full')}>
+      {arcs.map((a) => (
+        <li
+          key={a.key}
+          onPointerEnter={() => setHover(a.key)}
+          onClick={() => pickSlice(a)}
+          onKeyDown={(e) => { if (clickable && !a.other && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pickSlice(a); } }}
+          tabIndex={clickable && !a.other ? 0 : undefined}
+          role={clickable && !a.other ? 'button' : undefined}
+          className={cx(
+            'rounded-lg px-2 py-1.5',
+            layout === 'vertical'
+              ? 'flex items-start gap-2.5 text-left'
+              : 'grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-0.5 text-sm',
+            hover === a.key && 'bg-slate-50 ring-1 ring-slate-200',
+            clickable && !a.other && 'cursor-pointer hover:bg-slate-50/80',
+          )}
+        >
+          <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: a.color }} aria-hidden />
+          {layout === 'vertical' ? (
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-medium text-slate-800">{a.label}</span>
+              <span className="mt-0.5 block whitespace-nowrap text-xs tabular-nums text-slate-600">
+                {format(a.value)}
+                <span className="text-slate-400"> · </span>
+                {a.pct}%
+              </span>
+            </span>
+          ) : (
+            <>
+              <span className="truncate text-slate-700">{a.label}</span>
+              <span className="shrink-0 whitespace-nowrap font-semibold text-slate-900 tabular-nums">{format(a.value)}</span>
+              <span className="w-9 shrink-0 text-right text-xs text-slate-500 tabular-nums">{a.pct}%</span>
+            </>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+
+  const ring = layout === 'vertical' ? (
+    <div className="flex w-full flex-col items-center">
+      <div className="mb-2 text-center">
+        <div className="text-sm font-semibold tabular-nums text-slate-900">{holeValue}</div>
+        <div className="text-[10px] leading-snug text-slate-500">{holeTitle}</div>
+      </div>
+      <PieChart2D
+        arcs={arcs}
+        format={format}
+        hover={hover}
+        setHover={setHover}
+        clickable={clickable}
+        pickSlice={pickSlice}
+        donut={false}
+      />
+    </div>
+  ) : (
+    <PieChart2D
+      arcs={arcs}
+      format={format}
+      hover={hover}
+      setHover={setHover}
+      clickable={clickable}
+      pickSlice={pickSlice}
+      donut
+      center={(
+        <div className="min-w-0 max-w-full">
+          <div className="text-xl font-semibold leading-tight text-slate-900 tabular-nums">{holeValue}</div>
+          <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-slate-500">{holeTitle}</div>
+        </div>
+      )}
+    />
+  );
+
+  if (layout === 'vertical') {
+    return (
+      <div className="flex flex-col items-stretch gap-3" onPointerLeave={() => setHover(null)}>
+        {ring}
+        {legend}
+      </div>
+    );
+  }
+
   return (
     <div className="grid items-center gap-5 sm:grid-cols-[minmax(0,11rem)_minmax(0,1fr)]" onPointerLeave={() => setHover(null)}>
-      <div className="relative mx-auto aspect-square w-full max-w-[11rem]">
-        <svg viewBox="0 0 100 100" className="h-full w-full" role="img" aria-label={arcs.map((a) => `${a.label}: ${format(a.value)} (${a.pct}%)`).join(', ')}>
-          {arcs.map((a) => (
-            <path key={a.key} d={arc(50, 50, 46, 30, a.start, a.end)} fill={a.color} tabIndex={0} aria-label={`${a.label}: ${format(a.value)}, ${a.pct}%`}
-              onPointerEnter={() => setHover(a.key)} onFocus={() => setHover(a.key)} onBlur={() => setHover(null)}
-              className="cursor-default outline-none transition-opacity" style={{ opacity: hover && hover !== a.key ? 0.35 : 1 }} />
-          ))}
-        </svg>
-        <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
-          <div>
-            <div className="text-xl leading-none font-semibold text-slate-900 tabular-nums">{format(on ? on.value : total)}</div>
-            <div className="mt-1 max-w-[5.5rem] truncate text-[11px] text-slate-500">{on ? on.label : unit || 'in total'}</div>
-          </div>
-        </div>
-      </div>
-      <ul className="min-w-0 space-y-0.5">
-        {arcs.map((a) => (
-          <li key={a.key} onPointerEnter={() => setHover(a.key)}
-            className={cx('grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm', hover === a.key && 'bg-slate-50 ring-1 ring-slate-200')}>
-            <span className="h-2.5 w-2.5 rounded-sm" style={{ background: a.color }} aria-hidden />
-            <span className="truncate text-slate-700">{a.label}</span>
-            <span className="font-semibold text-slate-900 tabular-nums">{format(a.value)}</span>
-            <span className="w-10 text-right text-xs text-slate-500 tabular-nums">{a.pct}%</span>
-          </li>
-        ))}
-      </ul>
+      {ring}
+      {legend}
     </div>
   );
 }
@@ -221,12 +414,18 @@ export function LineChart({ title, description, rows, series, format = (v) => St
                 {shown && <div className="pointer-events-none absolute inset-y-0 border-l border-slate-300" style={{ left: `${x(hover)}%` }} aria-hidden />}
                 {/* the lines stretch with the card; the dots are HTML so they stay round at any width */}
                 <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden>
+                  <defs>
+                    <linearGradient id="line-area-brand" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--brand)" stopOpacity="0.22" />
+                      <stop offset="100%" stopColor="var(--brand)" stopOpacity="0.02" />
+                    </linearGradient>
+                  </defs>
                   {series.map((s, si) => {
                     const pts = rows.map((r, i) => `${x(i)},${y(val(r, s))}`);
                     return (
                       <g key={s.key}>
-                        {si === 0 && <polygon points={`${x(0)},100 ${pts.join(' ')} ${x(rows.length - 1)},100`} fill={s.color} opacity="0.1" />}
-                        <polyline points={pts.join(' ')} fill="none" stroke={s.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                        {si === 0 && <polygon points={`${x(0)},100 ${pts.join(' ')} ${x(rows.length - 1)},100`} fill={s.color === SERIES_COLORS[0] ? 'url(#line-area-brand)' : s.color} opacity={s.color === SERIES_COLORS[0] ? 1 : 0.1} />}
+                        <polyline points={pts.join(' ')} fill="none" stroke={s.color} strokeWidth={si === 0 ? 2.5 : 2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
                       </g>
                     );
                   })}
@@ -270,11 +469,166 @@ export function BarList({ rows, labelWidth = '9rem' }) {
       {rows.map((r) => (
         <div key={r.key} className="grid items-center gap-3 text-sm" style={{ gridTemplateColumns: `minmax(0, ${labelWidth}) minmax(0, 1fr) auto` }} title={`${r.label}: ${r.text}`}>
           <span className="truncate text-slate-600">{r.label}</span>
-          <span className="h-3 rounded-r bg-slate-100"><span className="block h-full rounded-r" style={{ width: `${max ? Math.max(r.value ? 2 : 0, (r.value / max) * 100) : 0}%`, background: r.color || 'var(--brand)' }} /></span>
+          <span className="h-2.5 rounded-full bg-slate-100"><span className="block h-full rounded-full" style={{ width: `${max ? Math.max(r.value ? 2 : 0, (r.value / max) * 100) : 0}%`, background: r.color || 'var(--brand)' }} /></span>
           <span className="min-w-[4.5rem] text-right font-semibold text-slate-900 tabular-nums">{r.text}</span>
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * Rank/compare a handful of categories (e.g. branches): full-width horizontal bars, value always visible.
+ * rows: [{ key, label, value, color?, text? }]
+ */
+export function HorizontalCompareChart({
+  title,
+  description,
+  rows,
+  format = (v) => String(Math.round(v)),
+  empty = 'Nothing to show yet.',
+  sortByValue = true,
+  onRowClick,
+  footer,
+  embedded = false,
+}) {
+  const sorted = sortByValue ? [...rows].sort((a, b) => (b.value || 0) - (a.value || 0)) : rows;
+  const max = Math.max(0, ...sorted.map((r) => r.value || 0));
+  const peak = max || 1;
+
+  const body = (
+    <>
+      {!embedded && title && <CardHeader className="shrink-0 py-3" title={title} description={description} />}
+      <div className={cx('flex flex-1 flex-col gap-3', embedded ? '' : 'px-5 py-4')}>
+        {!sorted.length || max === 0 ? (
+          <p className="py-8 text-center text-sm text-slate-500">{empty}</p>
+        ) : (
+          <ul className="space-y-4">
+            {sorted.map((r, i) => {
+              const pct = Math.max(r.value ? 4 : 0, (r.value / peak) * 100);
+              const text = r.text ?? format(r.value);
+              return (
+                <li key={r.key}>
+                  <button
+                    type="button"
+                    disabled={!onRowClick}
+                    onClick={() => onRowClick?.(r)}
+                    className={cx(
+                      'group w-full rounded-xl px-2 py-2 text-left transition-colors',
+                      onRowClick && 'hover:bg-slate-50 focus-visible:bg-slate-50',
+                    )}
+                  >
+                    <div className="mb-1.5 flex items-baseline justify-between gap-3">
+                      <span className="truncate text-sm font-medium text-slate-800">
+                        <span className="mr-2 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-[11px] font-semibold text-slate-600 tabular-nums">{i + 1}</span>
+                        {r.label}
+                      </span>
+                      <span className="shrink-0 text-sm font-semibold text-slate-900 tabular-nums">{text}</span>
+                    </div>
+                    <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full transition-[width] duration-300"
+                        style={{ width: `${pct}%`, background: r.color || 'var(--brand)' }}
+                      />
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {footer}
+      </div>
+    </>
+  );
+
+  if (embedded) return body;
+  return <Card className="flex h-full flex-col">{body}</Card>;
+}
+
+/**
+ * One horizontal stacked bar per row (branch workload, inventory alerts). Better than thin vertical columns for few rows.
+ */
+export function StackedRowChart({
+  title,
+  description,
+  rows,
+  series,
+  format = (v) => String(Math.round(v)),
+  empty = 'Nothing to show yet.',
+  onSegmentClick,
+  footer,
+}) {
+  const val = (r, s) => Number(r[s.key]) || 0;
+  const totalOf = (r) => series.reduce((a, s) => a + val(r, s), 0);
+  const peak = Math.max(0, ...rows.map(totalOf));
+  const hasData = peak > 0;
+
+  return (
+    <Card className="flex h-full flex-col">
+      <CardHeader className="shrink-0 py-3" title={title} description={description} />
+      <div className="flex flex-1 flex-col gap-4 px-5 py-4">
+        {hasData && series.length > 1 && <Legend series={series} />}
+        {!hasData ? (
+          <p className="py-8 text-center text-sm text-slate-500">{empty}</p>
+        ) : (
+          <ul className="space-y-5">
+            {rows.map((r) => {
+              const total = totalOf(r);
+              return (
+                <li key={r.key}>
+                  <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-sm font-medium text-slate-800">{r.label}</span>
+                    <span className="text-xs text-slate-500">
+                      <span className="font-semibold text-slate-900 tabular-nums">{format(total)}</span>
+                      {' '}total open
+                    </span>
+                  </div>
+                  {total > 0 ? (
+                    <>
+                      <div className="flex h-4 overflow-hidden rounded-full bg-slate-100">
+                        {series.map((s) => {
+                          const n = val(r, s);
+                          if (n <= 0) return null;
+                          const w = (n / total) * 100;
+                          return (
+                            <button
+                              key={s.key}
+                              type="button"
+                              disabled={!onSegmentClick}
+                              title={`${s.label}: ${format(n)}`}
+                              onClick={() => onSegmentClick?.(r, s.key)}
+                              className={cx('h-full min-w-[4px] transition-opacity hover:brightness-95 disabled:cursor-default', onSegmentClick && 'cursor-pointer')}
+                              style={{ width: `${w}%`, background: s.color }}
+                            />
+                          );
+                        })}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                        {series.map((s) => {
+                          const n = val(r, s);
+                          if (n <= 0) return null;
+                          return (
+                            <span key={s.key} className="inline-flex items-center gap-1">
+                              <span className="h-2 w-2 rounded-sm" style={{ background: s.color }} aria-hidden />
+                              {s.label}
+                              <span className="font-semibold text-slate-800 tabular-nums">{format(n)}</span>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-400">Nothing open in this branch</p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {footer}
+      </div>
+    </Card>
   );
 }
 

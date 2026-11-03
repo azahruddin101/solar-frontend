@@ -12,7 +12,7 @@ import { CURRENCIES, formatMoney } from '@/lib/energy';
 import { useSession } from '@/lib/session';
 import { canEditOrgMasters, ORG_MASTERS_API } from '@/lib/tenant';
 import { useResource } from '@/lib/useResource';
-import { useCan } from '@/lib/useCan';
+import { useCan, useCatalogCan } from '@/lib/useCan';
 import { Alert, Button, Card, CardHeader, ConfirmDialog, EmptyState, FilterNotice, FormField, Input, LoadingBlock, PageHeader, Select, Table, TablePagination, Tabs, Td, Th, Tr, buttonClass, showError, toast, usePagedItems } from '../kit';
 import { CategoryProducts } from './CatalogProducts';
 import Packages from './Packages';
@@ -91,11 +91,12 @@ function Pricing({ canEditPricing }) {
   );
 }
 
-export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-categories' }) {
+export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-categories', catalogPath = '/dashboard/catalog', catalogOnly = false }) {
   const company = useSession((s) => s.company);
   const user = useSession((s) => s.user);
   const canEditPricing = canEditOrgMasters(user);
   const may = useCan();
+  const mayCatalog = useCatalogCan();
   const categories = useResource('/api/categories');
   const designer = useResource('/api/catalog'); // which of the products the designer picks up
   const params = useSearchParams();
@@ -110,6 +111,8 @@ export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-
   const productUnits = productUnitsFor(company);
 
   const list = categories.data || [];
+  const orgTab = list.some((c) => c.id === picked) ? picked : list[0]?.id;
+  const orgCategory = orgTab ? list.find((c) => c.id === orgTab) : null;
   // the first category until a tab is picked (or after the picked one is deleted)
   const tab = picked === 'pricing' || picked === 'packages' || list.some((c) => c.id === picked) ? picked : list[0]?.id || 'packages';
   const category = list.find((c) => c.id === tab);
@@ -140,11 +143,74 @@ export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-
     setBusy(false);
   };
 
+  const deleteProductDialog = (
+    <ConfirmDialog open={modal?.type === 'delete-product'} onClose={close} onConfirm={remove} busy={busy} error={modalError} title="Delete this product?">
+      <b className="text-slate-900">{modal?.item?.name}</b> will be removed from your catalog.{modal?.item?.type && modal.item.type !== 'general' && ' Designs already using it fall back to another product.'}
+    </ConfirmDialog>
+  );
+
+  if (catalogOnly) {
+    return (
+      <>
+        <PageHeader title="Product catalog" description="Shared by all branches — add products here; each branch manages stock separately.">
+          <div className="flex flex-wrap gap-2">
+            <Link href={mastersPath} className={buttonClass({ variant: 'secondary' })}>Categories</Link>
+            {orgCategory && mayCatalog('inventory', 'create') && (
+              <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'product' })}>Add product</Button>
+            )}
+          </div>
+        </PageHeader>
+        {categories.error && <Alert className="mb-6">{categories.error}</Alert>}
+        {categories.loading && <LoadingBlock />}
+        {!categories.loading && !list.length && (
+          <Card>
+            <EmptyState icon={Tags} title="Create a category first" description="Group products under Masters → Catalog categories, then come back to add items.">
+              <Link href={mastersPath} className={buttonClass({ variant: 'primary' })}>Open catalog categories</Link>
+            </EmptyState>
+          </Card>
+        )}
+        {!categories.loading && list.length > 0 && (
+          <>
+            {list.length === 1 ? (
+              <p className="mb-3 text-sm font-medium text-slate-800">{orgCategory.name}</p>
+            ) : (
+              <div className="mb-4 max-w-md">
+                <label className="mb-1.5 block text-[13px] font-medium text-slate-700">Category</label>
+                <Select aria-label="Category" value={orgTab} onValue={setPicked}>
+                  {list.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}{c.products ? ` · ${c.products} product${c.products === 1 ? '' : 's'}` : ''}</option>
+                  ))}
+                </Select>
+              </div>
+            )}
+            {orgCategory && (
+              <CategoryProducts
+                key={orgCategory.id}
+                category={orgCategory}
+                categories={list}
+                money={money}
+                currency={company.currency}
+                units={productUnits}
+                excelImport={company.features.excelImport}
+                modal={modal}
+                setModal={setModal}
+                onCount={onCount}
+                catalogPath={catalogPath}
+                catalogOnly
+              />
+            )}
+          </>
+        )}
+        {deleteProductDialog}
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader title="Product catalog" description="Everything your company sells, in your own categories and with your prices.">
-        {may('finances', 'create_eway_bill') && <Link href="/dashboard/billing?new=eway" className={buttonClass({ variant: 'secondary' })}><Truck className="h-4 w-4" />E-way bill</Link>}
-        {category && may('inventory', 'create') && <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'product' })}>Add product</Button>}
+        {may('finances', 'create_eway_bill') && <Link href="/dashboard/billing?new=eway" className={buttonClass({ variant: 'secondary' })}><Truck className="h-4 w-4" />Bill</Link>}
+        {category && mayCatalog('inventory', 'create') && <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'product' })}>Add product</Button>}
       </PageHeader>
       {categories.error && <Alert className="mb-6">{categories.error}</Alert>}
       {missing.length > 0 && (
@@ -191,10 +257,17 @@ export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-
           modal={modal}
           setModal={setModal}
           onCount={onCount}
+          catalogPath={catalogPath}
         />
       )}
-      {tab === 'packages' && (
-        <Packages money={money} currency={company.currency} />
+      {tab === 'packages' && !categories.loading && (
+        list.length ? <Packages money={money} currency={company.currency} /> : (
+          <Card>
+            <EmptyState icon={Tags} title="No categories yet" description="Create a category — solar panels, poles, inverters… — then add your products to it.">
+              <Link href={mastersPath} className={buttonClass({ variant: 'primary' })}>Create a category</Link>
+            </EmptyState>
+          </Card>
+        )
       )}
       {tab === 'pricing' && !categories.loading && (
         <>
@@ -205,9 +278,7 @@ export default function Catalog({ mastersPath = '/dashboard/masters?tab=catalog-
       </>)}
 
 
-      <ConfirmDialog open={modal?.type === 'delete-product'} onClose={close} onConfirm={remove} busy={busy} error={modalError} title="Delete this product?">
-        <b className="text-slate-900">{modal?.item?.name}</b> will be removed from your catalog.{modal?.item?.type && modal.item.type !== 'general' && ' Designs already using it fall back to another product.'}
-      </ConfirmDialog>
+      {deleteProductDialog}
     </>
   );
 }

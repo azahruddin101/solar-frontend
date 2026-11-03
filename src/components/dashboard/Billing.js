@@ -1,7 +1,7 @@
 'use client';
 
-// Billing overview: won proposals with what has been received, and every document of the sale chain — e-way bills
-// (goods out of stock), bills (paid), invoices (settling bills). New documents start from here: pick the client, then
+// Billing overview: won proposals with what has been received, and every document of the sale chain — bills (goods
+// out of stock) and invoices (paid tax invoices); older invoices stay read-only. New documents start from here: pick the client, then
 // the booked proposal (or the client alone), and the proposal's billing page opens the form.
 import { Ban, Download, Eye, ExternalLink, FileText, ReceiptText, Truck, Wallet } from 'lucide-react';
 import Link from 'next/link';
@@ -25,20 +25,19 @@ const proposalTotal = (d) => Number(d.summary?.pricing?.total ?? d.summary?.cost
 
 /** What each "new document" button starts, and which page query opens its form. */
 const DOCS = {
-  eway: { label: 'E-way bill', icon: Truck, title: 'New e-way bill', hint: 'Goods leave stock on an e-way bill. Choose who they go to.', clientOnly: true },
-  bill: { label: 'Bill', icon: Wallet, title: 'New bill', hint: 'A bill gathers open e-way bills and services, and is paid when made.', clientOnly: true },
-  invoice: { label: 'Invoice', icon: ReceiptText, title: 'New invoice', hint: 'An invoice settles the paid bills of a proposal or client.', clientOnly: true },
+  eway: { label: 'Bill', icon: Truck, title: 'New bill', hint: 'Goods leave stock on a bill. Choose who they go to.', clientOnly: true },
+  bill: { label: 'Invoice', icon: Wallet, title: 'New invoice', hint: 'An invoice gathers open bills and services, and is paid when made.', clientOnly: true },
 };
 
-/** The three "new document" buttons, grouped so they don’t wrap awkwardly. */
-function BillingHeaderActions({ canEway, canBill, canInvoice, onPick }) {
-  const chain = [canEway && 'eway', canBill && 'bill', canInvoice && 'invoice'].filter(Boolean);
+/** The "new document" buttons, grouped so they don’t wrap awkwardly. */
+function BillingHeaderActions({ canEway, canBill, onPick }) {
+  const chain = [canEway && 'eway', canBill && 'bill'].filter(Boolean);
   if (!chain.length) return null;
   return (
     <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
       {chain.length > 0 && (
         <div className="flex min-w-[min(100%,280px)] flex-1 flex-col gap-1.5 rounded-xl border border-brand/20 bg-brand-soft/30 p-2 sm:min-w-0 sm:flex-none">
-          <span className="px-1 text-[11px] font-semibold uppercase tracking-wide text-brand-ink">E-way bill → Bill → Invoice</span>
+          <span className="px-1 text-[11px] font-semibold uppercase tracking-wide text-brand-ink">Bill → Invoice</span>
           <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${chain.length}, minmax(0, 1fr))` }}>
             {chain.map((k, i) => (
               <Button key={k} size="sm" variant={i === chain.length - 1 ? 'primary' : 'secondary'} icon={DOCS[k].icon} className="w-full justify-center" onClick={() => onPick(k)}>{DOCS[k].label}</Button>
@@ -132,11 +131,11 @@ export default function Billing({ basePath = '/dashboard/billing' }) {
     setBusy(true);
     try {
       await api(`/api/billing/eway-bills/${modal.item.id}/cancel`, { method: 'POST', body: { reason } });
-      toast.success(`E-way bill ${modal.item.ewayNo} cancelled — stock is back`);
+      toast.success(`Bill ${modal.item.ewayNo} cancelled — stock is back`);
       setModal(null);
       eways.reload();
     } catch (e) {
-      showError(e, 'E-way bill was not cancelled');
+      showError(e, 'Bill was not cancelled');
     }
     setBusy(false);
   };
@@ -167,7 +166,7 @@ export default function Billing({ basePath = '/dashboard/billing' }) {
       else await downloadEwayBillDocument(params);
     } catch (e) {
       console.error(e);
-      toast.error(action === 'view' ? 'The e-way bill could not be opened.' : 'The e-way bill could not be downloaded.');
+      toast.error(action === 'view' ? 'The bill could not be opened.' : 'The bill could not be downloaded.');
     }
   };
   const billPdf = async (row, action) => {
@@ -178,7 +177,7 @@ export default function Billing({ basePath = '/dashboard/billing' }) {
       else await downloadBillDocument(params);
     } catch (e) {
       console.error(e);
-      toast.error(action === 'view' ? 'The bill could not be opened.' : 'The bill could not be downloaded.');
+      toast.error(action === 'view' ? 'The invoice could not be opened.' : 'The invoice could not be downloaded.');
     }
   };
 
@@ -207,10 +206,10 @@ export default function Billing({ basePath = '/dashboard/billing' }) {
   const yetToBill = allProposals.reduce((a, d) => a + Math.max(0, d.balance), 0); // billing more than a quote is allowed: it never counts against other proposals
   const received = allProposals.reduce((a, d) => a + d.paid, 0);
   const EMPTY = {
-    proposals: ['No booked proposals yet', 'Mark a proposal as Booked and it will appear here, ready for e-way bills, bills and invoices.', FileText],
-    eway: ['No e-way bills yet', 'Goods leave stock on an e-way bill. Start one with the E-way bill button above.', Truck],
-    bills: ['No bills yet', 'A bill gathers one or more e-way bills and any services, and is paid when it is made.', Wallet],
-    invoices: ['No invoices yet', 'Invoices are generated from paid bills.', ReceiptText],
+    proposals: ['No booked proposals yet', 'Mark a proposal as Booked and it will appear here, ready for bills and invoices.', FileText],
+    eway: ['No bills yet', 'Goods leave stock on a bill. Start one with the Bill button above.', Truck],
+    bills: ['No invoices yet', 'An invoice gathers one or more bills and any services, and is paid when it is made.', Wallet],
+    invoices: ['No older invoices', 'Invoices made before invoices were issued directly, and AMC parts invoices, are listed here.', ReceiptText],
   };
   const partyCell = (row) => (
     <>
@@ -221,11 +220,10 @@ export default function Billing({ basePath = '/dashboard/billing' }) {
 
   return (
     <>
-      <PageHeader title="Billing" description="Goods go out on an e-way bill, are paid on a bill, and the bills are settled by an invoice.">
+      <PageHeader title="Billing" description="Goods go out on a bill, and are paid on an invoice — the GST tax invoice.">
         <BillingHeaderActions
           canEway={canEway}
           canBill={may('finances', 'create_bill')}
-          canInvoice={may('finances', 'create_invoice')}
           onPick={(mode) => setModal({ type: 'pick', mode })}
         />
       </PageHeader>
@@ -252,10 +250,10 @@ export default function Billing({ basePath = '/dashboard/billing' }) {
           onChange={(t) => { setTab(t); firstPages(); }}
           tabs={[
             { id: 'proposals', label: 'Booked proposals', icon: FileText, count: proposals.length },
-            { id: 'eway', label: 'E-way bills', icon: Truck, count: eways.total },
-            { id: 'bills', label: 'Bills', icon: Wallet, count: bills.total },
-            { id: 'invoices', label: 'Invoices', icon: ReceiptText, count: invoices.total },
-          ]}
+            { id: 'eway', label: 'Bills', icon: Truck, count: eways.total },
+            { id: 'bills', label: 'Invoices', icon: Wallet, count: bills.total },
+            (invoices.total > 0 || tab === 'invoices') && { id: 'invoices', label: 'Older invoices', icon: ReceiptText, count: invoices.total },
+          ].filter(Boolean)}
         />
       </div>
       {cur.error && <Alert className="mb-4">{cur.error}</Alert>}
@@ -286,11 +284,11 @@ export default function Billing({ basePath = '/dashboard/billing' }) {
           </Table>
         ) : tab === 'eway' ? (
           <Table>
-            <thead><tr><Th>E-way bill</Th><Th>Date</Th><Th>Client · Proposal</Th><Th>Goods</Th><Th>Transport</Th><Th className="text-right">Value</Th><Th>Status</Th><Th className="text-right">Actions</Th></tr></thead>
+            <thead><tr><Th>Bill</Th><Th>Date</Th><Th>Client · Proposal</Th><Th>Goods</Th><Th>Delivery</Th><Th className="text-right">Value</Th><Th>Status</Th><Th className="text-right">Actions</Th></tr></thead>
             <tbody>
               {cur.data.map((e) => (
                 <Tr key={e.id}>
-                  <Td className="font-medium text-slate-900">{e.ewayNo}{e.govtEwayNo && <div className="text-xs font-normal text-slate-500">EWB {e.govtEwayNo}</div>}</Td>
+                  <Td className="font-medium text-slate-900">{e.ewayNo}</Td>
                   <Td>{formatDate(e.issuedOn)}</Td>
                   <Td>{partyCell(e)}</Td>
                   <Td><div className="max-w-[220px] truncate text-slate-700" title={(e.lines || []).map((l) => `${l.qty} × ${l.name}`).join(', ')}>{e.itemCount} item{e.itemCount === 1 ? '' : 's'} · {(e.lines || []).map((l) => l.name).join(', ')}</div></Td>
@@ -316,7 +314,7 @@ export default function Billing({ basePath = '/dashboard/billing' }) {
           </Table>
         ) : tab === 'bills' ? (
           <Table>
-            <thead><tr><Th>Bill</Th><Th>Date</Th><Th>Client · Proposal</Th><Th>E-way bills</Th><Th>Paid by</Th><Th className="text-right">Total</Th><Th>Status</Th><Th className="text-right">Actions</Th></tr></thead>
+            <thead><tr><Th>Invoice</Th><Th>Date</Th><Th>Client · Proposal</Th><Th>Bills</Th><Th>Paid by</Th><Th className="text-right">Total</Th><Th>Status</Th><Th className="text-right">Actions</Th></tr></thead>
             <tbody>
               {cur.data.map((b) => (
                 <Tr key={b.id}>
@@ -349,7 +347,7 @@ export default function Billing({ basePath = '/dashboard/billing' }) {
             <tbody>
               {cur.data.map((i) => (
                 <Tr key={i.id}>
-                  <Td className="font-medium text-slate-900">{i.invoiceNo}{i.kind === 'amc_parts' && <> <Badge tone="slate">AMC parts</Badge></>}{i.status === 'void' && <> <Badge tone="slate">Void</Badge></>}{i.bills?.length > 0 && <div className="text-xs font-normal text-slate-500">from {i.bills.length} bill{i.bills.length === 1 ? '' : 's'}</div>}</Td>
+                  <Td className="font-medium text-slate-900">{i.invoiceNo}{i.kind === 'amc_parts' && <> <Badge tone="slate">AMC parts</Badge></>}{i.status === 'void' && <> <Badge tone="slate">Void</Badge></>}{i.bills?.length > 0 && <div className="text-xs font-normal text-slate-500">from {i.bills.length} invoice{i.bills.length === 1 ? '' : 's'}</div>}</Td>
                   <Td>{formatDate(i.issuedOn)}</Td>
                   <Td><div className="max-w-[160px] truncate" title={i.client?.name || i.billTo?.name}>{capName(i.client?.name || i.billTo?.name)}</div></Td>
                   <Td>{i.design ? i.title : <span className="inline-flex items-center gap-1.5">{i.title}<Badge tone="slate">{i.bills?.length ? 'No proposal' : 'Direct'}</Badge></span>}</Td>

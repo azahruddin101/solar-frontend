@@ -1,6 +1,6 @@
 'use client';
 
-// The grid-style A4 documents of the sale chain — e-way bill, bill and tax invoice — share these pieces: the title
+// The grid-style A4 documents of the sale chain — bill and tax invoice — share these pieces: the title
 // bar, the seller / buyer box with the document's numbers beside it, the goods table with its totals, the HSN tax
 // summary, the declaration & signature strip and the page footer. Each builder (invoicePdf.js, ewayBillPdf.js,
 // billPdf.js) stacks them in its own order.
@@ -108,7 +108,7 @@ export function pageFooter(doc, company, brand, M = IM) {
   }
 }
 
-/** The document's title across the page (TAX INVOICE, E-WAY BILL…), optionally with a small line under it. */
+/** The document's title across the page (TAX INVOICE, BILL…), optionally with a small line under it. */
 export function titleBar(doc, brand, y, title, subtitle = '') {
   return baseTable(doc, brand, {
     startY: y,

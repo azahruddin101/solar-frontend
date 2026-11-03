@@ -45,7 +45,7 @@ export default function DashboardLayout({ children }) {
 
   return (
     <AuthGuard role={['branch', 'company']}>
-      <AppShell nav={nav} workspace={role === 'branch' ? 'Branch' : 'Branch workspace'}>{children}</AppShell>
+      <AppShell nav={nav} workspace={role === 'branch' ? '' : 'Branch workspace'}>{children}</AppShell>
     </AuthGuard>
   );
 }

@@ -5,10 +5,11 @@ import { api } from './api.js';
 import { useSession } from './session.js';
 
 /** Load a list/object from the API: { data, setData, loading, error, reload }. A falsy `path` loads nothing.
- * Data is tied to the company it was loaded for, so a different company never sees the previous one's rows. */
-export function useResource(path) {
+ * Data is tied to the company it was loaded for, so a different company never sees the previous one's rows.
+ * Pass `cacheKey` when the path is org-wide (e.g. organization overview) and should not refetch on branch switch. */
+export function useResource(path, { cacheKey } = {}) {
   const companyId = useSession((s) => s.company?.id);
-  const key = `${companyId || ''}|${path || ''}`;
+  const key = `${cacheKey ?? companyId ?? ''}|${path || ''}`;
   const [state, setState] = useState({ key, data: null, loading: true, error: '' });
   const reload = useCallback(async () => {
     if (!path) return setState({ key, data: null, loading: false, error: '' });

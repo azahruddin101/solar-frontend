@@ -231,19 +231,19 @@ export default function PortalProposal({ id }) {
             ))}
           </div>
           <Card className="mb-5 overflow-hidden">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3"><span className="text-sm font-semibold text-slate-900">Bills & payments</span>{invoice && <button type="button" onClick={() => run(() => generateInvoicePdf({ invoice, company, client, currency }))} className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand hover:underline"><Download className="h-4 w-4" />Invoice {invoice.invoiceNo}</button>}</div>
-            {!bills.length ? <p className="px-6 py-5 text-sm text-slate-500">{payments.length ? `${payments.length} payment${payments.length === 1 ? '' : 's'} recorded.` : 'No bills yet.'}</p> : (
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3"><span className="text-sm font-semibold text-slate-900">Invoices & payments</span>{invoice && <button type="button" onClick={() => run(() => generateInvoicePdf({ invoice, company, client, currency }))} className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand hover:underline"><Download className="h-4 w-4" />Older invoice {invoice.invoiceNo}</button>}</div>
+            {!bills.length ? <p className="px-6 py-5 text-sm text-slate-500">{payments.length ? `${payments.length} payment${payments.length === 1 ? '' : 's'} recorded.` : 'No invoices yet.'}</p> : (
               <Table>
-                <thead><tr><Th>Bill</Th><Th>Date</Th><Th>Covers</Th><Th>Paid by</Th><Th className="text-right">Amount</Th><Th className="text-right">PDF</Th></tr></thead>
+                <thead><tr><Th>Invoice</Th><Th>Date</Th><Th>Covers</Th><Th>Paid by</Th><Th className="text-right">Amount</Th><Th className="text-right">PDF</Th></tr></thead>
                 <tbody>
                   {bills.map((b) => (
                     <Tr key={b.id}>
                       <Td className="font-medium text-slate-900">{b.billNo}</Td>
                       <Td>{formatDate(b.issuedOn)}</Td>
-                      <Td>{[b.ewayBills?.length ? `E-way bill ${b.ewayBills.map((e) => e.ewayNo).join(', ')}` : '', b.services?.length ? `${b.services.length} service${b.services.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ') || '—'}</Td>
+                      <Td>{[b.ewayBills?.length ? `Bill ${b.ewayBills.map((e) => e.ewayNo).join(', ')}` : '', b.services?.length ? `${b.services.length} service${b.services.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ') || '—'}</Td>
                       <Td>{[PAYMENT_MODE_LABEL[b.paid?.mode]?.split(' (')[0] || b.paid?.mode, b.paid?.reference].filter(Boolean).join(' · ')}</Td>
                       <Td className="text-right tabular-nums">{money(b.total)}</Td>
-                      <Td className="text-right"><IconButton icon={Download} label="Download bill" onClick={() => run(async () => { const { blob, filename } = await buildBillPdfBlob({ bill: b, company, client, currency }); downloadBlob(blob, filename); })} /></Td>
+                      <Td className="text-right"><IconButton icon={Download} label="Download invoice" onClick={() => run(async () => { const { blob, filename } = await buildBillPdfBlob({ bill: b, company, client, currency }); downloadBlob(blob, filename); })} /></Td>
                     </Tr>
                   ))}
                 </tbody>

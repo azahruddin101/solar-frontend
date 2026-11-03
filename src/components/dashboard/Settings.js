@@ -8,7 +8,7 @@ import PlanBilling from './PlanBilling';
 import TicketList from '../tickets/TicketList';
 import { resolveSettingsTab } from '@/lib/settingsQuery';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, assetUrl } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { canEditOrgMasters } from '@/lib/tenant';
@@ -401,14 +401,33 @@ function SharedSettings({ children }) {
   );
 }
 
+/**
+ * The tabs copy the company into their forms when they open, so they must start from the latest saved settings, not
+ * from what the session loaded earlier (shared branding and proposal text are changed by the company admin).
+ * Re-reads the session once on landing and shows the tabs after that; if it fails the cached copy is used.
+ */
+function useFreshCompany() {
+  const reloadSession = useSession((s) => s.reloadSession);
+  const [fresh, setFresh] = useState(false);
+  useEffect(() => {
+    let live = true;
+    reloadSession().catch(() => {}).finally(() => live && setFresh(true));
+    return () => { live = false; };
+  }, [reloadSession]);
+  return fresh;
+}
+
 export default function Settings() {
   const router = useRouter();
   const params = useSearchParams();
+  const fresh = useFreshCompany();
   const tab = resolveSettingsTab(params.get('tab'), params);
   return (
     <>
       <PageHeader title="Settings" description="Company profile, branding, billing, support and integrations." />
       <Tabs className="mb-6 flex-wrap" tabs={TABS} value={tab} onChange={(t) => router.replace(settingsTabUrl(t), { scroll: false })} />
+      {!fresh && <div className="flex justify-center py-16"><Spinner /></div>}
+      {fresh && <>
       {tab === 'profile' && <Profile />}
       {tab === 'branding' && <SharedSettings><Branding /></SharedSettings>}
       {tab === 'proposal' && <SharedSettings><Proposal /></SharedSettings>}
@@ -422,6 +441,7 @@ export default function Settings() {
         </Suspense>
       )}
       {tab === 'account' && <AccountSettings />}
+      </>}
     </>
   );
 }

@@ -3,9 +3,9 @@
 import { jsPDF } from 'jspdf';
 import { loadBranding } from './branding.js';
 import { enrichLinesGst, enrichLinesHsn, expandCollapsedPackageLines, gstSupplyType, invoiceTax, resolveProposalPricing, stateFromGstin, summarizeLinePricing } from './pricing.js';
-import { fmtPdfDate, pdfSlug } from './billingPdfShared.js';
+import { PAYMENT_MODE_LABEL, fmtPdfDate, pdfSlug } from './billingPdfShared.js';
 import { invoiceDetailRows } from './invoiceDetails.js';
-import { IM, baseTable, ctx, detailGrid, ensurePage, finishDocument, goodsTable, moneyFormats, partyMetaTable, signatureStrip, taxSummary, termsBlock, titleBar, wordsRow } from './gridPdf.js';
+import { IM, IW, baseTable, ctx, detailGrid, ensurePage, finishDocument, goodsTable, moneyFormats, partyMetaTable, signatureStrip, taxSummary, termsBlock, titleBar, wordsRow } from './gridPdf.js';
 
 const fmtDate = fmtPdfDate;
 const slug = pdfSlug;
@@ -40,6 +40,11 @@ function printablePricing(invoice, { quote, proposalPricing, catalog, packages }
   // Only older invoices without per-line amounts are worked out again below.
   const numeric = (v) => v !== null && v !== '' && Number.isFinite(Number(v));
   const storedLinesComplete = Boolean(stored?.lines?.length) && stored.lines.filter((l) => l?.name).every((l) => numeric(l.taxable) && numeric(l.gstAmount) && numeric(l.gstPercent));
+  // an invoice (backend Bill) keeps its frozen pricing exactly as it was paid
+  if (stored?.frozen && stored.lines?.length) {
+    const withGst = stored.withGst !== false && stored.invoiceGstMode !== 'without_gst';
+    return { pricing: { ...stored, withGst }, lines: stored.lines.filter((l) => l?.name).map(printableLine), withGst };
+  }
   if ((stored?.fromBills || storedLinesComplete) && stored.lines?.length) {
     const withGst = stored.withGst !== false && stored.invoiceGstMode !== 'without_gst';
     return { pricing: { ...stored, gstIncluded: stored.fromBills ? false : stored.gstIncluded !== false, withGst }, lines: stored.lines.filter((l) => l?.name).map(printableLine), withGst };
@@ -100,18 +105,26 @@ export async function buildInvoicePdfBlob({ invoice, company = {}, client = {}, 
     ['Dated', fmtDate(invoice.issuedOn)],
     ['Reference', invoice.title || '—'],
   ];
-  if (fromBills) metaRows.push(['Bills', invoice.billRefs.map((b) => b.billNo).join(', ')]);
+  // an older invoice lists the invoices it consolidated; an invoice lists the bills (goods out of stock) it covers
+  if (fromBills) metaRows.push(['Invoices', invoice.billRefs.map((b) => b.billNo).join(', ')]);
+  if (invoice.ewayNos?.length) metaRows.push(['Bills', invoice.ewayNos.join(', ')]);
+  const paid = invoice.paid;
+  if (paid) {
+    metaRows.push(['Paid by', [PAYMENT_MODE_LABEL[paid.mode] || paid.mode, paid.reference].filter(Boolean).join(' · ') || '—']);
+    metaRows.push(['Paid on', fmtDate(paid.receivedOn || invoice.issuedOn)]);
+  }
+  if (invoice.status === 'void') metaRows.push(['Status', 'Void']);
   if (withGst && supply) metaRows.push(['Supply type', supply === 'igst' ? 'Inter-state (IGST)' : 'Intra-state (CGST/SGST)']);
   y = partyMetaTable(doc, brand, { y, co, cl, coState, clState, metaRows });
 
   // the optional reference & delivery details that were filled in: a two-column grid, terms of delivery across the row
   y = detailGrid(doc, brand, y, invoiceDetailRows(invoice.details, fmtDate));
 
-  // an invoice from bills lists each bill's lines under its number
+  // an older invoice lists each consolidated invoice's lines under its number
   const groups = fromBills
-    ? invoice.billRefs.map((b) => ({ heading: `Bill ${b.billNo} · ${fmtDate(b.issuedOn)}${b.ewayNos?.length ? ` · E-way bill ${b.ewayNos.join(', ')}` : ''}`, lines: lines.filter((l) => l.billNo === b.billNo) })).filter((g) => g.lines.length)
+    ? invoice.billRefs.map((b) => ({ heading: `Invoice ${b.billNo} · ${fmtDate(b.issuedOn)}${b.ewayNos?.length ? ` · Bill ${b.ewayNos.join(', ')}` : ''}`, lines: lines.filter((l) => l.billNo === b.billNo) })).filter((g) => g.lines.length)
     : [{ lines }];
-  // lines of a bill the refs don't know (shouldn't happen) still print
+  // lines of an invoice the refs don't know (shouldn't happen) still print
   const grouped = new Set(groups.flatMap((g) => g.lines));
   const rest = lines.filter((l) => !grouped.has(l));
   if (rest.length) groups.push({ lines: rest });
@@ -120,11 +133,11 @@ export async function buildInvoicePdfBlob({ invoice, company = {}, client = {}, 
   y = wordsRow(doc, brand, y, 'Amount Chargeable (in words)', words(total));
 
   if (fromBills) {
-    // what was paid on each bill: the invoice settles bills that were paid when they were made
+    // what was paid on each consolidated invoice
     y = ensurePage(doc, y, 24);
     y = baseTable(doc, brand, {
       startY: y,
-      head: [['Bill No.', 'Dated', 'E-way bills', 'Paid']],
+      head: [['Invoice No.', 'Dated', 'Bills', 'Paid']],
       body: [
         ...invoice.billRefs.map((b) => [b.billNo, fmtDate(b.issuedOn), b.ewayNos?.length ? b.ewayNos.join(', ') : '-', amt(b.total)]),
         ['Total received', '', '', rs(invoice.billRefs.reduce((a, b) => a + (Number(b.total) || 0), 0))],
@@ -133,6 +146,16 @@ export async function buildInvoicePdfBlob({ invoice, company = {}, client = {}, 
       didParseCell: (d) => {
         if (d.section === 'body' && d.row.index === invoice.billRefs.length) d.cell.styles.fontStyle = 'bold';
       },
+    });
+  }
+
+  if (paid) {
+    // the receipt strip: an invoice is paid in full when it is made
+    y = ensurePage(doc, y, 14);
+    y = baseTable(doc, brand, {
+      startY: y,
+      body: [[{ content: `PAID IN FULL — ${rs(total)} received by ${PAYMENT_MODE_LABEL[paid.mode] || paid.mode || 'cash'}${paid.reference ? ` (${paid.reference})` : ''} on ${fmtDate(paid.receivedOn || invoice.issuedOn)}${paid.note ? `. ${paid.note}` : ''}`, styles: { fontStyle: 'bold', fillColor: brand.primary, textColor: brand.primaryFg, cellPadding: 2.5 } }]],
+      columnStyles: { 0: { cellWidth: IW } },
     });
   }
 

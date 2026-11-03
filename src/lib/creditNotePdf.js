@@ -1,6 +1,6 @@
 'use client';
 
-// The credit note: goods that came back on a paid bill, priced from the bill (GST and discount share included) and
+// The credit note: goods that came back on an invoice, priced from the invoice (GST and discount share included) and
 // refunded. Same grid layout as the bill and the tax invoice (gridPdf.js).
 import { jsPDF } from 'jspdf';
 import { loadBranding } from './branding.js';
@@ -33,7 +33,7 @@ export async function buildCreditNotePdfBlob({ note, billNo = '', company = {}, 
   const metaRows = [
     ['Credit Note No.', note.creditNo],
     ['Dated', fmtPdfDate(note.issuedOn)],
-    ['Against Bill', against || '—'],
+    ['Against Invoice', against || '—'],
     ['Reference', note.title || '—'],
     ['Reason', note.reason || '—'],
     ['Refunded by', [PAYMENT_MODE_LABEL[refund.mode] || refund.mode, refund.reference].filter(Boolean).join(' · ') || '—'],
@@ -54,7 +54,7 @@ export async function buildCreditNotePdfBlob({ note, billNo = '', company = {}, 
     columnStyles: { 0: { cellWidth: IW } },
   });
 
-  y = signatureStrip(doc, brand, { y, co, declaration: 'Declaration\nThe goods described above were received back from the client and the amount shown has been refunded. This credit note is against the bill shown, which otherwise stands.' });
+  y = signatureStrip(doc, brand, { y, co, declaration: 'Declaration\nThe goods described above were received back from the client and the amount shown has been refunded. This credit note is against the invoice shown, which otherwise stands.' });
   termsBlock(doc, brand, y, co.pdfTerms);
 
   finishDocument(doc, co, brand, 'This is a Computer Generated Credit Note');

@@ -1,6 +1,6 @@
 'use client';
 
-// Lines sold from stock, shared by the e-way bill form and the AMC parts form: the price types a batch carries, what a
+// Lines sold from stock, shared by the bill form and the AMC parts form: the price types a batch carries, what a
 // line will cost from its product's in-stock batches, and a small cache of each product's batches and serial units.
 import { useCallback, useRef, useState } from 'react';
 import { api } from '@/lib/api';
