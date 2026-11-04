@@ -2,18 +2,17 @@
 
 // One party's money — a won proposal's, or a client's with no proposal — in the order the sale chain runs:
 // bills (goods out of stock) → invoices (paid tax invoices); older invoices stay read-only. Every document is generated from here.
-import { ArrowLeft, Ban, Download, Eye, PenLine, ReceiptText, Save, Truck, Undo2, Wallet } from 'lucide-react';
+import { ArrowLeft, Ban, Download, Eye, Loader2, PenLine, ReceiptText, Truck, Undo2, Wallet } from 'lucide-react';
 import WhatsAppIcon from '../icons/WhatsAppIcon';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { PAYMENT_MODE_LABEL } from '@/lib/billingPdf';
-import { buildInvoicePdfBlob, downloadBlob } from '@/lib/invoicePdf';
+import { downloadBlob } from '@/lib/invoicePdf';
 import { buildEwayBillPdfBlob } from '@/lib/ewayBillPdf';
 import { buildBillPdfBlob } from '@/lib/billPdf';
-import { buildCreditNotePdfBlob } from '@/lib/creditNotePdf';
-import { downloadBillDocument, downloadCreditNoteDocument, downloadEwayBillDocument, downloadInvoiceDocument, viewBillDocument, viewCreditNoteDocument, viewEwayBillDocument, viewInvoiceDocument } from '@/lib/billingDocuments';
+import { archiveBillPdf, archiveCreditNotePdf, archiveEwayBillPdf, archiveInvoicePdf, uploadBillingPdf, viewBillDocument, viewCreditNoteDocument, viewEwayBillDocument, viewInvoiceDocument } from '@/lib/billingDocuments';
 import { shareBillOnWhatsApp, shareInvoiceOnWhatsApp } from '@/lib/billingWhatsApp';
 import { formatMoney } from '@/lib/energy';
 import { BILL_STATUS, EWAY_STATUS } from '@/lib/saleChain';
@@ -24,7 +23,7 @@ import { useResource } from '@/lib/useResource';
 import { Alert, Badge, Button, Card, EmptyState, IconButton, LoadingBlock, Table, Td, Th, Tr, capName, cx, formatDate, showError, toast } from '../kit';
 import EwayBillModal, { CancelEwayBillDialog } from './EwayBillModal';
 import VoidDocumentDialog from './VoidDocumentDialog';
-import ReturnGoodsModal from './ReturnGoodsModal';
+import PartialReturnEwayModal from './PartialReturnEwayModal';
 import BillModal from './BillModal';
 import { DesignStatusBadge, designHref } from './shared';
 import { useBreadcrumb } from '@/lib/breadcrumbs';
@@ -55,23 +54,6 @@ function Section({ tone, icon: Icon, title, sub, action, children }) {
   );
 }
 
-const upload = async (path, blob, filename) => {
-  const form = new FormData();
-  form.append('file', blob, filename);
-  await api(path, { method: 'POST', form });
-};
-
-/** Archive a PDF; one retry after a short pause, because a dropped connection is the usual reason it fails. */
-const uploadWithRetry = async (path, blob, filename) => {
-  try {
-    await upload(path, blob, filename);
-  } catch (first) {
-    if (first?.status === 409) return; // already archived: nothing more to do
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    await upload(path, blob, filename);
-  }
-};
-
 /** A random key for one create request: repeating the request with it returns the first result, never a second document. */
 const newRequestKey = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`);
 
@@ -92,8 +74,64 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
   const [autoUsed, setAutoUsed] = useState(false);
   const [modalState, setModalState] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [pdfOpening, setPdfOpening] = useState(null);
   const requestKeys = useRef({}); // one key per kind of document, kept until that document is created
+  const pdfBackfill = useRef(new Set());
   const money = (v) => formatMoney(v, company?.currency);
+
+  useEffect(() => {
+    if (loading || error || !data || !company) return;
+    const partyClient = data.design ? data.design.client : data.client;
+    if (!partyClient) return;
+    const currency = company.currency || 'INR';
+    const design = data.design || null;
+    let cancelled = false;
+    (async () => {
+      let touched = false;
+      const run = async (key, fn) => {
+        if (pdfBackfill.current.has(key)) return;
+        pdfBackfill.current.add(key);
+        try {
+          await fn();
+          touched = true;
+        } catch (e) {
+          pdfBackfill.current.delete(key);
+          console.error(e);
+        }
+      };
+      for (const e of data.ewayBills || []) {
+        if (cancelled || e.pdfName || e.status === 'cancelled') continue;
+        await run(`eway:${e.id}`, () => archiveEwayBillPdf(e, company, partyClient, currency));
+      }
+      for (const b of data.bills || []) {
+        if (cancelled || b.pdfName) continue;
+        await run(`bill:${b.id}`, () => archiveBillPdf(b, company, partyClient, currency));
+      }
+      for (const c of data.creditNotes || []) {
+        if (cancelled || c.pdfName) continue;
+        await run(`credit:${c.id}`, () => archiveCreditNotePdf(c, company, partyClient, currency));
+      }
+      for (const inv of data.invoices || []) {
+        if (cancelled || inv.pdfName) continue;
+        const params = {
+          invoice: inv,
+          payments: inv.payments,
+          company,
+          client: inv.billTo || partyClient,
+          currency,
+          quote: design?.quote,
+          proposalPricing: design?.pricing,
+          catalog,
+          packages,
+        };
+        await run(`inv:${inv.id}`, () => archiveInvoicePdf(inv, params));
+      }
+      if (touched && !cancelled) reload();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, error, data, company, catalog, packages, reload]);
 
   if (loading) return <LoadingBlock />;
   if (error || !data) return <Alert>{error || 'Not found'}</Alert>;
@@ -125,6 +163,35 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
       toast.error(failed);
     }
   };
+  const runPdfView = (key, fn, failed) => attempt(async () => {
+    if (pdfOpening) return;
+    setPdfOpening(key);
+    try {
+      await fn();
+    } finally {
+      setPdfOpening(null);
+    }
+  }, failed);
+  const viewEwayPdf = (e) => runPdfView(`eway:${e.id}`, async () => {
+    const hadPdf = Boolean(e.pdfName);
+    await viewEwayBillDocument(ewayPdfParams(e));
+    if (!hadPdf) await reload();
+  }, 'The bill could not be opened.');
+  const viewBillPdf = (b) => runPdfView(`bill:${b.id}`, async () => {
+    const hadPdf = Boolean(b.pdfName);
+    await viewBillDocument(billPdfParams(b));
+    if (!hadPdf) await reload();
+  }, 'The invoice could not be opened.');
+  const viewCreditPdf = (c) => runPdfView(`credit:${c.id}`, async () => {
+    const hadPdf = Boolean(c.pdfName);
+    await viewCreditNoteDocument(creditPdfParams(c));
+    if (!hadPdf) await reload();
+  }, 'The credit note could not be opened.');
+  const viewLegacyInvoicePdf = (inv) => runPdfView(`inv:${inv.id}`, async () => {
+    const hadPdf = Boolean(inv.pdfName);
+    await viewInvoiceDocument(invoicePdfParams(inv));
+    if (!hadPdf) await reload();
+  }, 'The invoice could not be opened.');
   const shareBill = async (b) => {
     if (!client?.phone) return toast.error('Add a mobile number on the client profile to share on WhatsApp.');
     try {
@@ -165,7 +232,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
     let archived = false;
     try {
       file = await build(doc);
-      await uploadWithRetry(uploadPath(doc), file.blob, file.filename);
+      await uploadBillingPdf(uploadPath(doc), file.blob, file.filename);
       archived = true;
     } catch (e) {
       console.error(e);
@@ -173,7 +240,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
     setModal(null);
     await reload();
     if (archived) toast.success(saved(created));
-    else toast.error(`${label(doc)} was generated, but its PDF could not be saved. Do not generate it again: use “Save PDF” in its row menu.`);
+    else toast.error(`${label(doc)} was generated, but its PDF could not be saved. View or download the row to retry archiving.`);
     if (file) downloadBlob(file.blob, file.filename);
     setBusy(false);
   };
@@ -199,32 +266,6 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
     saved: ({ bill, payment }) => `Invoice ${bill.billNo} generated · ${money(payment.amount)} received`,
     label: (bill) => `Invoice ${bill.billNo}`,
   });
-  /** Goods back on an invoice (owner only): a credit note, its PDF, and the stock and refund done by the server. */
-  const generateCreditNote = (body) => issueDocument({
-    kind: `credit-${modal.item.id}`,
-    path: `/api/billing/bills/${modal.item.id}/credit-notes`,
-    body,
-    failed: (e) => (e?.status === 409 ? e.message : 'The credit note was not made'),
-    docOf: (created) => created,
-    build: (created) => buildCreditNotePdfBlob({ note: created, billNo: modal.item.billNo, company, client, currency }),
-    uploadPath: (created) => `/api/billing/credit-notes/${created.id}/pdf`,
-    saved: (created) => `Credit note ${created.creditNo} made · ${money(created.total)} refunded, goods back in stock`,
-    label: (created) => `Credit note ${created.creditNo}`,
-  });
-  /** Build and archive the PDF of a document that was generated without one (its upload failed). */
-  const savePdf = (kind, row) => attempt(async () => {
-    const built = {
-      eway: () => buildEwayBillPdfBlob(ewayPdfParams(row)),
-      bill: () => buildBillPdfBlob(billPdfParams(row)),
-      invoice: () => buildInvoicePdfBlob(invoicePdfParams(row)),
-      credit: () => buildCreditNotePdfBlob(creditPdfParams(row)),
-    }[kind];
-    const path = { eway: 'eway-bills', bill: 'bills', invoice: 'invoices', credit: 'credit-notes' }[kind];
-    const { blob, filename } = await built();
-    await uploadWithRetry(`/api/billing/${path}/${row.id}/pdf`, blob, filename);
-    toast.success('PDF saved');
-    await reload();
-  }, 'The PDF could not be saved. Try again.');
   const cancelEway = async (reason) => {
     setBusy(true);
     try {
@@ -234,6 +275,25 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
       await reload();
     } catch (e) {
       showError(e, 'Bill was not cancelled');
+    }
+    setBusy(false);
+  };
+  const reviseEway = async (body) => {
+    setBusy(true);
+    try {
+      const res = await api(`/api/billing/eway-bills/${modal.item.id}/revise`, { method: 'POST', body });
+      if (res.replacement) {
+        await archiveEwayBillPdf(res.replacement, company, client, currency);
+      }
+      if (res.superseded && !res.superseded.pdfName) {
+        await archiveEwayBillPdf(res.superseded, company, client, currency).catch(() => {});
+      }
+      setModal(null);
+      await reload();
+      if (res.replacement) toast.success(`Bill ${res.superseded.ewayNo} revised · new bill ${res.replacement.ewayNo} (${money(res.replacement.total)})`);
+      else toast.success(`Bill ${res.superseded.ewayNo} closed — all products returned to stock`);
+    } catch (e) {
+      showError(e, 'Bill was not revised');
     }
     setBusy(false);
   };
@@ -251,6 +311,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
     }
     setBusy(false);
   };
+  const billHasLegacyCredits = (b) => (b.creditedTotal ?? 0) > 0;
   const proposalDiscount = design?.pricing?.discount > 0 ? { discount: design.pricing.discount, discountIsPercent: design.pricing.discountIsPercent, discountRemark: design.pricing.discountRemark } : null;
   const steps = [
     { key: 'eway', label: 'Bills', n: ewayBills.filter((e) => e.status !== 'cancelled').length, note: openEwayBills ? `${openEwayBills} open` : '' },
@@ -293,37 +354,48 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
         ))}
       </ol>
 
-      <Section tone="eway" icon={Truck} title="Bills" sub="Goods that left stock for this job. An open bill waits for an invoice; cancelling one puts the goods back.">
+      <Section tone="eway" icon={Truck} title="Bills" sub="Goods that left stock. Return products partially to put them back in inventory — the old bill stays visible (revised) and a new bill is created with what remains.">
         {!ewayBills.length ? (
           <EmptyState icon={Truck} title="No bills yet" description={won ? 'Generate a bill to send goods out of stock.' : 'Mark the proposal as Booked first.'} />
         ) : (
           <Table>
             <thead><tr><Th>Bill</Th><Th>Date</Th><Th>Goods</Th><Th>Delivery</Th><Th className="text-right">Value</Th><Th>Status</Th><Th className="text-right">Actions</Th></tr></thead>
             <tbody>
-              {ewayBills.map((e) => (
-                <Tr key={e.id} className={e.status === 'cancelled' ? 'opacity-60' : ''}>
-                  <Td className="font-medium text-slate-900">{e.ewayNo}</Td>
+              {ewayBills.map((e) => {
+                const ewayPdfBusy = pdfOpening === `eway:${e.id}`;
+                return (
+                <Tr key={e.id} className={cx(e.status === 'cancelled' || e.status === 'superseded' ? 'opacity-55' : '')}>
+                  <Td className="font-medium text-slate-900">
+                    <button type="button" disabled={Boolean(pdfOpening)} className="inline-flex items-center gap-1.5 text-left font-medium hover:text-brand-600 hover:underline disabled:cursor-wait disabled:no-underline" onClick={() => viewEwayPdf(e)}>
+                      {ewayPdfBusy && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-slate-500" aria-hidden />}
+                      {e.ewayNo}
+                    </button>
+                    {e.status === 'superseded' && e.supersededByNo && <div className="text-xs font-normal text-slate-500">Replaced by {e.supersededByNo}</div>}
+                    {e.supersedesNo && e.status === 'open' && <div className="text-xs font-normal text-slate-500">Revises {e.supersedesNo}</div>}
+                    {e.cancelReason && (e.status === 'superseded' || e.status === 'cancelled') && <div className="max-w-[200px] truncate text-xs font-normal text-slate-500" title={e.cancelReason}>{e.cancelReason}</div>}
+                  </Td>
                   <Td>{formatDate(e.issuedOn)}</Td>
-                  <Td><div className="max-w-[260px] truncate" title={(e.lines || []).map((l) => `${l.qty} × ${l.name}`).join(', ')}>{(e.lines || []).map((l) => `${l.qty} × ${l.name}`).join(', ')}</div></Td>
+                  <Td><div className="max-w-[260px] truncate" title={[(e.lines || []).map((l) => `${l.qty} × ${l.name}`).join(', '), ...(e.services || []).map((s) => s.name)].filter(Boolean).join(', ')}>{[(e.lines || []).filter((l) => l.kind !== 'service').map((l) => `${l.qty} × ${l.name}`), ...(e.services || []).map((s) => `${s.qty || 1} × ${s.name}`)].flat().filter(Boolean).join(', ') || (e.pricing?.lines || []).filter((l) => l.kind === 'service').map((l) => `${l.qty} × ${l.name}`).join(', ') || '—'}</div></Td>
                   <Td>{e.transport?.vehicleNo || e.transport?.transporter || '—'}</Td>
                   <Td className="text-right tabular-nums">{money(e.total)}</Td>
                   <Td><Badge tone={EWAY_STATUS[e.status]?.tone}>{EWAY_STATUS[e.status]?.label || e.status}{e.bill?.billNo ? ` · ${e.bill.billNo}` : ''}</Badge></Td>
                   <Td>
                     <div className="flex items-center justify-end gap-1">
-                      <IconButton icon={Eye} label="View PDF" className="text-slate-500" onClick={() => attempt(() => viewEwayBillDocument(ewayPdfParams(e)), 'The bill could not be opened.')} />
-                      <IconButton icon={Download} label="Download PDF" className="text-slate-500" onClick={() => attempt(() => downloadEwayBillDocument(ewayPdfParams(e)), 'The bill could not be downloaded.')} />
-                      {canEway && !e.pdfName && e.status !== 'cancelled' && <IconButton icon={Save} label="Save PDF (not saved yet)" className="text-slate-500" onClick={() => savePdf('eway', e)} />}
-                      {canEway && e.status === 'open' && <IconButton icon={Ban} tone="danger" label="Cancel (stock goes back)" className="text-red-500" onClick={() => setModal({ type: 'cancelEway', item: e })} />}
+                      <IconButton icon={Eye} label="View PDF" className="text-slate-500" loading={ewayPdfBusy} onClick={() => viewEwayPdf(e)} />
+                      <IconButton icon={Download} label="View PDF" className="text-slate-500" loading={ewayPdfBusy} onClick={() => viewEwayPdf(e)} />
+                      {canEway && e.status === 'open' && (e.lines || []).some((l) => l.productId) && <IconButton icon={Undo2} label="Return products (partial)" className="text-slate-500" onClick={() => setModal({ type: 'reviseEway', item: e })} />}
+                      {canEway && e.status === 'open' && <IconButton icon={Ban} tone="danger" label="Cancel entire bill (all stock back)" className="text-red-500" onClick={() => setModal({ type: 'cancelEway', item: e })} />}
                     </div>
                   </Td>
                 </Tr>
-              ))}
+                );
+              })}
             </tbody>
           </Table>
         )}
       </Section>
 
-      <Section tone="bills" icon={Wallet} title="Invoices" sub="Each invoice covers one or more bills plus services and records the payment taken for them.">
+      <Section tone="bills" icon={Wallet} title="Invoices" sub="Record payment against product bills and services. To correct a mistake or take goods back after invoicing, void the invoice (you can return stock in the void dialog). Returns before invoicing are done on open product bills above.">
         {!bills.length ? (
           <EmptyState icon={Wallet} title="No invoices yet" description={openEwayBills ? `${openEwayBills} open bill${openEwayBills === 1 ? '' : 's'} can be invoiced.` : 'Generate a bill, then invoice it.'} />
         ) : (
@@ -332,23 +404,27 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
             <tbody>
               {bills.map((b) => (
                 <Tr key={b.id} className={b.status === 'void' ? 'opacity-60' : ''}>
-                  <Td className="font-medium text-slate-900">{b.billNo}{b.status === 'void' && b.voidReason && <div className="max-w-[180px] truncate text-xs font-normal text-slate-500" title={b.voidReason}>{b.voidReason}</div>}</Td>
+                  <Td className="font-medium text-slate-900">
+                    <button type="button" className="text-left font-medium hover:text-brand-600 hover:underline" onClick={() => viewBillPdf(b)}>{b.billNo}</button>
+                    {b.status === 'void' && b.voidReason && <div className="max-w-[180px] truncate text-xs font-normal text-slate-500" title={b.voidReason}>{b.voidReason}</div>}
+                  </Td>
                   <Td>{formatDate(b.issuedOn)}</Td>
                   <Td>
                     {b.ewayBills?.length ? b.ewayBills.map((e) => e.ewayNo).join(', ') : <span className="text-slate-500">Services only</span>}
                     {b.services?.length > 0 && <div className="max-w-[240px] truncate text-xs text-slate-500" title={b.services.map((s) => s.name).join(', ')}>{b.services.map((s) => s.name).join(', ')}</div>}
                   </Td>
                   <Td>{PAYMENT_MODE_LABEL[b.paid?.mode]?.split(' (')[0] || b.paid?.mode}{b.paid?.reference && <div className="max-w-[140px] truncate text-xs text-slate-500">{b.paid.reference}</div>}</Td>
-                  <Td className="text-right tabular-nums">{money(b.total)}</Td>
+                  <Td className="text-right tabular-nums">
+                    {money(b.total)}
+                    {b.creditedTotal > 0 && b.status !== 'void' && <div className="text-xs text-slate-500">{money(b.creditedTotal)} returned</div>}
+                  </Td>
                   <Td><Badge tone={BILL_STATUS[b.status]?.tone}>{BILL_STATUS[b.status]?.label || b.status}{b.invoice?.invoiceNo ? ` · ${b.invoice.invoiceNo}` : ''}</Badge></Td>
                   <Td>
                     <div className="flex items-center justify-end gap-1">
-                      <IconButton icon={Eye} label="View PDF" className="text-slate-500" onClick={() => attempt(() => viewBillDocument(billPdfParams(b)), 'The invoice could not be opened.')} />
-                      <IconButton icon={Download} label="Download PDF" className="text-slate-500" onClick={() => attempt(() => downloadBillDocument(billPdfParams(b)), 'The invoice could not be downloaded.')} />
-                      {canBill && !b.pdfName && <IconButton icon={Save} label="Save PDF (not saved yet)" className="text-slate-500" onClick={() => savePdf('bill', b)} />}
-                      {b.status !== 'void' && (b.pdfName || canBill) && <IconButton icon={WhatsAppIcon} label="Share on WhatsApp" className="text-slate-500" onClick={() => shareBill(b)} />}
-                      {isOwner && b.status !== 'void' && b.ewayBills?.length > 0 && <IconButton icon={Undo2} label="Return goods… (credit note)" className="text-slate-500" onClick={() => setModal({ type: 'return', item: b })} />}
-                      {isOwner && b.status === 'paid' && !(b.creditedTotal > 0) && <IconButton icon={Ban} tone="danger" label="Void invoice…" className="text-red-500" onClick={() => setModal({ type: 'void', kind: 'bill', item: b })} />}
+                      <IconButton icon={Eye} label="View PDF" className="text-slate-500" loading={pdfOpening === `bill:${b.id}`} onClick={() => viewBillPdf(b)} />
+                      {isOwner && b.status !== 'void' && (b.pdfName || canBill) && <IconButton icon={WhatsAppIcon} label="Share on WhatsApp" className="text-slate-500" onClick={() => shareBill(b)} />}
+                      {isOwner && b.status === 'paid' && !billHasLegacyCredits(b) && <IconButton icon={Ban} tone="danger" label="Void invoice…" className="text-red-500" onClick={() => setModal({ type: 'void', kind: 'bill', item: b })} />}
+                      {isOwner && b.status === 'paid' && billHasLegacyCredits(b) && <IconButton icon={Ban} label="Has older credit notes — cannot void here" disabled className="cursor-not-allowed text-slate-300 hover:bg-transparent hover:text-slate-300" />}
                       {isOwner && b.status === 'invoiced' && <IconButton icon={Ban} label="On an older invoice: void that invoice first" disabled className="cursor-not-allowed text-slate-300 hover:bg-transparent hover:text-slate-300" />}
                     </div>
                   </Td>
@@ -360,13 +436,13 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
       </Section>
 
       {creditNotes.length > 0 && (
-        <Section tone="bills" icon={Undo2} title="Credit notes" sub="Goods that came back on an invoice. Each one put its goods back into stock and refunded the amount shown; the invoice itself stands.">
+        <Section tone="bills" icon={Undo2} title="Credit notes" sub="Older records from when partial returns on invoices were allowed. New returns use open product bills; after invoicing, void the invoice instead.">
           <Table>
             <thead><tr><Th>Credit note</Th><Th>Date</Th><Th>Against</Th><Th>Goods returned</Th><Th>Reason</Th><Th className="text-right">Refunded</Th><Th className="text-right">Actions</Th></tr></thead>
             <tbody>
               {creditNotes.map((c) => (
                 <Tr key={c.id}>
-                  <Td className="font-medium text-slate-900">{c.creditNo}</Td>
+                  <Td className="font-medium text-slate-900"><button type="button" className="text-left font-medium hover:text-brand-600 hover:underline" onClick={() => viewCreditPdf(c)}>{c.creditNo}</button></Td>
                   <Td>{formatDate(c.issuedOn)}</Td>
                   <Td>{c.bill?.billNo || '—'}</Td>
                   <Td><div className="max-w-[260px] truncate text-slate-700" title={(c.lines || []).map((l) => `${l.qty} × ${l.name}`).join(', ')}>{(c.lines || []).map((l) => `${l.qty} × ${l.name}`).join(', ')}</div></Td>
@@ -374,9 +450,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
                   <Td className="text-right tabular-nums">{money(c.total)}<div className="text-xs text-slate-500">{PAYMENT_MODE_LABEL[c.refund?.mode]?.split(' (')[0] || c.refund?.mode}</div></Td>
                   <Td>
                     <div className="flex items-center justify-end gap-1">
-                      <IconButton icon={Eye} label="View PDF" className="text-slate-500" onClick={() => attempt(() => viewCreditNoteDocument(creditPdfParams(c)), 'The credit note could not be opened.')} />
-                      <IconButton icon={Download} label="Download PDF" className="text-slate-500" onClick={() => attempt(() => downloadCreditNoteDocument(creditPdfParams(c)), 'The credit note could not be downloaded.')} />
-                      {isOwner && !c.pdfName && <IconButton icon={Save} label="Save PDF (not saved yet)" className="text-slate-500" onClick={() => savePdf('credit', c)} />}
+                      <IconButton icon={Eye} label="View PDF" className="text-slate-500" loading={pdfOpening === `credit:${c.id}`} onClick={() => viewCreditPdf(c)} />
                     </div>
                   </Td>
                 </Tr>
@@ -393,7 +467,11 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
             <tbody>
               {invoices.map((inv) => (
                 <Tr key={inv.id} className={inv.status === 'void' ? 'opacity-60' : ''}>
-                  <Td className="font-medium text-slate-900">{inv.invoiceNo}{inv.kind === 'amc_parts' && <> <Badge tone="slate">AMC parts</Badge></>}{inv.status === 'void' && inv.voidReason && <div className="max-w-[180px] truncate text-xs font-normal text-slate-500" title={inv.voidReason}>{inv.voidReason}</div>}</Td>
+                  <Td className="font-medium text-slate-900">
+                    <button type="button" className="text-left font-medium hover:text-brand-600 hover:underline" onClick={() => viewLegacyInvoicePdf(inv)}>{inv.invoiceNo}</button>
+                    {inv.kind === 'amc_parts' && <> <Badge tone="slate">AMC parts</Badge></>}
+                    {inv.status === 'void' && inv.voidReason && <div className="max-w-[180px] truncate text-xs font-normal text-slate-500" title={inv.voidReason}>{inv.voidReason}</div>}
+                  </Td>
                   <Td>{formatDate(inv.issuedOn)}</Td>
                   <Td>{inv.pricing?.invoiceGstMode === 'without_gst' ? 'Plain' : 'Tax (GST)'}</Td>
                   <Td>{inv.billRefs?.length ? inv.billRefs.map((b) => b.billNo).join(', ') : <span className="text-slate-500">—</span>}</Td>
@@ -401,9 +479,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
                   <Td>{inv.status === 'void' ? <Badge tone="slate">Void</Badge> : <Badge tone="green">Issued</Badge>}</Td>
                   <Td>
                     <div className="flex items-center justify-end gap-1">
-                      <IconButton icon={Eye} label="View PDF" className="text-slate-500" onClick={() => attempt(() => viewInvoiceDocument(invoicePdfParams(inv)), 'The invoice could not be opened.')} />
-                      <IconButton icon={Download} label="Download PDF" className="text-slate-500" onClick={() => attempt(() => downloadInvoiceDocument(invoicePdfParams(inv)), 'The invoice could not be downloaded.')} />
-                      {canInvoice && !inv.pdfName && <IconButton icon={Save} label="Save PDF (not saved yet)" className="text-slate-500" onClick={() => savePdf('invoice', inv)} />}
+                      <IconButton icon={Eye} label="View PDF" className="text-slate-500" loading={pdfOpening === `inv:${inv.id}`} onClick={() => viewLegacyInvoicePdf(inv)} />
                       {inv.status !== 'void' && (inv.pdfName || canInvoice) && <IconButton icon={WhatsAppIcon} label="Share on WhatsApp" className="text-slate-500" onClick={() => shareInvoice(inv)} />}
                       {isOwner && inv.status !== 'void' && inv.bills?.length > 0 && <IconButton icon={Ban} tone="danger" label="Void invoice…" className="text-red-500" onClick={() => setModal({ type: 'void', kind: 'invoice', item: inv })} />}
                     </div>
@@ -432,7 +508,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
         />
       )}
       {modal?.type === 'bill' && <BillModal open onClose={() => setModal(null)} party={party} partyName={partyName} seed={{ nextInvoiceNo: data.nextInvoiceNo, previousTermsAndConditions: data.previousTermsAndConditions, previousBillToCompany: data.previousBillToCompany }} proposalDiscount={proposalDiscount} currency={currency} busy={busy} onSubmit={generateBill} />}
-      {modal?.type === 'return' && <ReturnGoodsModal open onClose={() => setModal(null)} bill={modal.item} currency={currency} busy={busy} onSubmit={generateCreditNote} />}
+      {modal?.type === 'reviseEway' && <PartialReturnEwayModal open onClose={() => setModal(null)} ewayBill={modal.item} busy={busy} onSubmit={reviseEway} />}
       {modal?.type === 'void' && <VoidDocumentDialog kind={modal.kind} doc={modal.item} open onClose={() => setModal(null)} onConfirm={voidDocument} busy={busy} />}
       {modal?.type === 'cancelEway' && <CancelEwayBillDialog open ewayBill={modal.item} onClose={() => setModal(null)} onConfirm={cancelEway} busy={busy} />}
     </>

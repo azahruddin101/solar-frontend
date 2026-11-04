@@ -6,6 +6,7 @@ export const EWAY_STATUS = {
   open: { label: 'Open', tone: 'amber', hint: 'Goods are out; not on an invoice yet' },
   billed: { label: 'Invoiced', tone: 'green', hint: 'Paid on an invoice' },
   cancelled: { label: 'Cancelled', tone: 'slate', hint: 'Goods went back into stock' },
+  superseded: { label: 'Revised', tone: 'slate', hint: 'Replaced by a newer bill — view only' },
 };
 
 export const BILL_STATUS = {

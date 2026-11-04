@@ -46,6 +46,7 @@ export function packageToPricingLines(pkg, packageTotal, defGst = 18) {
       amount: total,
       gstPercent: defGst,
       hsn: '',
+      gstIncluded: true,
     }];
   }
   const weights = items.map((it) => {
@@ -73,6 +74,7 @@ export function packageToPricingLines(pkg, packageTotal, defGst = 18) {
       amount: lineAmount,
       gstPercent: pct,
       hsn: lineHsn(it),
+      gstIncluded: true,
     };
   });
 }
@@ -159,6 +161,7 @@ function normalizeLine(l) {
     gstPercent: l.gstPercent != null && l.gstPercent !== ''
       ? Math.max(0, Math.min(100, n(l.gstPercent)))
       : undefined,
+    ...(l.gstIncluded != null ? { gstIncluded: l.gstIncluded !== false } : {}),
   };
 }
 
@@ -178,12 +181,13 @@ export function summarizeLinePricing({ lines = [], gstIncluded = true, discount 
     const lineGross = round2(l.amount * ratio);
     const catalogPct = l.gstPercent ?? 18;
     const pct = withGst ? catalogPct : 0;
-    if (gstIncluded && pct > 0) {
+    const lineGstIncluded = l.gstIncluded != null ? l.gstIncluded !== false : gstIncluded;
+    if (lineGstIncluded && pct > 0) {
       const taxable = round2(lineGross / (1 + pct / 100));
       const gst = round2(lineGross - taxable);
       return { ...l, gross: l.amount, gstPercent: catalogPct, amount: lineGross, taxable, gstAmount: gst, lineTotal: lineGross };
     }
-    if (!gstIncluded && pct > 0) {
+    if (!lineGstIncluded && pct > 0) {
       const taxable = lineGross;
       const gst = round2(taxable * (pct / 100));
       return { ...l, gross: l.amount, gstPercent: catalogPct, amount: lineGross, taxable, gstAmount: gst, lineTotal: round2(taxable + gst) };
@@ -194,7 +198,7 @@ export function summarizeLinePricing({ lines = [], gstIncluded = true, discount 
   const subtotal = round2(processed.reduce((a, l) => a + l.amount, 0));
   const taxableTotal = round2(processed.reduce((a, l) => a + l.taxable, 0));
   const gstTotal = round2(processed.reduce((a, l) => a + l.gstAmount, 0));
-  const total = gstIncluded ? subtotal : round2(taxableTotal + gstTotal);
+  const total = round2(processed.reduce((a, l) => a + l.lineTotal, 0));
 
   const byHsn = new Map();
   for (const l of processed) {
@@ -275,6 +279,7 @@ export function buildPricing({ lines = [], floorPlacement = 0, floorCost = 0, ch
 }
 
 function quoteItemLines(it, defGst) {
+  const markPackageLines = (rows) => rows.map((row) => ({ ...row, gstIncluded: true }));
   if (it.kind === 'package') {
     const items = (it.bundle || []).map((b) => ({
       name: b.name,
@@ -289,9 +294,9 @@ function quoteItemLines(it, defGst) {
       gstPercent: b.gstPercent,
     }));
     if (items.length) {
-      return packageToPricingLines({ name: it.name, items }, n(it.price), it.gstPercent ?? defGst);
+      return markPackageLines(packageToPricingLines({ name: it.name, items }, n(it.price), it.gstPercent ?? defGst));
     }
-    return [{
+    return markPackageLines([{
       name: it.name || 'Solar package',
       detail: it.detail || 'Package price',
       hsn: it.hsn || it.hsnCode,
@@ -300,7 +305,7 @@ function quoteItemLines(it, defGst) {
       rate: it.price,
       amount: n(it.qty) * n(it.price),
       gstPercent: it.gstPercent ?? defGst,
-    }];
+    }]);
   }
   return [{
     name: it.category || it.name,
@@ -317,6 +322,7 @@ function quoteItemLines(it, defGst) {
 /** A proposal without a 3D design. */
 export function pricingFromQuote(quote) {
   const defGst = n(quote.gstPercent) || 18;
+  const isPackage = quote.pricingMode === 'package';
   const lines = (quote.items || []).flatMap((it) => quoteItemLines(it, defGst));
   for (const it of quote.extraItems || []) {
     if (!it?.name) continue;
@@ -342,7 +348,7 @@ export function pricingFromQuote(quote) {
     discountIsPercent: quote.discountIsPercent,
     discountRemark: quote.discountRemark,
     defaultGstPercent: defGst,
-    withGst: quote.withGst !== false,
+    withGst: isPackage ? true : quote.withGst !== false,
   });
 }
 
@@ -530,10 +536,9 @@ export function resolveProposalPricing({ pricing, quote, total, title } = {}) {
     if (hasLines(built)) {
       return {
         ...built,
-        gstIncluded: false,
-        invoiceGstMode: pricing?.invoiceGstMode,
-        withGst: pricing?.withGst,
-        paymentTerms: pricing?.paymentTerms,
+        invoiceGstMode: pricing?.invoiceGstMode ?? built.invoiceGstMode,
+        withGst: pricing?.withGst ?? built.withGst,
+        paymentTerms: pricing?.paymentTerms ?? built.paymentTerms,
       };
     }
   }

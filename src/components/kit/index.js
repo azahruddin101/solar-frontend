@@ -190,16 +190,17 @@ export function ImageSourceButtons({ onFiles, accept = 'image/png,image/jpeg,ima
   );
 }
 
-export function IconButton({ icon: Icon, label, tone = 'default', className, ...props }) {
+export function IconButton({ icon: Icon, label, tone = 'default', className, loading, disabled, ...props }) {
   return (
     <button
       type="button"
       aria-label={label}
       title={label}
-      className={cx('grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-400 transition-colors', tone === 'danger' ? 'hover:bg-red-50 hover:text-red-600' : 'hover:bg-slate-100 hover:text-slate-700', className)}
+      disabled={disabled || loading}
+      className={cx('grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-400 transition-colors', tone === 'danger' ? 'hover:bg-red-50 hover:text-red-600' : 'hover:bg-slate-100 hover:text-slate-700', (disabled || loading) && 'cursor-wait opacity-70', className)}
       {...props}
     >
-      <Icon className="h-4 w-4" />
+      {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Icon className="h-4 w-4" />}
     </button>
   );
 }
@@ -952,6 +953,6 @@ export function timeAgo(d) {
 export { default as RichTextEditor } from './RichTextEditor';
 export { default as RichTextContent } from './RichTextContent';
 export { DateRangeFilter } from './DateRangeFilter';
-export { PdfViewerHost, openPdfViewer } from './PdfViewer';
+export { PdfViewerHost, closePdfViewer, openPdfViewer, openPdfViewerLoading } from './PdfViewer';
 export { UploadProgress, useUploadQueue } from './UploadProgress';
 export { MultiSelect } from './MultiSelect';

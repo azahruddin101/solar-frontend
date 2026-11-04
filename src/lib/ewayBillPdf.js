@@ -36,6 +36,9 @@ export async function buildEwayBillPdfBlob({ ewayBill, company = {}, client = {}
   const pricing = ewayBill.pricing || {};
   const withGst = pricing.withGst !== false && pricing.invoiceGstMode !== 'without_gst';
   const lines = (pricing.lines || ewayBill.lines || []).filter((l) => l?.name).map((l) => ({ ...l, detail: [l.batchNo ? `Batch ${l.batchNo}` : '', l.detail].filter(Boolean).join(' · ') }));
+  const hasServices = lines.some((l) => l.kind === 'service');
+  const hasGoods = lines.some((l) => l.kind !== 'service');
+  const descHead = hasServices && hasGoods ? 'Description of goods & services' : hasServices ? 'Description of services' : 'Description of Goods';
   const total = Number(pricing.total ?? ewayBill.total) || 0;
   const tax = invoiceTax(pricing, total);
   const supply = gstSupplyType(co.taxId, cl.gstNumber);
@@ -50,20 +53,21 @@ export async function buildEwayBillPdfBlob({ ewayBill, company = {}, client = {}
     ['Reference', ewayBill.title || '—'],
   ];
   if (ewayBill.status === 'cancelled') metaRows.push(['Status', `Cancelled${ewayBill.cancelReason ? ` — ${ewayBill.cancelReason}` : ''}`]);
-  if (withGst && supply) metaRows.push(['Supply type', supply === 'igst' ? 'Inter-state (IGST)' : 'Intra-state (CGST/SGST)']);
   y = partyMetaTable(doc, brand, { y, co, cl, coState: stateFromGstin(co.taxId), clState: stateFromGstin(cl.gstNumber), metaRows, buyerLabel: 'Consignee (Ship to)' });
 
   y = detailGrid(doc, brand, y, transportRows(ewayBill.transport, fmtDate), []);
 
-  y = goodsTable(doc, brand, { y, groups: [{ lines }], withGst, amt, rs, tax, useIgst, total });
-  y = wordsRow(doc, brand, y, 'Value of Goods (in words)', words(total));
+  y = goodsTable(doc, brand, { y, groups: [{ lines }], withGst, amt, rs, tax, useIgst, total, descriptionHead: descHead });
+  y = wordsRow(doc, brand, y, hasServices && !hasGoods ? 'Total (in words)' : 'Value of Goods (in words)', words(total));
   if (withGst) y = taxSummary(doc, brand, { y, tax, useIgst, amt, currency });
 
   y = signatureStrip(doc, brand, {
     y,
     co,
-    declaration: 'Declaration\nThe goods described above are dispatched to the consignee named here. Quantities and serial numbers were checked at the time of dispatch.',
-    middle: `Received the above goods in good condition\n\n\n\nReceiver's signature & date${ewayBill.note ? `\n\nNote: ${ewayBill.note}` : ''}`,
+    declaration: hasGoods
+      ? 'Declaration\nThe goods described above are dispatched to the consignee named here. Quantities and serial numbers were checked at the time of dispatch.'
+      : 'Declaration\nThe services described above are billed as stated.',
+    middle: `Received the above ${hasGoods ? 'goods' : 'services'} in good condition\n\n\n\nReceiver's signature & date${ewayBill.note ? `\n\nNote: ${ewayBill.note}` : ''}`,
   });
 
   finishDocument(doc, co, brand, 'This is a Computer Generated Document');

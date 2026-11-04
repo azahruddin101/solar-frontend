@@ -1,6 +1,6 @@
 'use client';
 
-import { BadgeIndianRupee, Boxes, CalendarClock, Truck, Headset, SlidersHorizontal, HardHat, Landmark, LayoutDashboard, WalletCards, Megaphone, PanelsTopLeft, PenTool, Receipt, Settings, UserCog, Users } from 'lucide-react';
+import { BadgeIndianRupee, Boxes, Calculator, CalendarClock, Truck, Headset, SlidersHorizontal, HardHat, Landmark, LayoutDashboard, WalletCards, Megaphone, PanelsTopLeft, PenTool, Receipt, Settings, UserCog, Users } from 'lucide-react';
 import { useMemo } from 'react';
 import AppShell from '../layout/AppShell';
 import AuthGuard from '../layout/AuthGuard';
@@ -16,6 +16,7 @@ const NAV_BASE = [
       { href: '/dashboard/loans', label: 'Loans', icon: Landmark },
       { href: '/dashboard/subsidies', label: 'Subsidies', icon: BadgeIndianRupee },
       { href: '/dashboard/designs', label: 'Proposals', icon: PenTool },
+      { href: '/dashboard/estimation', label: 'Estimation', icon: Calculator },
       { href: '/dashboard/billing', label: 'Billing & Invoices', icon: Receipt },
       { href: '/dashboard/expenses', label: 'Expenses', icon: WalletCards },
       { href: '/dashboard/packages', label: 'Packages', icon: Boxes },

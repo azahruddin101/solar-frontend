@@ -2,27 +2,23 @@
 
 // Generate a bill: products picked from stock (the server takes the stock and prices each line from its batch) and the
 // optional delivery details. The first step of the sale chain; the client pays on an invoice afterwards.
-import { Boxes, CircleCheck, ClipboardList, Plus, TriangleAlert, X } from 'lucide-react';
+import { CircleCheck, ClipboardList, Plus, TriangleAlert, X } from 'lucide-react';
 import { Fragment, useMemo, useState } from 'react';
 import { formatMoney } from '@/lib/energy';
-import { linesFromPricing, resolveProposalPricing, summarizeLinePricing } from '@/lib/pricing';
+import { linesFromPricing, resolveProposalPricing } from '@/lib/pricing';
 import { useResource } from '@/lib/useResource';
 import { useSession } from '@/lib/session';
 import { TRANSPORT_MODE_LABEL, TRANSPORT_REASON_LABEL } from '@/lib/ewayBillPdf';
 import StockPickModal from './StockPickModal';
 import { PRICE_TYPES, productDetail, stockPreview, useStockCache } from './stockLines';
 import { Alert, Button, ConfirmDialog, FormField, FormModal, Input, Select, Textarea, cx } from '../kit';
+import { DiscountEditor, ServiceLinesEditor, BillSection, billDoc, blankServiceRow, servicesPayload, useBillPricing, validateServices } from './BillContentMode';
 
 const today = () => new Date().toISOString().slice(0, 10);
 let seq = 0;
 const blankLine = () => ({ key: `l${++seq}`, productId: '', name: '', detail: '', hsn: '', unit: 'Nos', gstPercent: 18, priceType: 'retail', qty: 1, batch: '', serials: [] });
 
-const KIND = [
-  { id: 'plain', label: 'No GST' },
-  { id: 'tax', label: 'GST' },
-];
-
-const cell = 'w-full bg-transparent text-xs outline-none';
+const cell = billDoc.field;
 
 const norm = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 /** A proposal line that is work, not goods: installation charges, floor surcharge, services. */
@@ -58,16 +54,22 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
   const company = useSession((s) => s.company);
   const { data: products, error: productsError } = useResource(open ? '/api/products' : null);
   const { data: categories } = useResource(open ? '/api/categories' : null);
+  const { data: charges } = useResource(open ? '/api/installation-charges' : null);
   const { stock, loadStock } = useStockCache();
   const [lines, setLines] = useState([blankLine()]);
-  const [kind, setKind] = useState('tax');
+  const [services, setServices] = useState([]);
+  const [discountActive, setDiscountActive] = useState(false);
+  const [discount, setDiscount] = useState(0);
+  const [discountIsPercent, setDiscountIsPercent] = useState(false);
+  const [discountRemark, setDiscountRemark] = useState('');
   const [transport, setTransport] = useState({ mode: 'road', vehicleNo: '', transporter: '', transporterId: '', docNo: '', docDate: '', fromPlace: company?.address || '', toPlace: clientAddress || '', distanceKm: '', reason: 'supply' });
   const [issuedOn, setIssuedOn] = useState(today());
   const [note, setNote] = useState('');
   const [pickLine, setPickLine] = useState(null);
+  const [deliveryOpen, setDeliveryOpen] = useState(true);
   const [error, setError] = useState('');
   const money = (v) => formatMoney(v, currency);
-  const withGst = kind === 'tax';
+  const withGst = true;
   const list = useMemo(() => (Array.isArray(products) ? products : []), [products]);
   const inStock = useMemo(() => list.filter((p) => p.stock > 0), [list]);
 
@@ -75,7 +77,10 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
     () => lines.map((l) => (l.productId ? { ...l, rate: stockPreview(l, stock[l.productId]).rate } : l)),
     [lines, stock],
   );
-  const summary = useMemo(() => summarizeLinePricing({ lines: effective.filter((l) => l.productId), gstIncluded: false, withGst }), [effective, withGst]);
+  const goodsPricingLines = useMemo(() => effective.filter((l) => l.productId).map((l) => ({
+    kind: 'goods', name: l.name, detail: l.detail, hsn: l.hsn, qty: l.serials?.length ? l.serials.length : Number(l.qty) || 0, unit: l.unit, rate: Number(stockPreview(l, stock[l.productId])?.rate) || 0, gstPercent: l.gstPercent,
+  })), [effective, stock]);
+  const { summary, goodsValue, servicesValue } = useBillPricing({ goodsLines: goodsPricingLines, serviceRows: services, withGst, discountActive, discount, discountIsPercent });
 
   // the proposal's items, matched to inventory, with what earlier bills already sent and what this one carries
   const proposalItems = useMemo(() => {
@@ -83,9 +88,9 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
     const hasLines = proposal.pricing?.lines?.some((l) => l?.name) || proposal.quote?.items?.length || proposal.quote?.extraItems?.length;
     if (!hasLines) return [];
     const resolved = resolveProposalPricing({ pricing: proposal.pricing, quote: proposal.quote, total: proposal.total, title: proposal.title });
-    const sent = new Map(); // productId or normalised name → qty on earlier (not cancelled) bills
+    const sent = new Map(); // productId or normalised name → qty still on open or invoiced bills (not revised/cancelled)
     for (const e of ewayBills || []) {
-      if (e.status === 'cancelled') continue;
+      if (e.status !== 'open' && e.status !== 'billed') continue;
       for (const l of e.lines || []) {
         const q = Number(l.qty) || 0;
         if (l.productId) sent.set(l.productId, (sent.get(l.productId) || 0) + q);
@@ -145,7 +150,9 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
 
   const submit = () => {
     const used = lines.filter((l) => l.productId);
-    if (!used.length) return setError('Add at least one product from stock');
+    const hasProducts = used.length > 0;
+    const hasServices = services.some((s) => s.name.trim());
+    if (!hasProducts && !hasServices) return setError('Add at least one product from stock or at least one service');
     for (const l of effective) {
       if (!l.productId) continue;
       const product = list.find((p) => p.id === l.productId);
@@ -154,11 +161,17 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
       if (!(Number(l.qty) > 0)) return setError(`Enter the quantity of ${l.name}`);
       if (stock[l.productId] && !l.batch && !product?.isSerialized && Number(l.qty) > available) return setError(`Only ${available} ${l.unit} of ${l.name} in stock`);
     }
+    if (!validateServices(services, setError)) return;
+    if (!(summary.total > 0)) return setError('The bill total must be greater than zero');
     setError('');
     onSubmit({
       ...party,
       lines: used.map((l) => ({ productId: l.productId, priceType: l.priceType, qty: l.serials?.length ? l.serials.length : Number(l.qty) || 0, batch: l.batch || '', serials: l.serials || [], detail: l.detail })),
+      services: servicesPayload(services),
       withGst,
+      discount: discountActive ? discount : 0,
+      discountIsPercent,
+      discountRemark: discountActive ? discountRemark : '',
       transport: { ...transport, distanceKm: transport.distanceKm === '' ? null : Number(transport.distanceKm) },
       issuedOn,
       note,
@@ -173,98 +186,99 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
         open={open}
         onClose={onClose}
         title={`Bill · ${partyName}`}
-        description={proposal ? 'Pick the products leaving stock and, optionally, how they are delivered; the panel on the right shows what the proposal promised and what is still to send. Stock is reduced when the bill is generated.' : 'Pick the products leaving stock and, optionally, how they are delivered. Stock is reduced when the bill is generated; the client pays on an invoice afterwards.'}
-        submitLabel="Generate bill"
+        description="Line items, optional discount, and delivery details. Product stock is deducted when you confirm."
+        submitLabel={`Confirm · ${money(summary.total)}`}
         busy={busy}
         error={error}
         onSubmit={submit}
         size="96"
         noValidate
+        bodyClassName="gap-5"
       >
-        <div className="absolute top-4 right-12">
-          <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-200/80 p-1">
-            {KIND.map(({ id, label }) => (
-              <button key={id} type="button" onClick={() => setKind(id)} className={cx('h-8 rounded-md px-3 text-xs font-semibold transition', kind === id ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900')}>{label}</button>
-            ))}
-          </div>
-        </div>
-
         {productsError && <Alert>{productsError}</Alert>}
-        {!productsError && products && !inStock.length && <Alert tone="warn">Nothing is in stock. Receive stock on a product first (Inventory › product › Stock).</Alert>}
+        {!productsError && products && !inStock.length && !services.some((s) => s.name.trim()) && (
+          <Alert tone="warn">No stock on hand. Receive inventory or add service lines only.</Alert>
+        )}
 
-        <div className={cx(proposalItems.length > 0 && 'grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start')}>
-        <div className="min-w-0 space-y-4">
-        <div className="rounded-xl border border-sky-200 bg-sky-50/40">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-sky-100 px-4 py-2.5">
-            <div className="flex items-center gap-2 text-sm font-semibold text-sky-900"><Boxes className="h-4 w-4" />Goods from stock</div>
-            <div className="text-xs text-slate-600">Value <b className="text-slate-900">{money(summary.total)}</b>{withGst && summary.gstTotal > 0 && <span className="text-slate-500"> · includes {money(summary.gstTotal)} GST</span>}</div>
+        <div className={cx(proposalItems.length > 0 && 'grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start')}>
+        <div className="min-w-0 space-y-5">
+        <BillSection title="Document details" hint="Bill date and the note printed on the PDF declaration">
+          <div className={billDoc.metaStrip}>
+            <FormField label="Bill date"><Input type="date" max={today()} value={issuedOn} onValue={setIssuedOn} /></FormField>
+            <FormField label="Internal note" optional hint="Shown on the PDF declaration"><Input maxLength={300} value={note} onValue={setNote} placeholder="Optional" /></FormField>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-xs">
-              <thead className="bg-white/70 text-slate-600">
-                <tr className="border-b border-sky-100">
-                  <th className="px-3 py-2 text-left font-semibold">Product</th>
-                  <th className="w-24 px-3 py-2 text-center font-semibold">Qty</th>
-                  <th className="w-36 px-3 py-2 text-left font-semibold">Price</th>
-                  <th className="w-28 px-3 py-2 text-right font-semibold">Rate</th>
-                  {withGst && <th className="w-16 px-3 py-2 text-center font-semibold">GST%</th>}
-                  <th className="w-28 px-3 py-2 text-right font-semibold">Amount</th>
-                  <th className="w-8 px-1 py-2" />
+        </BillSection>
+
+        <BillSection
+          title="Products"
+          hint={goodsValue > 0 ? <>Line total <span className="font-medium tabular-nums text-slate-800">{money(goodsValue)}</span> · stock is deducted when you confirm</> : 'Pick items from inventory — quantities, batches, and serials'}
+          flush
+        >
+          <div className={billDoc.tableWrap}>
+            <table className={billDoc.table}>
+              <thead className={billDoc.thead}>
+                <tr>
+                  <th className={billDoc.th}>Product</th>
+                  <th className={cx(billDoc.thCenter, 'w-24')}>Qty</th>
+                  <th className={cx(billDoc.th, 'w-32')}>Price list</th>
+                  <th className={cx(billDoc.thRight, 'w-28')}>Unit price</th>
+                  {withGst && <th className={cx(billDoc.thCenter, 'w-16')}>Tax %</th>}
+                  <th className={cx(billDoc.thRight, 'w-28')}>Amount</th>
+                  <th className="w-10 px-1 py-2.5" />
                 </tr>
               </thead>
-              <tbody className="bg-white">
+              <tbody>
                 {lines.map((l, i) => {
                   const product = l.productId ? list.find((p) => p.id === l.productId) : null;
                   const entry = l.productId ? stock[l.productId] : null;
                   const preview = l.productId ? stockPreview(l, entry) : null;
                   return (
                     <Fragment key={l.key}>
-                      <tr className={cx(!l.productId && 'border-b border-slate-100')}>
-                        <td className="px-3 py-2 align-top">
-                          <Select aria-label="Product" value={l.productId} onValue={(v) => chooseProduct(i, v)} className="h-9 text-xs">
-                            <option value="">— Choose a product —</option>
-                            {list.map((p) => <option key={p.id} value={p.id} disabled={!(p.stock > 0) && p.id !== l.productId}>{p.name}{p.brand ? ` · ${p.brand}` : ''} · {p.stock ?? 0} {p.unit} in stock</option>)}
+                      <tr className={billDoc.row}>
+                        <td className={billDoc.td}>
+                          <Select aria-label="Product" value={l.productId} onValue={(v) => chooseProduct(i, v)} className="h-8 text-xs">
+                            <option value="">Select product…</option>
+                            {list.map((p) => <option key={p.id} value={p.id} disabled={!(p.stock > 0) && p.id !== l.productId}>{p.name}{p.brand ? ` · ${p.brand}` : ''} · {p.stock ?? 0} {p.unit}</option>)}
                           </Select>
-                          {l.detail && <p className="mt-1 line-clamp-1 text-[11px] text-slate-500" title={l.detail}>{l.detail}</p>}
+                          {l.detail && <p className="mt-1 line-clamp-1 text-xs text-slate-500" title={l.detail}>{l.detail}</p>}
                         </td>
-                        <td className="px-3 py-2 align-top">
-                          <input type="number" min={0} step="any" value={l.qty} readOnly={Boolean(product?.isSerialized)} title={product?.isSerialized ? 'The number of serial numbers chosen' : undefined} onChange={(e) => setLine(i, { qty: Number(e.target.value) || 0 })} className={cx(cell, 'h-9 rounded-md border border-slate-200 px-2 text-center', product?.isSerialized && 'bg-slate-50 text-slate-500')} />
-                          <div className="mt-1 text-center text-[11px] text-slate-500">{l.unit || 'Nos'}</div>
+                        <td className={billDoc.td}>
+                          <input type="number" min={0} step="any" value={l.qty} readOnly={Boolean(product?.isSerialized)} title={product?.isSerialized ? 'Set by serial selection' : undefined} onChange={(e) => setLine(i, { qty: Number(e.target.value) || 0 })} className={cx(cell, 'text-center tabular-nums', product?.isSerialized && 'bg-slate-50 text-slate-600')} />
+                          <div className="mt-0.5 text-center text-[11px] text-slate-400">{l.unit || 'Nos'}</div>
                         </td>
-                        <td className="px-3 py-2 align-top">
-                          <Select aria-label="Price type" value={l.priceType} onValue={(v) => setLine(i, { priceType: v })} className="h-9 text-xs" disabled={!l.productId}>
+                        <td className={billDoc.td}>
+                          <Select aria-label="Price type" value={l.priceType} onValue={(v) => setLine(i, { priceType: v })} className="h-8 text-xs" disabled={!l.productId}>
                             {PRICE_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
                           </Select>
                         </td>
-                        <td className="px-3 py-2 text-right align-top tabular-nums text-slate-700"><div className="h-9 leading-9">{preview ? money(preview.rate) : '—'}</div></td>
-                        {withGst && <td className="px-3 py-2 text-center align-top text-slate-700"><div className="h-9 leading-9">{l.productId ? `${l.gstPercent}%` : '—'}</div></td>}
-                        <td className="px-3 py-2 text-right align-top font-semibold tabular-nums text-slate-900"><div className="h-9 leading-9">{l.productId ? money((Number(l.qty) || 0) * (preview?.rate || 0)) : '—'}</div></td>
+                        <td className={cx(billDoc.td, 'text-right tabular-nums text-slate-700')}><div className="h-8 leading-8">{preview ? money(preview.rate) : '—'}</div></td>
+                        {withGst && <td className={cx(billDoc.td, 'text-center tabular-nums text-slate-600')}><div className="h-8 leading-8">{l.productId ? `${l.gstPercent}%` : '—'}</div></td>}
+                        <td className={cx(billDoc.td, 'text-right font-medium tabular-nums text-slate-900')}><div className="h-8 leading-8">{l.productId ? money((Number(l.qty) || 0) * (preview?.rate || 0)) : '—'}</div></td>
                         <td className="px-1 py-2 text-center align-top">
-                          <button type="button" aria-label="Remove line" onClick={() => removeLine(i)} className="mt-2 rounded p-0.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600"><X className="h-3.5 w-3.5" /></button>
+                          <button type="button" aria-label="Remove line" onClick={() => removeLine(i)} className="mt-1 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X className="h-3.5 w-3.5" /></button>
                         </td>
                       </tr>
                       {l.productId && (
-                        <tr className="border-b border-slate-100 bg-sky-50/40">
-                          <td colSpan={withGst ? 7 : 6} className="px-3 pb-2.5 pt-1">
-                            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
-                              <Boxes className="h-3.5 w-3.5 text-sky-700" />
+                        <tr className={billDoc.subRow}>
+                          <td colSpan={withGst ? 7 : 6} className="px-4 py-2">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
                               <span>
                                 {product?.isSerialized
-                                  ? `${l.serials?.length || 0} serial number${l.serials?.length === 1 ? '' : 's'} selected`
-                                  : l.batch ? 'From the chosen batch' : 'Oldest batch first'}
-                                {` · ${PRICE_TYPES.find((t) => t.id === l.priceType)?.label} price`}
+                                  ? `${l.serials?.length || 0} serial${l.serials?.length === 1 ? '' : 's'}`
+                                  : l.batch ? 'Batch selected' : 'FIFO batch'}
+                                {' · '}{PRICE_TYPES.find((t) => t.id === l.priceType)?.label}
                               </span>
-                              <button type="button" onClick={() => setPickLine(i)} className="rounded-md border border-sky-300 bg-white px-2 py-1 font-medium text-sky-800 hover:bg-sky-50">
-                                {product?.isSerialized ? 'Choose serial numbers' : 'Choose batch'}
+                              <button type="button" onClick={() => setPickLine(i)} className="font-medium text-slate-800 underline-offset-2 hover:underline">
+                                {product?.isSerialized ? 'Select serials' : 'Select batch'}
                               </button>
-                              {!entry && <span className="text-slate-500">Loading stock…</span>}
+                              {!entry && <span className="text-slate-400">Loading stock…</span>}
                               {entry?.error && <span className="text-red-600">{entry.error}</span>}
                               {preview && entry && !entry.error && !l.batch && !product?.isSerialized && Number(l.qty) > preview.available && (
-                                <span className="flex items-center gap-1 text-red-600"><TriangleAlert className="h-3 w-3" /> Only {preview.available} {l.unit} in stock</span>
+                                <span className="flex items-center gap-1 text-red-600"><TriangleAlert className="h-3 w-3" /> {preview.available} {l.unit} available</span>
                               )}
-                              {preview?.split && <span className="flex items-center gap-1 text-amber-700"><TriangleAlert className="h-3 w-3" /> Comes from {preview.used.length} batches at different prices: one line per batch, at its own price.</span>}
+                              {preview?.split && <span className="flex items-center gap-1 text-amber-700"><TriangleAlert className="h-3 w-3" /> Multiple batches — split pricing</span>}
                             </div>
-                            {product?.isSerialized && l.serials?.length > 0 && <p className="mt-1.5 line-clamp-2 break-all font-mono text-[11px] text-slate-500">S/N {l.serials.join(', ')}</p>}
+                            {product?.isSerialized && l.serials?.length > 0 && <p className="mt-1 line-clamp-2 break-all font-mono text-[11px] text-slate-500">{l.serials.join(', ')}</p>}
                           </td>
                         </tr>
                       )}
@@ -274,76 +288,112 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-2.5">
-            <Button size="sm" icon={Plus} onClick={() => setLines((rows) => [...rows, blankLine()])}>Add product</Button>
+          <div className="border-t border-slate-200 bg-slate-50/50 px-4 py-2.5">
+            <Button type="button" size="sm" variant="secondary" icon={Plus} onClick={() => setLines((rows) => [...rows, blankLine()])}>Add product line</Button>
           </div>
-        </div>
+        </BillSection>
 
-        <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
-          <div className="mb-3 text-sm font-semibold text-amber-900">Delivery details <span className="font-normal text-slate-500">· optional</span></div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <ServiceLinesEditor services={services} setServices={setServices} charges={charges} withGst={withGst} money={money} />
+
+        <BillSection
+          title="Delivery & transport"
+          hint="Optional — vehicle, transporter, and addresses on the delivery challan"
+          action={(
+            <button type="button" onClick={() => setDeliveryOpen((o) => !o)} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
+              {deliveryOpen ? 'Hide' : 'Show'}
+            </button>
+          )}
+          bodyClassName={deliveryOpen ? undefined : 'hidden'}
+        >
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <FormField label="Mode">
               <Select value={transport.mode} onValue={(v) => setT({ mode: v })}>{Object.entries(TRANSPORT_MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
             </FormField>
-            <FormField label="Vehicle number" optional><Input maxLength={20} value={transport.vehicleNo} onValue={(v) => setT({ vehicleNo: v.toUpperCase() })} placeholder="MH12AB1234" className="uppercase" /></FormField>
-            <FormField label="Transporter" optional><Input maxLength={120} value={transport.transporter} onValue={(v) => setT({ transporter: v })} placeholder="Name of the transporter" /></FormField>
-            <FormField label="Transporter GSTIN / ID" optional><Input maxLength={15} value={transport.transporterId} onValue={(v) => setT({ transporterId: v.toUpperCase() })} className="uppercase" /></FormField>
-            <FormField label="Transport doc no." optional hint="LR / RR / airway bill"><Input maxLength={80} value={transport.docNo} onValue={(v) => setT({ docNo: v })} /></FormField>
-            <FormField label="Transport doc date" optional><Input type="date" value={transport.docDate} onValue={(v) => setT({ docDate: v })} /></FormField>
+            <FormField label="Vehicle no." optional><Input maxLength={20} value={transport.vehicleNo} onValue={(v) => setT({ vehicleNo: v.toUpperCase() })} placeholder="MH12AB1234" className="uppercase" /></FormField>
+            <FormField label="Transporter" optional><Input maxLength={120} value={transport.transporter} onValue={(v) => setT({ transporter: v })} /></FormField>
+            <FormField label="Transporter GSTIN" optional><Input maxLength={15} value={transport.transporterId} onValue={(v) => setT({ transporterId: v.toUpperCase() })} className="uppercase" /></FormField>
+            <FormField label="LR / doc no." optional><Input maxLength={80} value={transport.docNo} onValue={(v) => setT({ docNo: v })} /></FormField>
+            <FormField label="Doc date" optional><Input type="date" value={transport.docDate} onValue={(v) => setT({ docDate: v })} /></FormField>
             <FormField label="Distance (km)" optional><Input type="number" min={0} step="1" value={transport.distanceKm} onValue={(v) => setT({ distanceKm: v })} /></FormField>
             <FormField label="Reason">
               <Select value={transport.reason} onValue={(v) => setT({ reason: v })}>{Object.entries(TRANSPORT_REASON_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
             </FormField>
-            <FormField label="Dispatch from" optional className="sm:col-span-2"><Textarea rows={2} maxLength={200} value={transport.fromPlace} onValue={(v) => setT({ fromPlace: v })} placeholder="Your warehouse / shop address" /></FormField>
-            <FormField label="Deliver to" optional className="sm:col-span-2"><Textarea rows={2} maxLength={200} value={transport.toPlace} onValue={(v) => setT({ toPlace: v })} placeholder="The site address" /></FormField>
+            <FormField label="Dispatch from" optional className="sm:col-span-2 lg:col-span-3"><Textarea rows={2} maxLength={200} value={transport.fromPlace} onValue={(v) => setT({ fromPlace: v })} placeholder="Warehouse address" /></FormField>
+            <FormField label="Deliver to" optional className="sm:col-span-2 lg:col-span-3"><Textarea rows={2} maxLength={200} value={transport.toPlace} onValue={(v) => setT({ toPlace: v })} placeholder="Site address" /></FormField>
           </div>
-        </div>
+        </BillSection>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <FormField label="Date"><Input type="date" max={today()} value={issuedOn} onValue={setIssuedOn} /></FormField>
-          <FormField label="Note" optional><Input maxLength={300} value={note} onValue={setNote} placeholder="Printed under the declaration" /></FormField>
-        </div>
+        <BillSection title="Summary" hint="Discount, GST, and amount due on this bill">
+          <DiscountEditor
+            embedded
+            active={discountActive}
+            setActive={setDiscountActive}
+            discount={discount}
+            setDiscount={setDiscount}
+            discountIsPercent={discountIsPercent}
+            setDiscountIsPercent={setDiscountIsPercent}
+            discountRemark={discountRemark}
+            setDiscountRemark={setDiscountRemark}
+            summary={summary}
+            money={money}
+            withGst={withGst}
+            goodsLabel="Products"
+            goodsValue={goodsValue}
+            servicesValue={servicesValue}
+            totalLabel="Bill total"
+          />
+        </BillSection>
         </div>
 
         {proposalItems.length > 0 && (
-          <aside className="rounded-xl border border-emerald-200 bg-emerald-50/40 lg:sticky lg:top-0">
-            <div className="border-b border-emerald-100 px-4 py-2.5">
-              <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900"><ClipboardList className="h-4 w-4" />In the proposal</div>
-              <p className="mt-0.5 text-[11px] text-slate-600">{doneItems} of {goodsItems.length} item{goodsItems.length === 1 ? '' : 's'} fully dispatched. “Add” puts what is left on this bill.</p>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-emerald-100"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${goodsItems.length ? Math.round((doneItems / goodsItems.length) * 100) : 0}%` }} /></div>
+          <aside className={cx(billDoc.card, 'xl:sticky xl:top-0')}>
+            <div className={billDoc.sectionBar}>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+                  <div className={billDoc.sectionTitle}>Proposal fulfillment</div>
+                </div>
+                <p className={billDoc.sectionHint}>{doneItems} of {goodsItems.length} product lines fully dispatched</p>
+              </div>
             </div>
-            <ul className="max-h-[60dvh] divide-y divide-emerald-100 overflow-y-auto bg-white">
+            <div className="border-b border-slate-200 px-4 py-2">
+              <div className="h-1.5 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-slate-700 transition-all" style={{ width: `${goodsItems.length ? Math.round((doneItems / goodsItems.length) * 100) : 0}%` }} /></div>
+            </div>
+            <ul className="max-h-[min(60dvh,520px)] divide-y divide-slate-100 overflow-y-auto">
               {proposalItems.map((it) => (
-                <li key={it.key} className={cx('px-4 py-2.5 text-xs', (it.service || (!it.service && it.left <= 0)) && 'bg-slate-50/60')}>
+                <li key={it.key} className="px-4 py-3 text-xs">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className={cx('truncate font-medium', it.service ? 'text-slate-500' : 'text-slate-900')} title={it.line.name}>{it.line.name}</div>
-                      {it.line.detail && <div className="line-clamp-2 text-[11px] text-slate-500" title={it.line.detail}>{[...new Set(String(it.line.detail).split(' · ').map((x) => x.trim()).filter(Boolean))].join(' · ')}</div>}
+                      <div className={cx('truncate font-medium text-slate-900', it.service && 'text-slate-600')} title={it.line.name}>{it.line.name}</div>
+                      {it.line.detail && <div className="line-clamp-2 text-[11px] text-slate-500">{[...new Set(String(it.line.detail).split(' · ').map((x) => x.trim()).filter(Boolean))].join(' · ')}</div>}
                     </div>
-                    <div className="shrink-0 text-right tabular-nums text-slate-700">{it.needed} {it.line.unit || 'Nos'}</div>
+                    <div className="shrink-0 tabular-nums text-slate-600">{it.needed} {it.line.unit || 'Nos'}</div>
                   </div>
                   {it.service ? (
-                    <div className="mt-1 text-[11px] text-slate-500">Service · goes on the invoice, not the bill</div>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <span className="text-slate-500">Service</span>
+                        <Button type="button" size="sm" variant="secondary" icon={Plus} onClick={() => setServices((rows) => [...rows, { ...blankServiceRow(), name: it.line.name, description: it.line.detail || '', rate: Number(it.line.rate) || 0, qty: it.needed, hsn: String(it.line.hsn || '').replace(/\D/g, ''), gstPercent: it.line.gstPercent ?? 18 }])}>Add</Button>
+                      </div>
                   ) : (
-                    <div className="mt-1.5 flex items-center justify-between gap-2">
-                      <div className="text-[11px] text-slate-600">
-                        {it.already > 0 && <span>sent {it.already}</span>}
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-slate-500">
+                        {it.already > 0 && <span>Shipped {it.already}</span>}
                         {it.already > 0 && (it.here > 0 || it.left > 0) && ' · '}
-                        {it.here > 0 && <span className="text-sky-700">here {it.here}</span>}
+                        {it.here > 0 && <span>On bill {it.here}</span>}
                         {it.here > 0 && it.left > 0 && ' · '}
-                        {it.left > 0 ? <span className="font-semibold text-amber-700">{it.already > 0 || it.here > 0 ? `left ${it.left}` : 'not sent yet'}</span> : <span className="inline-flex items-center gap-1 font-semibold text-emerald-700"><CircleCheck className="h-3 w-3" />all sent</span>}
+                        {it.left > 0 ? <span className="font-medium text-slate-800">{it.already > 0 || it.here > 0 ? `${it.left} pending` : 'Pending'}</span> : <span className="inline-flex items-center gap-1 font-medium text-slate-700"><CircleCheck className="h-3 w-3" />Complete</span>}
                       </div>
                       {it.left > 0 && (it.product ? (
                         it.product.stock > 0 ? (
                           <span className="flex shrink-0 items-center gap-2">
-                            {it.product.stock < it.left && <span className="text-[11px] text-amber-700">only {it.product.stock} {it.product.unit} in stock</span>}
-                            <button type="button" onClick={() => addFromProposal(it)} className="inline-flex h-6 items-center gap-1 rounded-md border border-emerald-300 bg-white px-2 font-semibold text-emerald-800 hover:bg-emerald-50"><Plus className="h-3 w-3" />Add</button>
+                            {it.product.stock < it.left && <span className="text-[11px] text-amber-700">{it.product.stock} in stock</span>}
+                            <Button type="button" size="sm" variant="secondary" icon={Plus} onClick={() => addFromProposal(it)}>Add</Button>
                           </span>
                         ) : (
-                          <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 ring-1 ring-inset ring-red-200"><TriangleAlert className="h-3 w-3" />Out of stock</span>
+                          <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-red-600"><TriangleAlert className="h-3 w-3" />No stock</span>
                         )
                       ) : (
-                        <span className="shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">Not in inventory</span>
+                        <span className="shrink-0 text-[11px] text-slate-400">Not in catalog</span>
                       ))}
                     </div>
                   )}

@@ -11,14 +11,16 @@ export const chargesTotal = (list) => (Array.isArray(list) ? list : []).reduce((
 
 const DEFAULT_GST = 18;
 
-const emptyRow = () => ({ chargeId: '', name: '', price: 0, gstPercent: DEFAULT_GST });
+export const emptyInstallationCharge = () => ({ chargeId: '', name: '', price: 0, gstPercent: DEFAULT_GST });
+
+const emptyRow = emptyInstallationCharge;
 
 const withDefaultGst = (row) => ({
   ...row,
   gstPercent: row.gstPercent != null && row.gstPercent !== '' ? row.gstPercent : DEFAULT_GST,
 });
 
-export default function ChargePicker({ value = [], onChange, currency = '₹' }) {
+export default function ChargePicker({ value = [], onChange, currency = '₹', embedded = false }) {
   const { data: options, loading, error } = useResource('/api/installation-charges');
   const catalog = Array.isArray(options) ? options : [];
   const rows = (Array.isArray(value) ? value : []).map(withDefaultGst);
@@ -37,17 +39,21 @@ export default function ChargePicker({ value = [], onChange, currency = '₹' })
 
   return (
     <div>
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <div>
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-700">Installation charges</span>
-          <p className="text-[10px] text-slate-400">Ex-GST price; {DEFAULT_GST}% GST applied by default</p>
+      {!embedded && (
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <div>
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-700">Installation charges</span>
+            <p className="text-[10px] text-slate-400">Ex-GST price; {DEFAULT_GST}% GST applied by default</p>
+          </div>
+          <button type="button" onClick={() => onChange([...rows, emptyRow()])} className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-brand hover:underline"><Plus className="h-3.5 w-3.5" />Add</button>
         </div>
-        <button type="button" onClick={() => onChange([...rows, emptyRow()])} className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-brand hover:underline"><Plus className="h-3.5 w-3.5" />Add</button>
-      </div>
+      )}
       {error && <p className="mb-2 text-[11px] text-red-600">Could not load charge list: {error}</p>}
       {!rows.length && (
         <p className="text-[11px] text-slate-500">
-          None added. {loading ? 'Loading catalog…' : catalog.length ? 'Click Add, then type a name or choose from the catalog.' : <>Create reusable charges in <Link href="/dashboard/masters?tab=installation-charges" className="font-medium text-brand hover:underline">Manage Masters → Installation charges</Link>, or type a custom name below.</>}
+          {embedded
+            ? (loading ? 'Loading charge catalog…' : 'No services added yet — use Add service above.')
+            : <>None added. {loading ? 'Loading catalog…' : catalog.length ? 'Click Add, then type a name or choose from the catalog.' : <>Create reusable charges in <Link href="/dashboard/masters?tab=installation-charges" className="font-medium text-brand hover:underline">Manage Masters → Installation charges</Link>, or type a custom name below.</>}</>}
         </p>
       )}
       <div className="space-y-2 max-h-48 overflow-y-auto pr-1">

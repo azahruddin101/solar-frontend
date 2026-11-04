@@ -51,8 +51,8 @@ export default function ReturnGoodsModal({ open, onClose, bill, currency = 'INR'
     <FormModal
       open={open}
       onClose={onClose}
-      title={`Return goods · ${bill.billNo}`}
-      description="Only the products that came back. They go into stock, a credit note is made against this invoice, and the refund comes off what was paid on it. The invoice itself stays as it is."
+      title={`Return products · ${bill.billNo}`}
+      description="Choose one or more product lines and quantities (or serial numbers). Stock is restored and a credit note refunds the customer. When every product on the invoice is returned, the invoice is voided."
       submitLabel={`Make credit note${estimate > 0 ? ` · about ${money(estimate)}` : ''}`}
       busy={busy}
       error={error || loadError}
@@ -71,7 +71,7 @@ export default function ReturnGoodsModal({ open, onClose, bill, currency = 'INR'
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <div className="font-medium text-slate-900">{l.name}</div>
-                    <div className="text-xs text-slate-500">{[l.ewayNo, l.batchNo && `Batch ${l.batchNo}`, `${l.qty} ${l.unit} on the invoice`, `${money(l.lineTotal)} with GST`].filter(Boolean).join(' · ')}</div>
+                    <div className="text-xs text-slate-500">{[l.ewayNo, l.batchNo && `Batch ${l.batchNo}`, `${l.qtyLeft} of ${l.qty} ${l.unit} left to return`, `${money(l.lineTotal)} on invoice`].filter(Boolean).join(' · ')}</div>
                   </div>
                   {l.serials.length === 0 && (
                     <div className="w-36">

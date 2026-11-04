@@ -28,7 +28,7 @@ const BLANK = (units) => ({
   hsnCode: '',
   unit: normalizeProductUnit('', units),
   gstPercent: 18,
-  warrantyMonths: 0,
+  warrantyMonths: '',
   reorderLevel: 0,
   isSerialized: false,
   description: '',
@@ -106,10 +106,13 @@ export function ProductForm({ product, category, categories, brands, units, onCl
 
   const { stock, price, lowStock, hasBatches, documents, ...fields } = form; // read-only: from the batches / own endpoints
   const payload = { ...TYPE_DEFAULTS[type], ...fields, attributes: attributePayload(formCategory, form.attributes) };
-  // panels are named from brand + model when the name is blank, but need watt and size; every other product needs a name
-  const schema = useMemo(() => (type === 'panels'
-    ? productSchema.extend({ watts: zNum({ min: 1, max: 2000, label: 'Watt' }), length: zNum({ min: 0.2, max: 5, label: 'Length' }), width: zNum({ min: 0.2, max: 5, label: 'Width' }) })
-    : productSchema.extend({ name: textRequired(120, 'Product name') })), [type]);
+  // Product name is always required; brand, model, SKU, HSN and warranty are optional (panels still need watt and size).
+  const schema = useMemo(() => {
+    const withName = productSchema.extend({ name: textRequired(120, 'Product name') });
+    return type === 'panels'
+      ? withName.extend({ watts: zNum({ min: 1, max: 2000, label: 'Watt' }), length: zNum({ min: 0.2, max: 5, label: 'Length' }), width: zNum({ min: 0.2, max: 5, label: 'Width' }) })
+      : withName;
+  }, [type]);
   const v = useValidation(schema, payload);
 
   const attrErrors = attributeErrors(formCategory, form.attributes);
@@ -223,14 +226,14 @@ export function ProductForm({ product, category, categories, brands, units, onCl
           </button>
           {more && (
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <FormField label="Brand">
+              <FormField label="Brand" optional>
                 <Input maxLength={60} list={brandsId} value={form.brand} onValue={(v) => set({ brand: upperFirst(v) })} />
                 <datalist id={brandsId}>{brands.map((b) => <option key={b} value={b} />)}</datalist>
               </FormField>
-              <FormField label="Model" error={v.error('model')}><Input maxLength={60} value={form.model} onValue={(v) => set({ model: v })} /></FormField>
-              <FormField label="SKU / item code" error={v.error('sku')}><Input maxLength={60} value={form.sku} onValue={(x) => set({ sku: x })} /></FormField>
-              <FormField label="HSN Code" error={v.error('hsnCode')}><Input inputMode="numeric" maxLength={8} value={form.hsnCode || ''} onValue={(x) => set({ hsnCode: x.replace(/\D/g, '') })} placeholder="e.g. 854140" /></FormField>
-              <FormField label="Warranty (months)" error={v.error('warrantyMonths')} hint={form.warrantyMonths ? `${warrantyLabel(form.warrantyMonths)}, counted from the install date` : 'Counted from the install date'}><Input type="number" min={0} max={720} step="1" value={form.warrantyMonths ?? 0} onValue={(x) => set({ warrantyMonths: num(x) })} /></FormField>
+              <FormField label="Model" optional error={v.error('model')}><Input maxLength={60} value={form.model} onValue={(v) => set({ model: v })} /></FormField>
+              <FormField label="SKU / item code" optional error={v.error('sku')}><Input maxLength={60} value={form.sku} onValue={(x) => set({ sku: x })} /></FormField>
+              <FormField label="HSN Code" optional error={v.error('hsnCode')}><Input inputMode="numeric" maxLength={8} value={form.hsnCode || ''} onValue={(x) => set({ hsnCode: x.replace(/\D/g, '') })} placeholder="e.g. 854140" /></FormField>
+              <FormField label="Warranty (months)" optional error={v.error('warrantyMonths')} hint={form.warrantyMonths ? `${warrantyLabel(form.warrantyMonths)}, counted from the install date` : 'Leave blank if there is no install warranty'}><Input type="number" min={0} max={720} step="1" value={form.warrantyMonths ?? ''} onValue={(x) => set({ warrantyMonths: num(x) })} placeholder="e.g. 60" /></FormField>
               <FormField label="Notes" className="sm:col-span-2"><Textarea rows={2} maxLength={1000} value={form.description} onValue={(v) => set({ description: v })} placeholder="Inclusions, compatibility…" /></FormField>
             </div>
           )}

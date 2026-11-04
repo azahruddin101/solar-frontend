@@ -19,7 +19,7 @@ import { useResource } from '@/lib/useResource';
 import { Alert, Button, Card, FormField, Input, LoadingBlock, NumField, Select, toast } from '../kit';
 import CoverPicker from '../kit/CoverPicker';
 import AuthGuard from '../layout/AuthGuard';
-import ChargePicker, { chargesTotal } from './ChargePicker';
+import ChargePicker, { emptyInstallationCharge } from './ChargePicker';
 import ClientChangeRequestPanel from './ClientChangeRequestPanel';
 import ShareModal from './ShareModal';
 import { ProposalGstModeToggle } from '../proposal/ProposalGstControls';
@@ -37,7 +37,8 @@ function buildItems(q, packages) {
   if (q.pricingMode === 'package') {
     const pkg = (packages || []).find((p) => p.id === q.packageId);
     if (!q.packageId) return [];
-    return [{ kind: 'package', refId: q.packageId, name: pkg?.name || 'Solar package', detail: [pkg?.kw ? `${pkg.kw} kW` : '', pkg?.description].filter(Boolean).join(' · '), unit: 'Set', qty: 1, kw: Number(pkg?.kw) || 0, price: num(q.packagePrice), gstPercent: num(q.packageGstPercent) || num(q.gstPercent) || 18, bundle: q.bundle || [] }];
+    const price = pkg ? num(pkg.price) : num(q.packagePrice);
+    return [{ kind: 'package', refId: q.packageId, name: pkg?.name || 'Solar package', detail: [pkg?.kw ? `${pkg.kw} kW` : '', pkg?.description].filter(Boolean).join(' · '), unit: 'Set', qty: 1, kw: Number(pkg?.kw) || 0, price, gstPercent: num(q.packageGstPercent) || num(q.gstPercent) || 18, bundle: q.bundle || [] }];
   }
   return Object.values(q.materials || {}).filter((m) => m.productId).map((m) => ({ kind: 'product', refId: m.productId, name: m.name, detail: m.detail, category: m.category, panel: m.panel, unit: m.unit, qty: num(m.qty), price: num(m.price), hsn: m.hsn, gstPercent: num(m.gstPercent) || num(q.gstPercent) || 18 }));
 }
@@ -94,6 +95,16 @@ function Editor({ designId }) {
     });
   };
   const groups = useMemo(() => (categories || []).map((c) => ({ ...c, products: (products || []).filter((p) => p.category === c.id || p.category?.id === c.id) })).filter((c) => c.products.length), [categories, products]);
+
+  // Keep line items in sync when catalog package prices change (proposal must not override package price).
+  useEffect(() => {
+    if (!quote || !packages?.length || quote.pricingMode !== 'package' || !quote.packageId) return;
+    setQuote((q) => {
+      const items = buildItems(q, packages);
+      if (items.length === q.items.length && items.every((it, i) => it.price === q.items[i]?.price && it.refId === q.items[i]?.refId)) return q;
+      return { ...q, items };
+    });
+  }, [packages, quote?.packageId, quote?.pricingMode]);
 
   const choosePackage = (id) => {
     const pkg = packages.find((p) => p.id === id);
@@ -189,7 +200,7 @@ function Editor({ designId }) {
               <h2 className="text-sm font-semibold text-slate-900">Materials</h2>
               <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-200/80 p-1">
                 {[['package', 'Package'], ['custom', 'Custom']].map(([m, label]) => (
-                  <button key={m} type="button" onClick={() => change({ pricingMode: m })} className={`h-7 rounded-md px-4 text-xs font-semibold transition ${quote.pricingMode === m ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}>{label}</button>
+                  <button key={m} type="button" onClick={() => change({ pricingMode: m, ...(m === 'package' ? { withGst: true } : {}) })} className={`h-7 rounded-md px-4 text-xs font-semibold transition ${quote.pricingMode === m ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}>{label}</button>
                 ))}
               </div>
             </div>
@@ -204,10 +215,6 @@ function Editor({ designId }) {
                 </Select>
                 {quote.packageId && (
                   <>
-                    <div className="grid grid-cols-2 gap-2">
-                      <label className="block text-xs text-slate-600">Package price ({currency})<NumField min={0} step="any" value={quote.packagePrice} onValue={(v) => change({ packagePrice: v })} className={inputCls} /></label>
-                      <label className="block text-xs text-slate-600">GST on package (%)<NumField min={0} max={100} step="any" value={quote.packageGstPercent ?? quote.gstPercent} onValue={(v) => change({ packageGstPercent: v })} className={inputCls} /></label>
-                    </div>
                     <div className="overflow-hidden rounded-md border border-slate-200">
                       <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500"><span>Products in this package</span><span>{quote.bundle?.length || 0} items</span></div>
                       {quote.bundle?.length ? (
@@ -255,30 +262,43 @@ function Editor({ designId }) {
             )}
           </Card>
 
-          <Card className="p-5">
-            <div className="mb-3 flex items-center justify-between">
+          <Card className="space-y-5 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-slate-900">Additional products & services</h2>
-              <button type="button" onClick={() => change({ extraItems: [...(quote.extraItems || []), { name: '', detail: '', qty: 1, unit: 'Nos', price: 0, gstPercent: quote.gstPercent || 18, hsn: '' }] })} className="inline-flex items-center gap-1 text-xs font-semibold text-brand hover:underline"><Plus className="h-3.5 w-3.5" />Add</button>
-            </div>
-            {!(quote.extraItems || []).length ? <p className="text-xs text-slate-500">Optional extra line items (labour, transport, AMC, etc.) with their own price and GST.</p> : (
-              <div className="space-y-3">
-                {(quote.extraItems || []).map((it, i) => (
-                  <div key={i} className="rounded-lg border border-slate-200 p-3">
-                    <div className="mb-2 flex gap-2">
-                      <Input maxLength={160} value={it.name} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, name: v } : x)) })} placeholder="Name" className="flex-1" />
-                      <button type="button" aria-label="Remove" onClick={() => change({ extraItems: quote.extraItems.filter((_, j) => j !== i) })} className="grid h-9 w-8 place-items-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"><X className="h-4 w-4" /></button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                      <label className="text-[11px] text-slate-600">Qty<NumField min={0} step="any" value={it.qty} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, qty: v } : x)) })} className={inputCls} /></label>
-                      <label className="text-[11px] text-slate-600">Unit<Input maxLength={20} value={it.unit} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, unit: v } : x)) })} className="mt-1 h-9 w-full rounded-md border border-slate-300 px-2 text-xs" /></label>
-                      <label className="text-[11px] text-slate-600">Price ({currency})<NumField min={0} step="any" value={it.price} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, price: v } : x)) })} className={inputCls} /></label>
-                      <label className="text-[11px] text-slate-600">GST %<NumField min={0} max={100} step="any" value={it.gstPercent ?? quote.gstPercent} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, gstPercent: v } : x)) })} className={inputCls} /></label>
-                      <label className="text-[11px] text-slate-600">HSN<Input maxLength={20} value={it.hsn} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, hsn: v } : x)) })} className="mt-1 h-9 w-full rounded-md border border-slate-300 px-2 text-xs" /></label>
-                    </div>
-                  </div>
-                ))}
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => change({ extraItems: [...(quote.extraItems || []), { name: '', detail: '', qty: 1, unit: 'Nos', price: 0, gstPercent: quote.gstPercent || 18, hsn: '' }] })} className="inline-flex items-center gap-1 text-xs font-semibold text-brand hover:underline"><Plus className="h-3.5 w-3.5" />Add product</button>
+                <button type="button" onClick={() => change({ installationCharges: [...(quote.installationCharges || []), emptyInstallationCharge()] })} className="inline-flex items-center gap-1 text-xs font-semibold text-brand hover:underline"><Plus className="h-3.5 w-3.5" />Add service</button>
               </div>
-            )}
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-medium text-slate-700">Products</p>
+              {!(quote.extraItems || []).length ? (
+                <p className="text-xs text-slate-500">Optional catalog-style lines (AMC, transport, accessories, etc.) with qty, price, and GST.</p>
+              ) : (
+                <div className="space-y-3">
+                  {(quote.extraItems || []).map((it, i) => (
+                    <div key={i} className="rounded-lg border border-slate-200 p-3">
+                      <div className="mb-2 flex gap-2">
+                        <Input maxLength={160} value={it.name} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, name: v } : x)) })} placeholder="Name" className="flex-1" />
+                        <button type="button" aria-label="Remove" onClick={() => change({ extraItems: quote.extraItems.filter((_, j) => j !== i) })} className="grid h-9 w-8 place-items-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"><X className="h-4 w-4" /></button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                        <label className="text-[11px] text-slate-600">Qty<NumField min={0} step="any" value={it.qty} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, qty: v } : x)) })} className={inputCls} /></label>
+                        <label className="text-[11px] text-slate-600">Unit<Input maxLength={20} value={it.unit} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, unit: v } : x)) })} className="mt-1 h-9 w-full rounded-md border border-slate-300 px-2 text-xs" /></label>
+                        <label className="text-[11px] text-slate-600">Price ({currency})<NumField min={0} step="any" value={it.price} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, price: v } : x)) })} className={inputCls} /></label>
+                        <label className="text-[11px] text-slate-600">GST %<NumField min={0} max={100} step="any" value={it.gstPercent ?? quote.gstPercent} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, gstPercent: v } : x)) })} className={inputCls} /></label>
+                        <label className="text-[11px] text-slate-600">HSN<Input maxLength={20} value={it.hsn} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, hsn: v } : x)) })} className="mt-1 h-9 w-full rounded-md border border-slate-300 px-2 text-xs" /></label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="border-t border-slate-200 pt-5">
+              <p className="mb-2 text-xs font-medium text-slate-700">Installation & services</p>
+              <p className="mb-2 text-[11px] text-slate-500">Pick from your charge catalog or enter a custom service. Ex-GST price; 18% GST by default.</p>
+              <ChargePicker embedded value={quote.installationCharges} onChange={(installationCharges) => change({ installationCharges })} currency={currency} />
+            </div>
           </Card>
 
           <Card className="space-y-5 p-5">
@@ -296,7 +316,6 @@ function Editor({ designId }) {
               <FormField label={`Electricity rate (${currency}/kWh)`}><NumField min={0} step="any" value={rate} onValue={(v) => change({ tariff: v })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" /></FormField>
             </div>
             <p className="-mt-3 text-xs text-slate-500">The PDF lists savings month by month ({(Number(quote.outlookYears) || 0) * 12} months) at this rate, held flat.</p>
-            <ChargePicker value={quote.installationCharges} onChange={(installationCharges) => change({ installationCharges })} currency={currency} />
           </Card>
         </div>
 
@@ -309,12 +328,14 @@ function Editor({ designId }) {
           <div className="flex justify-between border-t border-slate-200 pt-2"><span className="font-semibold">Subtotal</span><b>{money(totals.subtotal)}</b></div>
           <div className="grid grid-cols-2 gap-2">
             <label className="text-xs text-slate-600">Discount<NumField min={0} step="any" value={quote.discount || 0} onValue={(v) => change({ discount: v })} className="mt-1 h-9 w-full rounded-md border border-slate-300 px-2 text-xs" /></label>
-            <label className="col-span-2 text-xs text-slate-600">Discount description<input type="text" maxLength={200} value={quote.discountRemark || ''} placeholder="e.g. Festive offer" onChange={(e) => change({ discountRemark: e.target.value })} className="mt-1 h-9 w-full rounded-md border border-slate-300 px-2 text-xs" /></label>
             <label className="text-xs text-slate-600">Type<Select value={quote.discountIsPercent ? 'percent' : 'flat'} onValue={(v) => change({ discountIsPercent: v === 'percent' })} className="mt-1 h-9 w-full text-xs">{[['flat', 'Flat'], ['percent', '%']].map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></label>
+            <label className="col-span-2 text-xs text-slate-600">Discount description<input type="text" maxLength={200} value={quote.discountRemark || ''} placeholder="e.g. Festive offer" onChange={(e) => change({ discountRemark: e.target.value })} className="mt-1 h-9 w-full rounded-md border border-slate-300 px-2 text-xs" /></label>
           </div>
           {totals.discountAmount > 0 && <div className="flex justify-between text-xs text-emerald-700"><span>Discount{quote.discountRemark ? ` · ${quote.discountRemark}` : ''}</span><span>-{money(totals.discountAmount)}</span></div>}
-          <ProposalGstModeToggle withGst={quote.withGst !== false} onChange={(v) => change({ withGst: v })} className="border-t border-slate-200 pt-2" />
-          {quote.withGst !== false && totals.gstTotal > 0 && (
+          {quote.pricingMode !== 'package' && (
+            <ProposalGstModeToggle withGst={quote.withGst !== false} onChange={(v) => change({ withGst: v })} className="border-t border-slate-200 pt-2" />
+          )}
+          {(quote.pricingMode === 'package' || quote.withGst !== false) && totals.gstTotal > 0 && (
             <>
               <div className="flex justify-between text-xs text-slate-600"><span>Taxable value</span><span>{money(totals.taxableTotal)}</span></div>
               <div className="flex justify-between text-xs text-slate-600"><span>Total GST</span><span>{money(totals.gstTotal)}</span></div>
