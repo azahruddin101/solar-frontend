@@ -2,6 +2,7 @@
 
 import { CheckCircle2, ChevronDown, Loader2, MapPin, Maximize, Minus, Plus, Search, Sun } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { parseCoordinates } from '@/lib/geo';
 import { importLibrary, MAPS_API_KEY } from '@/lib/googleMaps';
 import { useStore } from '@/lib/store';
 import PlaceSearch from '../map/PlaceSearch';
@@ -119,8 +120,8 @@ export default function StepLocation({ design }) {
     if (simple) useStore.getState().setStep(1);
   };
   const applyCoords = () => {
-    const m = coords.match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
-    if (m) pick({ address: `${m[1]}, ${m[2]}`, location: { lat: Number(m[1]), lng: Number(m[2]) } });
+    const c = parseCoordinates(coords);
+    if (c) pick({ address: `${c.lat}, ${c.lng}`, location: c });
   };
   const irradiance = design.yieldModel ? design.yieldModel.specificYield(0, 180) / 365 : 0;
 

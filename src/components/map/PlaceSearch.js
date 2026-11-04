@@ -2,18 +2,11 @@
 
 import { Loader2, LocateFixed, MapPin, Search } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { looksLikeCoordinates, parseCoordinates } from '@/lib/geo';
 import { importLibrary, MAPS_API_KEY } from '@/lib/googleMaps';
 import { cx } from '../ui';
 
-const COORDS_RE = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
-
-function parseCoords(q) {
-  const m = q.match(COORDS_RE);
-  if (!m) return null;
-  const lat = Number(m[1]);
-  const lng = Number(m[2]);
-  return Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat, lng } : null;
-}
+const COORD_HINT = 'Enter coordinates like 31.3216, 77.5877 or 31°19\'17.8"N 77°35\'15.6"E';
 
 async function geocode(request) {
   const { Geocoder } = await importLibrary('geocoding');
@@ -40,8 +33,10 @@ export default function PlaceSearch({ onSelect }) {
   const placesBroken = useRef(false);
 
   const q = query.trim();
-  const coords = parseCoords(q);
-  const isCoords = Boolean(coords);
+  const coords = parseCoordinates(q); // decimal, decimal with N/S/E/W, or degrees-minutes-seconds
+  // coordinate-shaped text (even half-typed or out of range) is never sent to Places: it would be read as a street address
+  const isCoords = Boolean(coords) || looksLikeCoordinates(q);
+  const badCoords = isCoords && !coords && q.length >= 3;
 
   useEffect(() => {
     if (q.length < 3 || isCoords || !MAPS_API_KEY) return undefined;
@@ -99,7 +94,7 @@ export default function PlaceSearch({ onSelect }) {
           viewport: p.viewport?.toJSON(),
         };
       } else if (item.kind === 'coords') {
-        place = { name: 'Dropped pin', address: item.main, location: item.coords };
+        place = { name: 'Dropped pin', address: item.main, location: item.coords }; // the pin keeps these exact coordinates
         try {
           const r = await geocode({ location: item.coords });
           place.address = r.address;
@@ -173,7 +168,7 @@ export default function PlaceSearch({ onSelect }) {
               } else if (e.key === 'Enter') {
                 e.preventDefault();
                 if (visible[active]) choose(visible[active]);
-                else if (query.trim()) choose({ kind: 'geocode', main: query.trim() });
+                else if (query.trim() && !badCoords) choose({ kind: 'geocode', main: query.trim() });
               } else if (e.key === 'Escape') setOpen(false);
             }}
             placeholder={MAPS_API_KEY ? 'Search address or paste “lat, lng”' : 'Add an API key to enable search'}
@@ -206,6 +201,9 @@ export default function PlaceSearch({ onSelect }) {
         )}
       </div>
 
+      {badCoords && !error && (
+        <p className="mt-2 text-xs text-slate-500">{COORD_HINT}</p>
+      )}
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
     </div>
   );
