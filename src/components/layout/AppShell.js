@@ -22,6 +22,7 @@ const COUNT_FOR = {
   '/dashboard/subsidies': { key: 'subsidies' },
   '/dashboard/expenses': { key: 'expenses' },
   '/dashboard/designs': { key: 'designs' },
+  '/dashboard/estimation': { key: 'estimates' },
   '/dashboard/billing': { key: 'billing' },
   '/dashboard/packages': { key: 'packages' },
   '/dashboard/installations': { key: 'installations' },
