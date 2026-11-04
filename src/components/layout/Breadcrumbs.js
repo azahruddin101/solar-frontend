@@ -18,7 +18,6 @@ const SEGMENT_LABELS = {
   analytics: 'Analytics',
   reasons: 'Expense reasons',
   integrations: 'Integrations',
-  classic: 'Classic dashboard',
   workflow: 'Installation steps',
   'agent-roles': 'Job titles',
   categories: 'Catalog categories',

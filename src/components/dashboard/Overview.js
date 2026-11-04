@@ -1,18 +1,16 @@
 'use client';
 
-// The company's main dashboard: today's to-do list on top, then one tab each for Money, Sales, Leads, Installations and
-// Inventory (?tab=…). Every chart writes its numbers beside it and every item links to the page where it is acted on.
-// Figures come from /api/dashboard (money, pipeline, monthly payments, queues), /api/dashboard/today (to-dos, who owes,
-// leads, installations, stock, monthly series) and /api/agents/analytics (team workload).
-// The previous dashboard is kept in OverviewClassic.js (switch in app/dashboard/page.js, always at /dashboard/classic).
-import { BadgeIndianRupee, ArrowRight, Boxes, CalendarClock, Check, Clock, FileText, HandCoins, HardHat, Headset, History, Hourglass, IndianRupee, Landmark, Leaf, Megaphone, MessageSquare, Package, PackageX, Plus, ReceiptText, ShieldCheck, Sun, Target, UserPlus, Users, Wallet, Zap } from 'lucide-react';
+// The company's main dashboard: needs-attention items in the header dropdown, then one tab each for Money, Sales,
+// Leads, Installations and Inventory (?tab=…). Every chart writes its numbers beside it and every item links to the
+// page where it is acted on.
+import { BadgeIndianRupee, ArrowRight, Boxes, CalendarClock, Check, Clock, FileText, HandCoins, HardHat, Headset, Hourglass, IndianRupee, Landmark, Leaf, Megaphone, MessageSquare, Package, PackageX, Plus, ReceiptText, ShieldCheck, Sun, Target, UserPlus, Users, Wallet, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { assetUrl } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
-import { branchAttentionItems, todoItems } from '@/components/dashboard/dashboardTodos';
+import { branchAttentionItems } from '@/components/dashboard/dashboardTodos';
 import AttentionDropdown from '@/components/org/AttentionDropdown';
 import { Alert, Avatar, Button, Card, CardHeader, DashboardLoadingShell, LoadingBlock, TablePagination, buttonClass, capName, cx, formatDate, timeAgo, usePagedItems } from '../kit';
 import { PipelineChart, compactMoney } from './DashboardCharts';
@@ -47,16 +45,6 @@ const TABS = [
 function greeting() {
   const h = new Date().getHours();
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-}
-
-function TodoTile({ n, urgent, icon: Icon, text, href }) {
-  return (
-    <Link href={href} className={cx('group flex items-center gap-3 rounded-xl border bg-white px-3.5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors', urgent ? 'border-red-200 hover:border-red-400' : 'border-amber-200 hover:border-amber-400')}>
-      <span className={cx('grid h-9 w-9 shrink-0 place-items-center rounded-full', urgent ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600')}><Icon className="h-4 w-4" /></span>
-      <span className="min-w-0 flex-1 text-sm leading-snug text-slate-800">{text(n)}</span>
-      <ArrowRight className="h-4 w-4 shrink-0 text-slate-400 group-hover:text-slate-900" />
-    </Link>
-  );
 }
 
 /** A headline figure, one line under it, and an optional trend line or meter. */
@@ -137,7 +125,6 @@ export default function Overview({ embedded = false, branchSwitching = false, br
     { done: (clients?.length || 0) > 0, label: 'Add your first client', href: '/dashboard/clients?new=1' },
   ];
   const remaining = setup.filter((s) => !s.done);
-  const todo = t ? todoItems(t) : [];
   const branchAttention = useMemo(
     () => (t ? branchAttentionItems(t, (href) => router.push(href)) : []),
     [t, router],
@@ -153,9 +140,6 @@ export default function Overview({ embedded = false, branchSwitching = false, br
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {!embedded && t && <AttentionDropdown items={branchAttention} variant="branch" />}
-          {!embedded && (
-            <Link href="/dashboard/classic" className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-900"><History className="h-4 w-4" />Classic view</Link>
-          )}
           <Link href="/dashboard/clients?new=1" className={buttonClass()}><Users className="h-4 w-4" /> Add client</Link>
           <Button variant="primary" icon={Plus} disabled={!clients?.length} title={clients?.length ? undefined : 'Add a client first'} onClick={() => setCreating(true)}>New proposal</Button>
         </div>
@@ -192,19 +176,8 @@ export default function Overview({ embedded = false, branchSwitching = false, br
       })()}
       {!branchSwitching && d && t ? (
         <>
-          {!embedded && (
-            <>
-              <div className="mb-3 flex flex-wrap items-baseline gap-x-3"><h2 className="text-lg font-semibold text-slate-900">To do today</h2>{todo.length > 0 && <p className="text-sm text-slate-500">{plural(todo.length, 'thing')} to look at</p>}</div>
-              {todo.length ? (
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{todo.map(({ key, ...item }) => <TodoTile key={key} {...item} />)}</div>
-              ) : (
-                <Card className="flex items-center gap-3 border-emerald-200 bg-emerald-50/60 p-4 text-sm text-emerald-800"><Check className="h-5 w-5" />All caught up. Nothing needs your attention right now.</Card>
-              )}
-            </>
-          )}
-
           {/* the sections, one tab each */}
-          <div role="tablist" aria-label="Dashboard section" className={cx('sticky top-0 z-20 -mx-1 mb-5 flex gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50/95 px-1 backdrop-blur', embedded ? 'mt-5' : 'mt-7')}>
+          <div role="tablist" aria-label="Dashboard section" className={cx('sticky top-0 z-20 -mx-1 mb-5 flex gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50/95 px-1 backdrop-blur', embedded ? 'mt-5' : 'mt-2')}>
             {TABS.map((x) => {
               const on = x.id === tab;
               const n = x.alert(d, t);
@@ -447,7 +420,7 @@ function InstallationsTab({ t, team }) {
             : <p className="text-sm text-slate-500">No installations in progress.</p>}
         </Panel>
         <ColumnChart title="Installations finished" description="Last 6 months" rows={t.monthly.slice(-6)} series={[{ key: 'finished', label: 'Finished', color: SERIES_COLORS[0] }]} empty="No installation finished in the last 6 months." />
-        <Panel title="Team workload" sub="Open tasks, and done this week" href="/dashboard/classic?tab=team" className="lg:col-span-2 xl:col-span-1">
+        <Panel title="Team workload" sub="Open tasks, and done this week" href="/dashboard?tab=staff" className="lg:col-span-2 xl:col-span-1">
           {workload.length ? (
             <>
               <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
