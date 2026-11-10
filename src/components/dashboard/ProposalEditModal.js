@@ -34,7 +34,7 @@ export default function ProposalEditModal({ designId, name, onClose }) {
   const saveVersion = async () => {
     setSavingVersion(true);
     try {
-      const { blob, filename } = await generatePdf({ design, project: state.project, place: state.place, finance: state.finance, snapshot: state.snapshot, company, client: state.client, designId, validUntil: state.validUntil, subsidy: state.subsidy, save: false });
+      const { blob, filename } = await generatePdf({ design, project: state.project, place: state.place, finance: state.finance, snapshot: state.snapshot, company, client: state.client, designId, proposalNo: state.proposalNo, validUntil: state.validUntil, subsidy: state.subsidy, save: false });
       const form = new FormData();
       form.append('file', blob, filename);
       await api(`/api/designs/${designId}/versions`, { method: 'POST', form });

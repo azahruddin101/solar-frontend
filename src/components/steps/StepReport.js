@@ -26,7 +26,7 @@ export default function StepReport({ design }) {
     setErr('');
     try {
       const designId = useStore.getState().designId;
-      const { blob, filename } = await generatePdf({ design, project, place, finance, snapshot, company: useSession.getState().company, client: useStore.getState().client, designId, validUntil: useStore.getState().validUntil, cover });
+      const { blob, filename } = await generatePdf({ design, project, place, finance, snapshot, company: useSession.getState().company, client: useStore.getState().client, designId, proposalNo: useStore.getState().proposalNo, validUntil: useStore.getState().validUntil, cover });
       setPicking(false);
       if (designId && blob) {
         const form = new FormData();

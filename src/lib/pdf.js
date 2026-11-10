@@ -556,7 +556,7 @@ function signOff(doc, r, y) {
  * `company` is the signed-in company (profile, theme, logo, e-signature, QR, terms) and `client`
  * the person the design was made for — together they personalise every page.
  */
-export async function generatePdf({ design, project, place, finance, snapshot, company = {}, client = {}, designId = '', shadow = null, validUntil = null, cover, subsidy = null, save = true, pages = null }) {
+export async function generatePdf({ design, project, place, finance, snapshot, company = {}, client = {}, designId = '', proposalNo = '', shadow = null, validUntil = null, cover, subsidy = null, save = true, pages = null }) {
   // `pages`: the parts to build (ids from lib/pdfPages); null builds the whole proposal
   const want = (id) => !pages || pages.includes(id);
   company = { name: project.preparedBy || 'Solar proposal', ...company };
@@ -573,7 +573,7 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
     shareUrl: share?.url || '',
     shareQr: share?.qr || '',
     dateShort: now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
-    ref: `Ref. SP-${now.toISOString().slice(0, 10).replace(/-/g, '')}${designId ? `-${String(designId).slice(-5).toUpperCase()}` : ''}`,
+    ref: proposalNo ? `Ref. ${proposalNo}` : `Ref. SP-${now.toISOString().slice(0, 10).replace(/-/g, '')}${designId ? `-${String(designId).slice(-5).toUpperCase()}` : ''}`, // proposals from before numbering keep the old reference
     totals: design.totals,
     brand,
     company,
@@ -889,7 +889,7 @@ function monthlyOutlookPages(doc, r, { monthly, fin, tariff, years, finance, mon
  * `spec` and `count` are the solar module and how many of them the chosen package / panel product gives; the
  * location and orientation use the defaults in `quote.system`.
  */
-export async function generateQuotePdf({ quote, name = '', company = {}, client = {}, designId = '', currency = 'INR', spec, count, tariff = 8, validUntil = null, cover, subsidy = null, save = true }) {
+export async function generateQuotePdf({ quote, name = '', company = {}, client = {}, designId = '', proposalNo = '', currency = 'INR', spec, count, tariff = 8, validUntil = null, cover, subsidy = null, save = true }) {
   company = { name: 'Solar proposal', ...company };
   client = { name: '', ...(client || {}) };
   const brand = await loadBranding(company);
@@ -923,7 +923,7 @@ export async function generateQuotePdf({ quote, name = '', company = {}, client 
     shareUrl: share?.url || '',
     shareQr: share?.qr || '',
     dateShort: now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
-    ref: `Ref. SP-${now.toISOString().slice(0, 10).replace(/-/g, '')}${designId ? `-${String(designId).slice(-5).toUpperCase()}` : ''}`,
+    ref: proposalNo ? `Ref. ${proposalNo}` : `Ref. SP-${now.toISOString().slice(0, 10).replace(/-/g, '')}${designId ? `-${String(designId).slice(-5).toUpperCase()}` : ''}`, // proposals from before numbering keep the old reference
     totals,
     brand,
     company,

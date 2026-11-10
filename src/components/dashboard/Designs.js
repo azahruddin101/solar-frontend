@@ -63,7 +63,7 @@ export default function Designs({ basePath = '/dashboard/designs', installations
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (data || []).filter((d) => (status === 'all' || d.status === status) && (clientId === 'all' || d.client?.id === clientId) && (!q || `${d.name} ${d.client?.name} ${d.summary?.address}`.toLowerCase().includes(q)));
+    return (data || []).filter((d) => (status === 'all' || d.status === status) && (clientId === 'all' || d.client?.id === clientId) && (!q || `${d.name} ${d.proposalNo || ''} ${d.client?.name} ${d.summary?.address}`.toLowerCase().includes(q)));
   }, [data, query, status, clientId]);
 
   // each proposal from the server says whether it has an installation (no need to load every installation)
@@ -162,6 +162,7 @@ export default function Designs({ basePath = '/dashboard/designs', installations
                 <Tr key={d.id}>
                   <Td>
                     <Link href={`${basePath}/${d.id}`} className="block max-w-[260px] truncate font-medium text-slate-900 hover:text-brand">{capName(d.name)}</Link>
+                    {d.proposalNo && <div className="font-mono text-xs text-slate-500">{d.proposalNo}</div>}
                     {d.summary?.address && <div className="flex max-w-[260px] items-center gap-1 text-xs text-slate-500"><MapPin className="h-3 w-3 shrink-0" /><span className="truncate">{d.summary.address}</span></div>}
                   </Td>
                   <Td><div className="max-w-[160px] truncate" title={d.client?.name}>{capName(d.client?.name) || '—'}</div></Td>

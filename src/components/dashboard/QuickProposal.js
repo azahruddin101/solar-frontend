@@ -135,7 +135,7 @@ function Editor({ designId }) {
   const download = async (cover) => {
     setExporting(true);
     try {
-      await generateQuotePdf({ quote, name: design.name, company, client: design.client, designId, currency, spec, count: sysInfo.count, tariff, validUntil: validUntil ? new Date(`${validUntil}T23:59:59`) : null, cover, subsidy: design.subsidy });
+      await generateQuotePdf({ quote, name: design.name, company, client: design.client, designId, proposalNo: design.proposalNo, currency, spec, count: sysInfo.count, tariff, validUntil: validUntil ? new Date(`${validUntil}T23:59:59`) : null, cover, subsidy: design.subsidy });
       setPicking(false);
     } catch (e) {
       console.error(e);
@@ -149,7 +149,7 @@ function Editor({ designId }) {
   const saveVersion = async () => {
     setSavingVersion(true);
     try {
-      const { blob, filename } = await generateQuotePdf({ quote, name: design.name, company, client: design.client, designId, currency, spec, count: sysInfo.count, tariff, validUntil: validUntil ? new Date(`${validUntil}T23:59:59`) : null, subsidy: design.subsidy, save: false });
+      const { blob, filename } = await generateQuotePdf({ quote, name: design.name, company, client: design.client, designId, proposalNo: design.proposalNo, currency, spec, count: sysInfo.count, tariff, validUntil: validUntil ? new Date(`${validUntil}T23:59:59`) : null, subsidy: design.subsidy, save: false });
       const form = new FormData();
       form.append('file', blob, filename);
       await api(`/api/designs/${designId}/versions`, { method: 'POST', form });
@@ -169,7 +169,7 @@ function Editor({ designId }) {
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900">{design.name}</h1>
-          <p className="text-sm text-slate-500">Proposal for {client.name} · no 3D layout · <span>{readOnly ? <b className="font-medium text-amber-700">View only — changes aren’t saved</b> : save === 'saving' ? 'Saving…' : save === 'error' ? 'Not saved — retry by editing' : 'Saved'}</span></p>
+          <p className="text-sm text-slate-500">{design.proposalNo ? <><span className="font-mono text-slate-700">{design.proposalNo}</span> · </> : null}Proposal for {client.name} · no 3D layout · <span>{readOnly ? <b className="font-medium text-amber-700">View only — changes aren’t saved</b> : save === 'saving' ? 'Saving…' : save === 'error' ? 'Not saved — retry by editing' : 'Saved'}</span></p>
         </div>
         <div className="flex items-center gap-2">
           <Select value={status} onValue={changeStatus} disabled={!canChangeStatus} title={canChangeStatus ? undefined : 'Needs the Proposals › Change status permission'} aria-label="Status" className="w-36">{DESIGN_STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</Select>

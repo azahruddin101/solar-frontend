@@ -164,7 +164,7 @@ export default function App({ designId, slug }) {
   const saveVersion = async () => {
     setExporting(true);
     try {
-      const { blob, filename } = await generatePdf({ design, project: state.project, place: state.place, finance: state.finance, snapshot: state.snapshot, company, client: state.client, designId: state.designId, validUntil: state.validUntil, subsidy: state.subsidy, save: false });
+      const { blob, filename } = await generatePdf({ design, project: state.project, place: state.place, finance: state.finance, snapshot: state.snapshot, company, client: state.client, designId: state.designId, proposalNo: state.proposalNo, validUntil: state.validUntil, subsidy: state.subsidy, save: false });
       const form = new FormData();
       form.append('file', blob, filename);
       await api(`/api/designs/${state.designId}/versions`, { method: 'POST', form });
@@ -289,7 +289,7 @@ export default function App({ designId, slug }) {
     const intent = coverFor;
     setExporting(true);
     try {
-      const { blob, filename } = await generatePdf({ design, project: state.project, place: state.place, finance: state.finance, snapshot: state.snapshot, company, client: state.client, designId: state.designId, validUntil: state.validUntil, cover, subsidy: state.subsidy, pages: proposalPages });
+      const { blob, filename } = await generatePdf({ design, project: state.project, place: state.place, finance: state.finance, snapshot: state.snapshot, company, client: state.client, designId: state.designId, proposalNo: state.proposalNo, validUntil: state.validUntil, cover, subsidy: state.subsidy, pages: proposalPages });
       setCoverFor(null);
       if (intent === 'whatsapp') {
         await archiveProposalPdfAndShareOnWhatsApp({

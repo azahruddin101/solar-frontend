@@ -14,7 +14,7 @@ import { useSession } from '@/lib/session';
 import { ORG_MASTERS_API, canEditOrgMasters } from '@/lib/tenant';
 import { CURRENCY_CODES, currencyName, formatMoney } from '@/lib/energy';
 import { THEME_PRESETS, foregroundOn, isHex, luminance } from '@/lib/theme';
-import { companySelfSchema, invoiceNumberingSchema, useValidation } from '@/lib/validation';
+import { companySelfSchema, invoiceNumberingSchema, proposalNumberingSchema, useValidation } from '@/lib/validation';
 import { Alert, Badge, Button, Card, CardHeader, FormField, ImageFrame, ImageSourceButtons, Input, NameInput, PhoneInput, PageHeader, Select, Spinner, Tabs, Textarea, cx, showError, toast } from '../kit';
 import RichTextEditor from '../kit/RichTextEditor';
 import AccountSettings from '../layout/AccountSettings';
@@ -45,7 +45,7 @@ function useCompanyForm(keys, schema) {
 function Profile() {
   const { form, set, save, busy, v } = useCompanyForm(['name', 'email', 'phone', 'website', 'taxId', 'pan', 'address']);
   return (
-    <Card className="max-w-3xl">
+    <Card>
       <CardHeader title="Company profile" description="Printed in the “Prepared by” block and footer of every proposal." />
       <form onSubmit={save} noValidate className="grid gap-4 p-6 sm:grid-cols-2">
         <FormField label="Company name" className="sm:col-span-2" error={v.error('name')}><NameInput kind="business" maxLength={120} value={form.name} onValue={(x) => set({ name: x })} /></FormField>
@@ -95,7 +95,7 @@ function CurrencySetting() {
   };
   const isGst = label.toUpperCase() === 'GST';
   return (
-    <Card className="max-w-3xl">
+    <Card>
       <CardHeader title="Currency & tax" description="Used on every screen and PDF, in every branch. Amounts are never converted." />
       <form onSubmit={save} noValidate className="grid gap-4 p-6 sm:grid-cols-3">
         <FormField label="Currency" className="sm:col-span-3">
@@ -548,7 +548,7 @@ function InvoiceNumbering() {
     setBusy(false);
   };
   return (
-    <Card className="max-w-3xl">
+    <Card>
       <CardHeader title="Invoice numbering" description="Every invoice gets the fixed part followed by a running number that goes up by one each time." />
       <form onSubmit={save} noValidate className="grid gap-4 p-6 sm:grid-cols-2">
         <FormField label="Fixed part" optional hint="Letters, digits and - / _ . — for example INVCMP2026 or INV/26-27/." error={v.error('prefix')}>
@@ -580,11 +580,69 @@ function InvoiceNumbering() {
   );
 }
 
+function ProposalNumbering() {
+  const { company, setCompany } = useSession();
+  const saved = company.proposalNumbering || {};
+  const [form, setForm] = useState({ prefix: saved.prefix ?? 'PRO-', suffix: saved.suffix ?? '', next: padSeq(saved.next, saved.width) });
+  const [busy, setBusy] = useState(false);
+  const v = useValidation(proposalNumberingSchema, form);
+  const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+  const okNext = /^\d{1,10}$/.test(form.next) && Number(form.next) >= 1;
+  const preview = (offset) => `${form.prefix}${String(Number(form.next) + offset).padStart(form.next.length, '0')}${form.suffix}`;
+  const save = async (e) => {
+    e.preventDefault();
+    const body = v.validate();
+    if (!body) return;
+    setBusy(true);
+    try {
+      setCompany(await api('/api/company', { method: 'PUT', body: { proposalNumbering: body } }));
+      toast.success('Proposal numbering saved');
+    } catch (err) {
+      showError(err, 'Your changes were not saved');
+    }
+    setBusy(false);
+  };
+  return (
+    <Card>
+      <CardHeader title="Proposal numbering" description="Every new proposal gets the prefix, a running number that goes up by one each time, and the suffix." />
+      <form onSubmit={save} noValidate className="grid gap-4 p-6 sm:grid-cols-3">
+        <FormField label="Prefix" optional hint="Before the number, e.g. PRO- or SS/Q/" error={v.error('prefix')}>
+          <Input maxLength={20} value={form.prefix} onValue={(x) => set({ prefix: x.replace(/\s/g, '') })} placeholder="PRO-" className="font-mono" />
+        </FormField>
+        <FormField label="Next number" hint="Leading zeros fix the width: 0001, 0002 …" error={v.error('next')}>
+          <Input inputMode="numeric" maxLength={10} value={form.next} onValue={(x) => set({ next: x.replace(/\D/g, '') })} placeholder="0001" className="font-mono" />
+        </FormField>
+        <FormField label="Suffix" optional hint="After the number, e.g. /26-27" error={v.error('suffix')}>
+          <Input maxLength={20} value={form.suffix} onValue={(x) => set({ suffix: x.replace(/\s/g, '') })} placeholder="/26-27" className="font-mono" />
+        </FormField>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm sm:col-span-3">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Preview</div>
+          {okNext ? (
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono">
+              <span className="font-semibold text-slate-900">{preview(0)}</span>
+              <span className="text-slate-400">then</span>
+              <span className="text-slate-600">{preview(1)}</span>
+              <span className="text-slate-600">{preview(2)}</span>
+              <span className="text-slate-400">…</span>
+            </div>
+          ) : (
+            <div className="mt-1 text-slate-500">Enter the next number to see how proposals will be numbered.</div>
+          )}
+          <p className="mt-2 text-xs text-slate-500">
+            Current setting: <span className="font-mono text-slate-700">{saved.nextProposalNo || `${saved.prefix ?? 'PRO-'}${padSeq(saved.next, saved.width)}${saved.suffix ?? ''}`}</span> will be the next proposal. A proposal keeps the number it was given, and numbers already used are never given again.
+          </p>
+        </div>
+        <div className="sm:col-span-3"><Button type="submit" variant="primary" loading={busy}>Save numbering</Button></div>
+      </form>
+    </Card>
+  );
+}
+
 const TABS = [
   { id: 'profile', label: 'Company profile', icon: Building2 },
   { id: 'branding', label: 'Branding', icon: Palette },
   { id: 'proposal', label: 'Proposal PDF', icon: FileText },
-  { id: 'invoices', label: 'Invoice numbering', icon: Hash },
+  { id: 'invoices', label: 'Numbering', icon: Hash },
   { id: 'plan', label: 'Plan & billing', icon: CreditCard },
   { id: 'support', label: 'Platform support', icon: LifeBuoy },
   { id: 'integrations', label: 'Lead integrations', icon: Plug },
@@ -645,7 +703,7 @@ export default function Settings() {
       )}
       {tab === 'branding' && <SharedSettings><Branding /></SharedSettings>}
       {tab === 'proposal' && <SharedSettings><Proposal /></SharedSettings>}
-      {tab === 'invoices' && <InvoiceNumbering />}
+      {tab === 'invoices' && <div className="space-y-6"><ProposalNumbering /><InvoiceNumbering /></div>}
       {tab === 'plan' && <PlanBilling embedded />}
       {tab === 'support' && <TicketList embedded basePath="/dashboard/support" />}
       {tab === 'integrations' && (

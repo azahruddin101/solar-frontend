@@ -45,6 +45,7 @@ export default function ShadowReportModal({ open, onClose, design, mode = 'repor
         company: useSession.getState().company,
         client: st.client,
         designId: st.designId,
+        proposalNo: st.proposalNo,
         validUntil: st.validUntil,
         cover: st.cover,
         pages: st.pdfPages || null, // the pages picked at download (null: the whole proposal)

@@ -51,6 +51,7 @@ const initial = {
   snapshot: null,
   // the saved design this state belongs to
   designId: null,
+  proposalNo: '', // the company's running proposal number, printed as the PDF's reference
   designName: '',
   designStatus: 'draft',
   validUntil: null, // the proposal's valid-until date (a design field, edited from the sidebar)
@@ -110,6 +111,7 @@ export const useStore = create((set, get) => ({
         finance: { ...initial.finance, ...(saved.finance || {}) },
         project: { name: design.name, customer: design.client?.name || '', preparedBy: company?.name || '' },
         designId: design.id,
+        proposalNo: design.proposalNo || '',
         designName: design.name,
         designStatus: design.status,
         validUntil: design.validUntil || null,

@@ -46,7 +46,7 @@ export default function AccountSettings() {
   };
 
   return (
-    <div className="grid max-w-3xl gap-6">
+    <div className="grid gap-6">
       <Card>
         <CardHeader title="Your details" description="Shown in the sidebar and used as the sign-in email." />
         <form onSubmit={saveName} noValidate className="grid gap-4 p-6 sm:grid-cols-2">

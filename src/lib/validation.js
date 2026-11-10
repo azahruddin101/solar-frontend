@@ -192,9 +192,18 @@ export const invoiceNumberingSchema = obj({
   next: required((v) => /^\d{1,10}$/.test(v) && Number(v) >= 1, 'Enter the next number as digits only, like 0001', { max: 10, blank: 'Enter the next invoice number' }),
 });
 
+/** Proposal numbers: prefix + next running number (typed with its leading zeros) + suffix. */
+const numberPart = (what) => optional((v) => /^[A-Za-z0-9/_.-]*$/.test(v), `The ${what} can only have letters, digits and - / _ .`, { max: 20 });
+export const proposalNumberingSchema = obj({
+  prefix: numberPart('prefix'),
+  suffix: numberPart('suffix'),
+  next: required((v) => /^\d{1,10}$/.test(v) && Number(v) >= 1, 'Enter the next number as digits only, like 0001', { max: 10, blank: 'Enter the next proposal number' }),
+});
+
 export const companySelfSchema = obj({
   ...companyProfile,
   invoiceNumbering: invoiceNumberingSchema.optional(),
+  proposalNumbering: proposalNumberingSchema.optional(),
   signatoryName: f.personNameOptional,
   signatoryTitle: f.textOptional(80, 'Title'),
   qrLabel: f.textOptional(80, 'QR label'),
