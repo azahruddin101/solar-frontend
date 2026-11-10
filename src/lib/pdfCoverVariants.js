@@ -7,6 +7,7 @@
 import { coverStyle } from './coverStyles.js';
 import { BODY, LINE, PX, W, WHITE, cards, contactCard, css, drawCover, fitText, footer, header, lines, loadImage, mix, palette, setText, stats } from './pdfCover.js';
 import { drawIcon, paintIcon } from './pdfIcons.js';
+import { taxOf } from './tax.js';
 
 const H = 297;
 const PT = 0.3528; // millimetres per point
@@ -219,7 +220,7 @@ async function panelCover(doc, r, design, finance, snapshot) {
   }
   if (r.company.taxId) {
     setText(doc, 7.4, 'normal', soft);
-    doc.text(lines(doc, `GSTIN / Tax ID: ${r.company.taxId}`, iw, 7.4)[0], x, cy + 1);
+    doc.text(lines(doc, `${taxOf(r.company).idLabel}: ${r.company.taxId}`, iw, 7.4)[0], x, cy + 1);
   }
   if (r.shareQr) {
     const qy = 256;

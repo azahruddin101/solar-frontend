@@ -5,6 +5,7 @@
 import { formatMoney } from './energy.js';
 import { pdfKit } from './pdf.js';
 import { amountInWords, amountInWordsInr, fmtPdfDate, PAYMENT_MODE_LABEL } from './billingPdfShared.js';
+import { currentTax } from './tax.js';
 
 const { text, clip, wrap, logoOrName } = pdfKit;
 const { W, H, M, CW } = pdfKit.pageSize;
@@ -24,7 +25,7 @@ function context(company, client, currency) {
  */
 function letterhead(doc, brand, company, { title, no, subtitle, date, dateLabel = 'Date' }) {
   logoOrName(doc, { brand, company }, M, 12, 52, 14, 15);
-  const contact = [company.address, [company.phone, company.email].filter(Boolean).join('  |  '), company.website, company.taxId && `GSTIN: ${company.taxId}`].filter(Boolean);
+  const contact = [company.address, [company.phone, company.email].filter(Boolean).join('  |  '), company.website, company.taxId && `${currentTax().idLabel}: ${company.taxId}`].filter(Boolean);
   let y = 32;
   for (const l of contact) {
     const lines = wrap(doc, l, 100, 8.5);

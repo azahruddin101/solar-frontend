@@ -11,6 +11,7 @@ import { useResource } from '@/lib/useResource';
 import { fmtPdfDate } from '@/lib/billingPdfShared';
 import { useSession } from '@/lib/session';
 import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, Input, LoadingBlock, PageHeader, closePdfViewer, openPdfViewer, openPdfViewerLoading, toast } from '../kit';
+import { taxName } from '@/lib/tax';
 
 export default function EstimateList() {
   const may = useCan();
@@ -66,7 +67,7 @@ export default function EstimateList() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Estimation" description="Quick price estimates for clients, from packages, products and services — with or without GST.">{newButton}</PageHeader>
+      <PageHeader title="Estimation" description="Quick price estimates for clients, from packages, products and services — with or without tax.">{newButton}</PageHeader>
       {error && <Alert tone="error">{error}</Alert>}
       {loading ? <Card><LoadingBlock /></Card> : !data?.length ? (
         <Card>
@@ -88,7 +89,7 @@ export default function EstimateList() {
                     <div className="truncate text-sm font-semibold text-slate-900">{e.client?.name || 'Client'}</div>
                     <div className="truncate text-xs text-slate-500">{fmtPdfDate(e.date || e.createdAt)}{e.createdByName ? ` · ${e.createdByName}` : ''}{e.client?.phone ? ` · ${e.client.phone}` : ''}</div>
                   </Link>
-                  <Badge tone={e.withGst ? 'blue' : 'slate'}>{e.withGst ? 'With GST' : 'No GST'}</Badge>
+                  <Badge tone={e.withGst ? 'blue' : 'slate'}>{e.withGst ? `With ${taxName()}` : `No ${taxName()}`}</Badge>
                   <div className="w-28 text-right text-sm font-semibold tabular-nums text-slate-900">{formatMoney(e.total, currency, { decimals: 2 })}</div>
                   <div className="flex shrink-0 items-center">
                     <IconButton icon={Eye} label={`View PDF for ${e.client?.name}`} title="View PDF" loading={pdfBusy === e.id} disabled={Boolean(pdfBusy)} onClick={() => makePdf(e, true)} className="h-9 w-9" />

@@ -1,6 +1,8 @@
 'use client';
 
-import { AlertCircle, ArrowRight, Check, Save, ChevronDown, ChevronLeft, CloudOff, Download, Eye, FileStack, FileText, Loader2, QrCode } from 'lucide-react';
+import { AlertCircle, ArrowRight, Check, Save, ChevronDown, ChevronLeft, CloudOff, Download, Eye, FileText, Loader2, QrCode, Redo2, Undo2 } from 'lucide-react';
+import { historyKeys, redo, startHistory, undo, useHistory } from '@/lib/history';
+import { clipboardKeys } from '@/lib/clipboard';
 import WhatsAppIcon from './icons/WhatsAppIcon';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -13,11 +15,13 @@ import { RETURN_PAGE_KEY } from './RouteTracker';
 import { can } from '@/lib/permissions';
 import { useSession } from '@/lib/session';
 import { useMapToken } from '@/lib/staticMap';
+import { isFullProposal, PDF_PAGES } from '@/lib/pdfPages';
 import { PRO_SLUGS, SIMPLE_SLUGS, SIMPLE_STEPS, useStore } from '@/lib/store';
 import { pricingFrom3D } from '@/lib/pricing';
 import { useDesign } from '@/lib/useDesign';
 import { useDesignSync } from '@/lib/useDesignSync';
 import { useResource } from '@/lib/useResource';
+import { commitMarkedAreas, useSolarModel } from '@/lib/solarModel';
 import { FullPageLoader, LogoChip, Toaster, buttonClass, toast } from './kit';
 import CoverPicker from './kit/CoverPicker';
 import ClientChangeRequestPanel from './dashboard/ClientChangeRequestPanel';
@@ -32,7 +36,6 @@ import StepObstructions from './steps/StepObstructions';
 import StepPanelConfig from './steps/StepPanelConfig';
 import StepReport from './steps/StepReport';
 import StepRoofDetails from './steps/StepRoofDetails';
-import StepRoof from './steps/StepRoof';
 import { cx } from './ui';
 
 const StepSimpleDesign = dynamic(() => import('./steps/StepSimpleDesign'), { ssr: false });
@@ -75,6 +78,19 @@ export function useCatalog(ready, companyId) {
   }, [set, ready, companyId]);
 }
 
+
+/** Undo / redo buttons in the header (the keys work everywhere in the designer). */
+function UndoRedo() {
+  const { canUndo, canRedo } = useHistory();
+  const mac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform || navigator.userAgent);
+  const btn = 'grid h-8 w-8 place-items-center rounded-md text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-35';
+  return (
+    <div className="flex items-center gap-0.5" role="group" aria-label="Undo and redo">
+      <button type="button" className={btn} disabled={!canUndo} onClick={undo} title={`Undo (${mac ? '⌘' : 'Ctrl'}+Z)`} aria-label="Undo"><Undo2 className="h-4 w-4" /></button>
+      <button type="button" className={btn} disabled={!canRedo} onClick={redo} title={`Redo (${mac ? '⌘+Shift' : 'Ctrl+Shift'}+Z)`} aria-label="Redo"><Redo2 className="h-4 w-4" /></button>
+    </div>
+  );
+}
 
 /** Header "Actions" dropdown: download the proposal, run the shadow report. */
 function ActionsMenu({ items, busy }) {
@@ -128,7 +144,15 @@ function ActionsMenu({ items, busy }) {
 
 const SAVE_LABEL = { saved: 'All changes saved', dirty: 'Saving…', saving: 'Saving…', error: 'Not saved — retrying on next change', readonly: 'View only — changes aren’t saved' };
 
-const SIMPLE_SCREENS = [StepLocation, StepRoof, StepSimpleDesign];
+// the design screen, one part of it per step (see StepSimpleDesign's `stage`)
+const stageScreen = (stage) => {
+  const StageScreen = (props) => <StepSimpleDesign {...props} stage={stage} />;
+  StageScreen.displayName = `Step-${stage}`;
+  StageScreen.designScreen = true;
+  StageScreen.stage = stage;
+  return StageScreen;
+};
+const SIMPLE_SCREENS = [StepLocation, stageScreen('building'), stageScreen('system'), stageScreen('panels'), stageScreen('strings'), stageScreen('products'), stageScreen('proposal')];
 const PRO_SCREENS = [StepLocation, StepDraw, StepRoofDetails, StepObstructions, StepPanelConfig, StepManualEdit, Step3D, StepElectrical, StepFinancials, StepReport];
 
 export default function App({ designId, slug }) {
@@ -163,10 +187,11 @@ export default function App({ designId, slug }) {
   const designMeta = useResource(`/api/designs/${designId}`);
   const loaded = sync.status === 'ready' && state.designId === designId;
   useSolar();
+  useSolarModel(loaded);
   useCatalog(loaded, company?.id);
   const mapReady = useMapToken(); // satellite images need it before the scene mounts
 
-  // one flow only: Location → Roof → Solar plan
+  // one flow: Location → Building → Package → Panels → Strings → Products → Proposal
   const slugs = SIMPLE_SLUGS;
   const names = SIMPLE_STEPS;
   const screens = SIMPLE_SCREENS;
@@ -174,17 +199,34 @@ export default function App({ designId, slug }) {
   const Screen = screens[step];
   const base = `/design/${designId}`;
 
-  const ready = [Boolean(state.origin), design.sections.length > 0];
-  const reachable = (i) => i === 0 || (ready[0] && (i === 1 || ready[1]));
+  const ready = [Boolean(state.origin)];
+  const reachable = (i) => i === 0 || ready[0];
 
   useEffect(() => {
     if (!loaded) return;
     const st = useStore.getState();
-    st.set({ step, tool: 'select', selectedId: null, navigate: (i) => router.push(`${base}/${slugs[Math.max(0, Math.min(slugs.length - 1, i))]}`) });
-    if (!slugs.includes(slug)) router.replace(`${base}/${['roof-details', 'obstructions', 'obstacles'].includes(slug) ? 'roof' : PRO_SLUGS.includes(slug) ? 'plan' : 'location'}`);
+    st.set({ step, tool: slug === 'strings' && !st.readOnly ? 'string' : 'select', activeStringId: null, selectedId: null, navigate: (i) => router.push(`${base}/${slugs[Math.max(0, Math.min(slugs.length - 1, i))]}`) });
+    // older links: the one-page "plan" (and the pro steps) open on the panels step
+    if (!slugs.includes(slug)) router.replace(`${base}/${slug === 'plan' || (PRO_SLUGS.includes(slug) && slug !== 'location') ? 'panels' : 'location'}`);
     else if (step > 0 && !st.origin) router.replace(`${base}/location`);
-    else if (step > 1 && !st.sections.length) router.replace(`${base}/roof`);
   }, [loaded, slug, step, slugs, base, router]);
+
+  // undo / redo of every design change, with Ctrl/⌘ + Z and Ctrl/⌘ + Shift + Z (or Ctrl + Y)
+  // copy / paste of the selected base, obstacle or tree: Ctrl/⌘ + C, V, D
+  const specRef = useRef(design.spec);
+  useEffect(() => {
+    specRef.current = design.spec;
+  });
+  useEffect(() => {
+    const stop = startHistory();
+    const keys = historyKeys();
+    const clip = clipboardKeys(() => specRef.current);
+    return () => {
+      stop();
+      keys();
+      clip();
+    };
+  }, []);
 
   if (sync.status === 'error')
     return (
@@ -217,12 +259,13 @@ export default function App({ designId, slug }) {
 
   const blocker =
     Screen === StepLocation ? !ready[0] && 'Confirm the location to continue'
-    : Screen === StepDraw || Screen === StepRoof ? !ready[1] && 'Mark the roof outline to continue'
     : Screen === StepManualEdit ? !design.totals.count && 'Place at least one panel'
     : null;
 
   const go = (i) => {
     if (Screen === Step3D) state.set({ snapshot: sceneApi.capture?.() || state.snapshot });
+    // roofs marked on the map but not confirmed yet go with the design (unless the user keeps the old ones)
+    if (Screen === StepLocation && i > 0 && state.markedDraft && !commitMarkedAreas(state.markedDraft)) return;
     state.setStep(i);
   };
   const last = step === slugs.length - 1;
@@ -234,17 +277,19 @@ export default function App({ designId, slug }) {
     if (snapshot !== state.snapshot) state.set({ snapshot });
     setCoverFor(kind);
   };
-  const downloadPdf = async (cover) => {
-    if (coverFor === 'combined') {
-      // the shadow analysis runs first; its dialog builds the proposal with this front page
-      state.set({ cover, shadowReport: 'combined' });
+  const downloadPdf = async (cover, pages = null) => {
+    const proposalPages = pages ? pages.filter((id) => id !== 'shadow') : null;
+    if (coverFor === 'combined' || pages?.includes('shadow')) {
+      // the shadow analysis runs first; its dialog builds the proposal (the chosen pages, this front
+      // page) and appends the analysis. Only the shadow analysis picked: just that report.
+      state.set({ cover, pdfPages: proposalPages, shadowReport: proposalPages && !proposalPages.length ? 'report' : 'combined' });
       setCoverFor(null);
       return;
     }
     const intent = coverFor;
     setExporting(true);
     try {
-      const { blob, filename } = await generatePdf({ design, project: state.project, place: state.place, finance: state.finance, snapshot: state.snapshot, company, client: state.client, designId: state.designId, validUntil: state.validUntil, cover, subsidy: state.subsidy });
+      const { blob, filename } = await generatePdf({ design, project: state.project, place: state.place, finance: state.finance, snapshot: state.snapshot, company, client: state.client, designId: state.designId, validUntil: state.validUntil, cover, subsidy: state.subsidy, pages: proposalPages });
       setCoverFor(null);
       if (intent === 'whatsapp') {
         await archiveProposalPdfAndShareOnWhatsApp({
@@ -254,7 +299,7 @@ export default function App({ designId, slug }) {
           proposalName: state.designName,
           client: state.client,
         });
-      } else if (state.designId && blob && !sync.readOnly) { // archiving a version is part of editing
+      } else if (state.designId && blob && !sync.readOnly && isFullProposal(proposalPages)) { // archiving a version is part of editing (a full proposal only)
         const form = new FormData();
         form.append('file', blob, filename);
         api(`/api/designs/${state.designId}/versions`, { method: 'POST', form }).catch((e) => console.error('Could not archive quotation PDF version', e));
@@ -266,19 +311,18 @@ export default function App({ designId, slug }) {
     setExporting(false);
   };
   const noPanels = !design.totals.count;
-  const has3d = Screen === Step3D || Screen === StepSimpleDesign; // the shadow renders come from the live 3D view
+  const has3d = Screen === Step3D || Boolean(Screen.designScreen); // the shadow renders come from the live 3D view
   const actions = [
     !sync.readOnly && state.designId && !noPanels && { key: 'version', icon: Save, label: 'Save version', hint: 'Keep a copy of the proposal as it is now, with its PDF', disabled: exporting, onClick: saveVersion },
     last && { key: 'pdf', icon: Download, label: 'Download proposal (PDF)', hint: noPanels ? 'Place at least one panel first' : 'Branded proposal for your client', disabled: exporting || noPanels, onClick: () => chooseCover('pdf') },
     last && canShare && !sync.readOnly && { key: 'whatsapp', icon: WhatsAppIcon, label: 'Share on WhatsApp', hint: noPanels ? 'Place at least one panel first' : 'Create the proposal PDF and send a link to the client', disabled: exporting || noPanels, onClick: () => chooseCover('whatsapp') },
-    has3d && { key: 'combined', icon: FileStack, label: 'Proposal + shadow analysis (PDF)', hint: noPanels ? 'Place at least one panel first' : 'One PDF: the proposal followed by the shadow report', disabled: exporting || noPanels, onClick: () => chooseCover('combined') },
     canShare && { key: 'share', icon: QrCode, label: 'Share link & QR code', hint: 'A public page anyone can open, no sign-in', onClick: () => setShareOpen(true) },
     has3d && { key: 'shadow', icon: FileText, label: 'Shadow analysis only (PDF)', hint: noPanels ? 'Place at least one panel first' : 'Hour-by-hour shading on the panels', disabled: noPanels, onClick: () => state.set({ shadowReport: 'report' }) },
   ].filter(Boolean);
   const SaveIcon = sync.save === 'saved' ? Check : sync.save === 'error' ? CloudOff : sync.save === 'readonly' ? Eye : Loader2;
 
   return (
-    <div className="flex h-dvh flex-col bg-slate-50 text-slate-900">
+    <div className="flex h-dvh flex-col overflow-hidden bg-slate-50 text-slate-900">
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4">
         <button
           type="button"
@@ -298,6 +342,7 @@ export default function App({ designId, slug }) {
         <div className={cx('ml-auto hidden items-center gap-1.5 text-xs md:flex', sync.save === 'error' ? 'text-red-600' : sync.save === 'readonly' ? 'rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-800' : 'text-slate-400')} role="status">
           <SaveIcon className={cx('h-3.5 w-3.5', (sync.save === 'dirty' || sync.save === 'saving') && 'animate-spin')} /> {SAVE_LABEL[sync.save]}
         </div>
+        {!sync.readOnly && <UndoRedo />}
         {actions.length > 0 && <ActionsMenu items={actions} busy={exporting} />}
       </header>
 
@@ -341,11 +386,13 @@ export default function App({ designId, slug }) {
       )}
 
       <main className="relative min-h-0 flex-1">
-        <Screen design={design} />
+        {/* the design steps share one screen (and one 3D scene): only its stage changes, so moving between
+            them never rebuilds the scene */}
+        {Screen.stage ? <StepSimpleDesign design={design} actions={actions} stage={Screen.stage} /> : <Screen design={design} actions={actions} />}
       </main>
 
       {shareOpen && <ShareModal designId={designId} onClose={() => setShareOpen(false)} />}
-      <CoverPicker open={Boolean(coverFor)} onClose={() => setCoverFor(null)} onDownload={downloadPdf} company={company} snapshot={state.snapshot} submitLabel={coverFor === 'combined' ? 'Continue' : coverFor === 'whatsapp' ? 'Share on WhatsApp' : 'Download PDF'} />
+      <CoverPicker open={Boolean(coverFor)} onClose={() => setCoverFor(null)} onDownload={downloadPdf} company={company} snapshot={state.snapshot} submitLabel={coverFor === 'combined' ? 'Continue' : coverFor === 'whatsapp' ? 'Share on WhatsApp' : 'Download PDF'} pages={coverFor === 'combined' ? null : PDF_PAGES.filter((p) => !p.needs3d || (has3d && coverFor === 'pdf'))} />
       <Toaster />
     </div>
   );

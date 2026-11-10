@@ -25,8 +25,10 @@ import ShareModal from './ShareModal';
 import { ProposalGstModeToggle } from '../proposal/ProposalGstControls';
 import { DESIGN_STATUSES } from './shared';
 import { netAfterSubsidy, subsidyOf } from '@/lib/subsidy';
+import { defaultTaxRate, taxName } from '@/lib/tax';
 
-const EMPTY = { pricingMode: 'package', packageId: '', packagePrice: 0, packageGstPercent: 18, bundle: [], materials: {}, extraItems: [], system: { ...DEFAULT_SYSTEM }, items: [], withGst: true, gstPercent: 18, discount: 0, discountIsPercent: false, floorPlacement: 0, floorCost: 0, outlookYears: 10, installationCharges: [] };
+// a new quote starts at the company's usual tax rate
+const emptyQuote = () => ({ pricingMode: 'package', packageId: '', packagePrice: 0, packageGstPercent: defaultTaxRate(), bundle: [], materials: {}, extraItems: [], system: { ...DEFAULT_SYSTEM }, items: [], withGst: true, gstPercent: defaultTaxRate(), discount: 0, discountIsPercent: false, floorPlacement: 0, floorCost: 0, outlookYears: 10, installationCharges: [] });
 const FLOORS = ['Ground floor', '1st floor', '2nd floor', '3rd floor', '4th floor', '5th floor+'];
 const num = (v) => Math.max(0, Number(v) || 0);
 const selectCls = 'h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs';
@@ -65,7 +67,7 @@ function Editor({ designId }) {
   useEffect(() => {
     if (design && !quote) {
       const q = design.data?.quote || {};
-      setQuote({ ...EMPTY, ...q, installationCharges: Array.isArray(q.installationCharges) ? q.installationCharges : [] });
+      setQuote({ ...emptyQuote(), ...q, installationCharges: Array.isArray(q.installationCharges) ? q.installationCharges : [] });
       setStatus(design.status);
       setValidUntil(validUntilInput(design.validUntil));
     }
@@ -252,7 +254,7 @@ function Editor({ designId }) {
                         <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                           <label className="text-xs text-slate-600">Qty ({m.unit})<NumField min={0} step="any" value={m.qty} onValue={(v) => setMaterial(cat, { qty: v })} className={inputCls} /></label>
                           <label className="text-xs text-slate-600">Price each ({currency})<NumField min={0} step="any" value={m.price} onValue={(v) => setMaterial(cat, { price: v })} className={inputCls} /></label>
-                          <label className="text-xs text-slate-600">GST (%)<NumField min={0} max={100} step="any" value={m.gstPercent ?? quote.gstPercent} onValue={(v) => setMaterial(cat, { gstPercent: v })} className={inputCls} /></label>
+                          <label className="text-xs text-slate-600">{taxName()} (%)<NumField min={0} max={100} step="any" value={m.gstPercent ?? quote.gstPercent} onValue={(v) => setMaterial(cat, { gstPercent: v })} className={inputCls} /></label>
                         </div>
                       )}
                     </div>
@@ -273,7 +275,7 @@ function Editor({ designId }) {
             <div>
               <p className="mb-2 text-xs font-medium text-slate-700">Products</p>
               {!(quote.extraItems || []).length ? (
-                <p className="text-xs text-slate-500">Optional catalog-style lines (AMC, transport, accessories, etc.) with qty, price, and GST.</p>
+                <p className="text-xs text-slate-500">Optional catalog-style lines (AMC, transport, accessories, etc.) with qty, price, and {taxName()}.</p>
               ) : (
                 <div className="space-y-3">
                   {(quote.extraItems || []).map((it, i) => (
@@ -286,7 +288,7 @@ function Editor({ designId }) {
                         <label className="text-[11px] text-slate-600">Qty<NumField min={0} step="any" value={it.qty} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, qty: v } : x)) })} className={inputCls} /></label>
                         <label className="text-[11px] text-slate-600">Unit<Input maxLength={20} value={it.unit} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, unit: v } : x)) })} className="mt-1 h-9 w-full rounded-md border border-slate-300 px-2 text-xs" /></label>
                         <label className="text-[11px] text-slate-600">Price ({currency})<NumField min={0} step="any" value={it.price} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, price: v } : x)) })} className={inputCls} /></label>
-                        <label className="text-[11px] text-slate-600">GST %<NumField min={0} max={100} step="any" value={it.gstPercent ?? quote.gstPercent} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, gstPercent: v } : x)) })} className={inputCls} /></label>
+                        <label className="text-[11px] text-slate-600">{taxName()} %<NumField min={0} max={100} step="any" value={it.gstPercent ?? quote.gstPercent} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, gstPercent: v } : x)) })} className={inputCls} /></label>
                         <label className="text-[11px] text-slate-600">HSN<Input maxLength={20} value={it.hsn} onValue={(v) => change({ extraItems: quote.extraItems.map((x, j) => (j === i ? { ...x, hsn: v } : x)) })} className="mt-1 h-9 w-full rounded-md border border-slate-300 px-2 text-xs" /></label>
                       </div>
                     </div>
@@ -296,7 +298,7 @@ function Editor({ designId }) {
             </div>
             <div className="border-t border-slate-200 pt-5">
               <p className="mb-2 text-xs font-medium text-slate-700">Installation & services</p>
-              <p className="mb-2 text-[11px] text-slate-500">Pick from your charge catalog or enter a custom service. Ex-GST price; 18% GST by default.</p>
+              <p className="mb-2 text-[11px] text-slate-500">Pick from your charge catalog or enter a custom service. Price before {taxName()}; {defaultTaxRate()}% {taxName()} by default.</p>
               <ChargePicker embedded value={quote.installationCharges} onChange={(installationCharges) => change({ installationCharges })} currency={currency} />
             </div>
           </Card>
@@ -338,7 +340,7 @@ function Editor({ designId }) {
           {(quote.pricingMode === 'package' || quote.withGst !== false) && totals.gstTotal > 0 && (
             <>
               <div className="flex justify-between text-xs text-slate-600"><span>Taxable value</span><span>{money(totals.taxableTotal)}</span></div>
-              <div className="flex justify-between text-xs text-slate-600"><span>Total GST</span><span>{money(totals.gstTotal)}</span></div>
+              <div className="flex justify-between text-xs text-slate-600"><span>Total {taxName()}</span><span>{money(totals.gstTotal)}</span></div>
             </>
           )}
           <div className="flex justify-between border-t border-slate-200 pt-2 text-base"><span className="font-semibold">Total</span><b>{money(totals.grandTotal)}</b></div>

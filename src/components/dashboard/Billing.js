@@ -18,6 +18,7 @@ import { withDateRange } from '@/lib/listDates';
 import { BILL_STATUS, EWAY_STATUS, partyBillingHref } from '@/lib/saleChain';
 import { Alert, Badge, Button, Card, DateRangeFilter, EmptyState, FilterNotice, FormField, FormModal, LoadingBlock, PageHeader, RowMenu, Select, Table, TablePagination, Tabs, Td, Th, Tr, capName, formatDate, showError, toast } from '../kit';
 import { CancelEwayBillDialog } from './EwayBillModal';
+import { taxName } from '@/lib/tax';
 
 const PAGE_SIZE = 10;
 
@@ -220,7 +221,7 @@ export default function Billing({ basePath = '/dashboard/billing' }) {
 
   return (
     <>
-      <PageHeader title="Billing" description="Goods go out on a bill, and are paid on an invoice — the GST tax invoice.">
+      <PageHeader title="Billing" description={`Goods go out on a bill, and are paid on an invoice — the ${taxName()} tax invoice.`}>
         <BillingHeaderActions
           canEway={canEway}
           canBill={may('finances', 'create_bill')}

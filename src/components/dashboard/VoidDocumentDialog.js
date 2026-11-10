@@ -39,7 +39,7 @@ export default function VoidDocumentDialog({ kind, doc, open, onClose, onConfirm
       )}
       <div className="mt-3">
         <FormField label="Reason (required)">
-          <Input maxLength={300} value={reason} onValue={setReason} placeholder={isBill ? 'e.g. Wrong GST rate, entered twice' : 'e.g. Wrong buyer name'} />
+          <Input maxLength={300} value={reason} onValue={setReason} placeholder={isBill ? 'e.g. Wrong tax rate, entered twice' : 'e.g. Wrong buyer name'} />
         </FormField>
       </div>
     </ConfirmDialog>

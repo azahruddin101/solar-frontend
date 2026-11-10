@@ -9,6 +9,7 @@
 import { formatMoney, formatNumber } from './energy.js';
 import { loadScriptFont } from './pdfFonts.js';
 import { drawIcon, paintIcon } from './pdfIcons.js';
+import { taxOf } from './tax.js';
 
 export const W = 210; // A4 portrait, millimetres
 export const PX = 10; // canvas pixels per millimetre
@@ -360,7 +361,7 @@ export function cards(doc, r, p, y = 208) {
     label: 'PREPARED BY',
     name: r.company.name,
     rows: [['pin', r.company.address], ['phone', r.company.phone], ['mail', r.company.email], ['globe', r.company.website]],
-    note: r.company.taxId && `GSTIN / Tax ID: ${r.company.taxId}`,
+    note: r.company.taxId && `${taxOf(r.company).idLabel}: ${r.company.taxId}`,
   });
   // closing note — or, when the proposal has a public link, the QR code that opens it
   const x = 161;

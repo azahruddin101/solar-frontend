@@ -13,10 +13,11 @@ import StockPickModal from './StockPickModal';
 import { PRICE_TYPES, productDetail, stockPreview, useStockCache } from './stockLines';
 import { Alert, Button, ConfirmDialog, FormField, FormModal, Input, Select, Textarea, cx } from '../kit';
 import { DiscountEditor, ServiceLinesEditor, BillSection, billDoc, blankServiceRow, servicesPayload, useBillPricing, validateServices } from './BillContentMode';
+import { defaultTaxRate, taxIdName, taxName } from '@/lib/tax';
 
 const today = () => new Date().toISOString().slice(0, 10);
 let seq = 0;
-const blankLine = () => ({ key: `l${++seq}`, productId: '', name: '', detail: '', hsn: '', unit: 'Nos', gstPercent: 18, priceType: 'retail', qty: 1, batch: '', serials: [] });
+const blankLine = () => ({ key: `l${++seq}`, productId: '', name: '', detail: '', hsn: '', unit: 'Nos', gstPercent: defaultTaxRate(), priceType: 'retail', qty: 1, batch: '', serials: [] });
 
 const cell = billDoc.field;
 
@@ -311,7 +312,7 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
             </FormField>
             <FormField label="Vehicle no." optional><Input maxLength={20} value={transport.vehicleNo} onValue={(v) => setT({ vehicleNo: v.toUpperCase() })} placeholder="MH12AB1234" className="uppercase" /></FormField>
             <FormField label="Transporter" optional><Input maxLength={120} value={transport.transporter} onValue={(v) => setT({ transporter: v })} /></FormField>
-            <FormField label="Transporter GSTIN" optional><Input maxLength={15} value={transport.transporterId} onValue={(v) => setT({ transporterId: v.toUpperCase() })} className="uppercase" /></FormField>
+            <FormField label={`Transporter ${taxIdName()}`} optional><Input maxLength={20} value={transport.transporterId} onValue={(v) => setT({ transporterId: v.toUpperCase() })} className="uppercase" /></FormField>
             <FormField label="LR / doc no." optional><Input maxLength={80} value={transport.docNo} onValue={(v) => setT({ docNo: v })} /></FormField>
             <FormField label="Doc date" optional><Input type="date" value={transport.docDate} onValue={(v) => setT({ docDate: v })} /></FormField>
             <FormField label="Distance (km)" optional><Input type="number" min={0} step="1" value={transport.distanceKm} onValue={(v) => setT({ distanceKm: v })} /></FormField>
@@ -323,7 +324,7 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
           </div>
         </BillSection>
 
-        <BillSection title="Summary" hint="Discount, GST, and amount due on this bill">
+        <BillSection title="Summary" hint={`Discount, ${taxName()}, and amount due on this bill`}>
           <DiscountEditor
             embedded
             active={discountActive}

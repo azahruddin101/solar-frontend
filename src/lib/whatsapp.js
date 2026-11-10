@@ -1,6 +1,6 @@
 'use client';
 
-/** Normalise a stored client phone to digits for https://wa.me/ (default: Indian +91). */
+/** A stored phone as digits for https://wa.me/: a 10-digit Indian mobile gets +91; any other number keeps its country code. */
 export function whatsAppPhoneDigits(phone) {
   let p = String(phone ?? '').replace(/[\s().+-]/g, '');
   if (p.length === 12 && p.startsWith('91')) return p;
@@ -13,7 +13,7 @@ export function whatsAppPhoneDigits(phone) {
 /** Open WhatsApp to the client with a message that includes the PDF link (S3-backed file served at /uploads). */
 export function shareLinkOnWhatsApp({ phone, pdfUrl, message }) {
   const digits = whatsAppPhoneDigits(phone);
-  if (!digits) throw new Error('Add a valid 10-digit mobile number for this client first.');
+  if (!digits) throw new Error('Add a valid mobile number for this client first (with the country code outside India).');
   if (!pdfUrl) throw new Error('PDF link is not available yet.');
 
   const text = message ? `${message}\n\n${pdfUrl}` : pdfUrl;

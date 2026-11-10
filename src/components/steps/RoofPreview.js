@@ -3,6 +3,7 @@
 // Small live 3D sketch of the building, drawn from the same roof model the designer uses, so every
 // change to shape, steepness, low side or ridge is visible immediately on the roof step.
 import { useMemo } from 'react';
+import { hipParts, hipPlaneZ } from '@/lib/hipRoof';
 import { normSection, roofPlanes, roofZ } from '@/lib/model';
 
 const W = 340;
@@ -17,11 +18,54 @@ const project = (p, z) => {
   const { xr, yr } = turn(p);
   return { x: xr, y: -yr * 0.5 - z * 0.82, depth: yr };
 };
+// slopes turned towards the viewer are lit, the ones turned away are darker
+const lightOf = (azimuth) => (azimuth == null ? 0.5 : (1 + Math.cos(((azimuth - 180 - 28) * Math.PI) / 180)) / 2);
+
+/** Fit the faces into the picture. */
+function fit(faces, flat, tiled = false) {
+  const all = faces.flatMap((f) => f.pts);
+  const minX = Math.min(...all.map((p) => p.x));
+  const maxX = Math.max(...all.map((p) => p.x));
+  const minY = Math.min(...all.map((p) => p.y));
+  const maxY = Math.max(...all.map((p) => p.y));
+  const k = Math.min((W - 40) / (maxX - minX || 1), (H - 36) / (maxY - minY || 1));
+  const at = (p) => `${((p.x - (minX + maxX) / 2) * k + W / 2).toFixed(1)},${((p.y - (minY + maxY) / 2) * k + H / 2 + 4).toFixed(1)}`;
+  return { faces, at, flat, tiled };
+}
+
+/** Hip / Kerala roof: walls first, then slopes turned away, the small end triangles, slopes facing us. */
+function hipModel(sec) {
+  const parts = hipParts(sec);
+  const faces = [];
+  sec.poly.forEach((a, i) => {
+    const b = sec.poly[(i + 1) % sec.poly.length];
+    const n = turn({ x: b.y - a.y, y: -(b.x - a.x) });
+    if (n.yr >= 0) return; // only walls facing the viewer
+    const pts = [project(a, 0), project(b, 0), project(b, sec.frame.wallBase), project(a, sec.frame.wallBase)];
+    faces.push({ kind: 'wall', pts, order: 0, depth: (pts[0].depth + pts[1].depth) / 2, shade: n.xr > 0 ? 0.35 : 0.6 });
+  });
+  for (const q of parts.walls) {
+    const pts = q.map((p) => project(p, p.z));
+    faces.push({ kind: 'wall', pts, order: 1, depth: Math.max(...pts.map((p) => p.depth)), shade: 0.5 });
+  }
+  for (const pl of parts.roof) {
+    const pts = pl.poly.map((p) => project(p, hipPlaneZ(sec, pl, p)));
+    const away = turn({ x: Math.sin((pl.azimuth * Math.PI) / 180), y: Math.cos((pl.azimuth * Math.PI) / 180) }).yr > 0.05;
+    faces.push({ kind: 'roof', pts, order: away ? 2 : 4, depth: Math.max(...pts.map((p) => p.depth)), shade: lightOf(pl.azimuth) });
+  }
+  for (const q of parts.gablets) {
+    const pts = q.map((p) => project(p, p.z));
+    faces.push({ kind: 'timber', pts, order: 3, depth: Math.max(...pts.map((p) => p.depth)), shade: 0.5 });
+  }
+  faces.sort((p, q) => p.order - q.order || q.depth - p.depth);
+  return fit(faces, false, true);
+}
 
 export default function RoofPreview({ section }) {
   const model = useMemo(() => {
     const sec = normSection(section);
     if (sec.poly.length < 3) return null;
+    if (sec.frame?.hip) return hipModel(sec);
     const flat = !sec.frame;
     const planes = flat ? [{ poly: sec.poly, azimuth: null }] : roofPlanes(sec);
     const fr = sec.frame;
@@ -29,9 +73,7 @@ export default function RoofPreview({ section }) {
     const faces = [];
     for (const pl of planes) {
       const top = pl.poly.map((p) => project(p, roofZ(sec, p.x, p.y)));
-      // slopes turned towards the viewer are lit, the ones turned away are darker
-      const towards = pl.azimuth == null ? 0.5 : (1 + Math.cos(((pl.azimuth - 180 - 28) * Math.PI) / 180)) / 2;
-      faces.push({ kind: 'roof', pts: top, depth: Math.max(...top.map((t) => t.depth)) - 1e-3, shade: towards });
+      faces.push({ kind: 'roof', pts: top, depth: Math.max(...top.map((t) => t.depth)) - 1e-3, shade: lightOf(pl.azimuth) });
       pl.poly.forEach((a, i) => {
         const b = pl.poly[(i + 1) % pl.poly.length];
         if (onRidge(a) && onRidge(b)) return;
@@ -45,32 +87,24 @@ export default function RoofPreview({ section }) {
       });
     }
     faces.sort((p, q) => q.depth - p.depth); // far first
-    const all = faces.flatMap((f) => f.pts);
-    const minX = Math.min(...all.map((p) => p.x));
-    const maxX = Math.max(...all.map((p) => p.x));
-    const minY = Math.min(...all.map((p) => p.y));
-    const maxY = Math.max(...all.map((p) => p.y));
-    const k = Math.min((W - 40) / (maxX - minX || 1), (H - 36) / (maxY - minY || 1));
-    const at = (p) => `${((p.x - (minX + maxX) / 2) * k + W / 2).toFixed(1)},${((p.y - (minY + maxY) / 2) * k + H / 2 + 4).toFixed(1)}`;
-    return { faces, at, flat };
+    return fit(faces, flat);
   }, [section]);
 
   if (!model) return null;
   const north = project({ x: 0, y: 1 }, 0);
   const nl = Math.hypot(north.x, north.y) || 1;
+  const fill = (f) => {
+    if (f.kind === 'wall') return `hsl(215 14% ${38 + f.shade * 30}%)`;
+    if (f.kind === 'timber') return '#6b4226';
+    if (model.flat) return '#d6d3d1';
+    return model.tiled ? `hsl(14 55% ${30 + f.shade * 22}%)` : `hsl(16 42% ${36 + f.shade * 24}%)`;
+  };
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full rounded-lg bg-gradient-to-b from-sky-100 to-slate-100" role="img" aria-label="3D preview of the roof">
       <ellipse cx={W / 2} cy={H - 16} rx={W * 0.36} ry={11} fill="#0f172a" opacity="0.12" />
       {model.faces.map((f, i) => (
         <g key={i}>
-          <polygon
-            points={f.pts.map(model.at).join(' ')}
-            fill={f.kind === 'wall' ? `hsl(215 14% ${38 + f.shade * 30}%)` : model.flat ? '#d6d3d1' : `hsl(16 42% ${36 + f.shade * 24}%)`}
-            stroke="#0f172a"
-            strokeOpacity="0.35"
-            strokeWidth="1"
-            strokeLinejoin="round"
-          />
+          <polygon points={f.pts.map(model.at).join(' ')} fill={fill(f)} stroke="#0f172a" strokeOpacity="0.35" strokeWidth="1" strokeLinejoin="round" />
           {f.eave && <polyline points={f.eave.map(model.at).join(' ')} fill="none" stroke="#f59e0b" strokeWidth="3.5" strokeLinecap="round" />}
         </g>
       ))}

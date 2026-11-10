@@ -5,14 +5,14 @@
 // tokens, a tooltip on hover/focus for every mark, and a table view for each chart.
 import { ArrowDownRight, ArrowUpRight, Table2 } from 'lucide-react';
 import { useState } from 'react';
-import { CURRENCIES } from '@/lib/energy';
+import { currencyInfo } from '@/lib/energy';
 import { PieChart2D, PIE_SLICE_GAP_DEG } from './DashboardGraphs';
 import { Card, CardHeader, cx } from '../kit';
 
 /** ₹3.7 L / ₹1.2 Cr for rupees, a compact form (1.2M) for other currencies. */
 export function compactMoney(v, currency = 'INR') {
   const n = Number(v) || 0;
-  const c = CURRENCIES[currency] || CURRENCIES.INR;
+  const c = currencyInfo(currency);
   const a = Math.abs(n);
   const sign = n < 0 ? '-' : '';
   if (currency === 'INR') {

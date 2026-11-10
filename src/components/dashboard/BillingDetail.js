@@ -27,6 +27,7 @@ import PartialReturnEwayModal from './PartialReturnEwayModal';
 import BillModal from './BillModal';
 import { DesignStatusBadge, designHref } from './shared';
 import { useBreadcrumb } from '@/lib/breadcrumbs';
+import { taxIdName, taxName } from '@/lib/tax';
 
 /** One colour per step of the chain, so the sections read in order. */
 const TONE = {
@@ -324,7 +325,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900">{partyName}</h1>
-          <p className="text-sm text-slate-500">{design ? <>{client?.name} · <DesignStatusBadge status={design.status} /></> : <>{[client?.phone, client?.gstNumber && `GSTIN ${client.gstNumber}`].filter(Boolean).join(' · ') || 'Client'} · <Badge tone="slate">No proposal</Badge></>}</p>
+          <p className="text-sm text-slate-500">{design ? <>{client?.name} · <DesignStatusBadge status={design.status} /></> : <>{[client?.phone, client?.gstNumber && `${taxIdName()} ${client.gstNumber}`].filter(Boolean).join(' · ') || 'Client'} · <Badge tone="slate">No proposal</Badge></>}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {design && may('proposals', 'view') && <Link href={designHref({ id: designId, type: design.type, summary: design })} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"><PenLine className="h-4 w-4" />{may('proposals', 'update') ? 'Edit proposal' : 'Open proposal'}</Link>}
@@ -473,7 +474,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
                     {inv.status === 'void' && inv.voidReason && <div className="max-w-[180px] truncate text-xs font-normal text-slate-500" title={inv.voidReason}>{inv.voidReason}</div>}
                   </Td>
                   <Td>{formatDate(inv.issuedOn)}</Td>
-                  <Td>{inv.pricing?.invoiceGstMode === 'without_gst' ? 'Plain' : 'Tax (GST)'}</Td>
+                  <Td>{inv.pricing?.invoiceGstMode === 'without_gst' ? 'Plain' : `Tax (${taxName()})`}</Td>
                   <Td>{inv.billRefs?.length ? inv.billRefs.map((b) => b.billNo).join(', ') : <span className="text-slate-500">—</span>}</Td>
                   <Td className="text-right tabular-nums">{money(inv.total)}</Td>
                   <Td>{inv.status === 'void' ? <Badge tone="slate">Void</Badge> : <Badge tone="green">Issued</Badge>}</Td>

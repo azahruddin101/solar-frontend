@@ -10,6 +10,7 @@ import { useCan } from '@/lib/useCan';
 import { useResource } from '@/lib/useResource';
 import { supplierSchema, useValidation } from '@/lib/validation';
 import { Alert, Button, Card, ConfirmDialog, EmptyState, FormField, FormModal, Input, LoadingBlock, Modal, MultiSelect, PageHeader, Select, Table, Td, Textarea, Th, Tr, formatDate, toast, RowMenu } from '../kit';
+import { taxIdName } from '@/lib/tax';
 
 const EMPTY = { name: '', phone: '', email: '', gstNumber: '', address: '', notes: '', categories: [] };
 
@@ -63,7 +64,7 @@ export function SupplierForm({ supplier, onClose, onSaved }) {
         <FormField label="Phone" optional error={v.error('phone')}><Input inputMode="tel" maxLength={20} value={form.phone} onValue={(x) => set({ phone: x })} /></FormField>
         <FormField label="Email" optional error={v.error('email')}><Input type="email" maxLength={200} value={form.email} onValue={(x) => set({ email: x })} /></FormField>
       </div>
-      <FormField label="GSTIN" optional error={v.error('gstNumber')}><Input maxLength={15} value={form.gstNumber} onValue={(x) => set({ gstNumber: x.toUpperCase() })} placeholder="e.g. 27ABCDE1234F1Z5" /></FormField>
+      <FormField label={taxIdName()} optional error={v.error('gstNumber')}><Input maxLength={20} value={form.gstNumber} onValue={(x) => set({ gstNumber: x.toUpperCase() })} placeholder="e.g. 27ABCDE1234F1Z5" /></FormField>
       <FormField label="Address" optional error={v.error('address')}><Textarea rows={2} maxLength={400} value={form.address} onValue={(x) => set({ address: x })} /></FormField>
       <FormField label="Notes" optional error={v.error('notes')}><Input maxLength={500} value={form.notes} onValue={(x) => set({ notes: x })} /></FormField>
     </FormModal>
@@ -163,7 +164,7 @@ export default function Suppliers() {
           </EmptyState>
         ) : (
           <Table>
-            <thead><tr><Th>Supplier</Th><Th>Categories</Th><Th>Contact</Th><Th>GSTIN</Th><Th className="text-right">Actions</Th></tr></thead>
+            <thead><tr><Th>Supplier</Th><Th>Categories</Th><Th>Contact</Th><Th>{taxIdName()}</Th><Th className="text-right">Actions</Th></tr></thead>
             <tbody>
               {!shown.length && (
                 <tr><td colSpan={5} className="px-6 py-10 text-center text-sm text-slate-500">No supplier sells {categoryName.get(category) || 'this category'} yet.</td></tr>

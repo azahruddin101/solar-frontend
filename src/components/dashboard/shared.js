@@ -222,7 +222,7 @@ export function NewDesignModal({ clients = [], clientId, onClose }) {
                   value={kind}
                   onChange={setKind}
                 />
-                {kind === 'quick' && <p className="-mt-2 text-[11px] text-slate-500">Pick packages/products, GST, floor and installation charges — no roof design needed.</p>}
+                {kind === 'quick' && <p className="-mt-2 text-[11px] text-slate-500">Pick packages/products, tax, floor and installation charges — no roof design needed.</p>}
 
                 <FormSection icon={PenTool} tone="proposals" title="Proposal" hint="Who it is for and how long it holds">
                 <div className="grid gap-4 sm:grid-cols-2">

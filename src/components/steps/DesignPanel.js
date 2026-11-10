@@ -9,12 +9,13 @@ import { useStore } from '@/lib/store';
 
 /** Slider + free-typing number box. Commits valid numbers immediately, clamps on blur. */
 export function Adjust({ label, value, onChange, min, max, step = 1, suffix = '' }) {
+  // `label` may be text or an icon + text node
   const [text, setText] = useState(null); // non-null only while the box is focused
   const clamp = (v) => Math.min(max, Math.max(min, v));
   return (
     <div>
       <div className="mb-1 flex items-center justify-between text-[13px]">
-        <span className="font-medium text-slate-700">{label}</span>
+        <span className="flex items-center gap-1.5 font-medium text-slate-700">{label}</span>
         <span className="flex items-center gap-1">
           <input
             type="text"
@@ -38,6 +39,67 @@ export function Adjust({ label, value, onChange, min, max, step = 1, suffix = ''
       </div>
       <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} className="h-1.5 w-full cursor-pointer accent-brand" />
     </div>
+  );
+}
+
+/** Whole-number setting with − / + buttons and a typed box: one less, one more. Clamps to min–max. */
+export function Stepper({ label, name, value, onChange, min, max, step = 1, suffix = '' }) {
+  const [text, setText] = useState(null); // non-null only while the box is focused
+  const said = name || (typeof label === 'string' ? label : 'value'); // for screen readers when the label is an icon
+  const clamp = (v) => Math.min(max, Math.max(min, v));
+  const set = (v) => onChange(clamp(Math.round(v / step) * step));
+  const btn = 'grid h-8 w-8 shrink-0 place-items-center rounded-md border border-slate-300 bg-white text-base font-semibold leading-none text-slate-700 hover:bg-slate-50 disabled:opacity-40';
+  return (
+    <div>
+      {label && <div className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-slate-700">{label}</div>}
+      <div className="flex items-center gap-1.5">
+        <button type="button" aria-label={`${said}: one less`} disabled={value <= min} onClick={() => set(value - step)} className={btn}>−</button>
+        <input
+          type="text"
+          inputMode="numeric"
+          value={text ?? String(value)}
+          onFocus={() => setText(String(value))}
+          onChange={(e) => {
+            setText(e.target.value);
+            const v = Number(e.target.value);
+            if (e.target.value !== '' && Number.isFinite(v) && v >= min && v <= max) onChange(v);
+          }}
+          onBlur={() => {
+            const v = Number(text);
+            if (text !== '' && text !== null && Number.isFinite(v)) onChange(clamp(v));
+            setText(null);
+          }}
+          className="h-8 w-full min-w-0 flex-1 rounded-md border border-slate-300 px-1.5 text-center text-[13px] font-semibold outline-none focus:border-brand"
+        />
+        {suffix && <span className="w-4 text-xs text-slate-400">{suffix}</span>}
+        <button type="button" aria-label={`${said}: one more`} disabled={value >= max} onClick={() => set(value + step)} className={btn}>+</button>
+      </div>
+    </div>
+  );
+}
+
+/** A tilted panel on a short front pole (F) and a tall back pole (B): what the two heights mean. */
+export function PoleHeightsIcon({ className = 'h-11 w-14 shrink-0' }) {
+  return (
+    <svg viewBox="0 0 56 44" className={className} aria-hidden="true">
+      <line x1="4" y1="40" x2="52" y2="40" stroke="#94a3b8" strokeWidth="2" />
+      <line x1="14" y1="40" x2="14" y2="28" stroke="#475569" strokeWidth="3" />
+      <line x1="42" y1="40" x2="42" y2="14" stroke="#475569" strokeWidth="3" />
+      <polygon points="6,30 50,10 52,16 8,36" fill="#2563eb" stroke="#1e3a8a" strokeWidth="1" />
+      <text x="8" y="26" fontSize="8" fontWeight="700" fill="#0f172a">F</text>
+      <text x="45" y="12" fontSize="8" fontWeight="700" fill="#0f172a">B</text>
+    </svg>
+  );
+}
+
+/** Three lines across (horizontal supports, between front and back) or along (vertical). */
+export function SupportIcon({ dir = 'h', className = 'h-4 w-4 text-slate-500' }) {
+  const h = dir === 'h';
+  return (
+    <svg viewBox="0 0 16 16" className={className} aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <rect x="1.5" y="1.5" width="13" height="13" rx="1" />
+      {h ? <><line x1="1.5" y1="6" x2="14.5" y2="6" /><line x1="1.5" y1="10" x2="14.5" y2="10" /></> : <><line x1="6" y1="1.5" x2="6" y2="14.5" /><line x1="10" y1="1.5" x2="10" y2="14.5" /></>}
+    </svg>
   );
 }
 

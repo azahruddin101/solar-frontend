@@ -69,8 +69,13 @@ export function normalizeCatalog(raw) {
       gstPercent: p.gstPercent != null && p.gstPercent !== '' ? Number(p.gstPercent) : undefined,
       manufactureYear: Number(p.manufactureYear) || null,
       warrantyYears: Number.isFinite(Number(p.warrantyYears)) && p.warrantyYears !== null && p.warrantyYears !== undefined ? Number(p.warrantyYears) : null,
-      voc: num(p.voc, Math.round((30 + watts * 0.04) * 10) / 10),
-      isc: num(p.isc, Math.round((8 + watts * 0.011) * 10) / 10),
+      // the module's datasheet values (the category's attributes, e.g. "Voc (V)") or, when missing, an estimate
+      // from the watts that the SLD engine reports as assumed (`vocEstimated`)
+      voc: num(p.attributes?.voc ?? p.voc, Math.round((30 + watts * 0.04) * 10) / 10),
+      isc: num(p.attributes?.isc ?? p.isc, Math.round((8 + watts * 0.011) * 10) / 10),
+      vocEstimated: (p.attributes?.voc ?? p.voc) == null,
+      iscEstimated: (p.attributes?.isc ?? p.isc) == null,
+      attributes: p.attributes && typeof p.attributes === 'object' ? p.attributes : {},
       name: `${p.brand || ''} ${p.model || ''} ${watts} W`.trim(),
       ...groupOf(p),
     };

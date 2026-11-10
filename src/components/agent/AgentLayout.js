@@ -10,17 +10,17 @@ import AuthGuard from '../layout/AuthGuard';
 // starts from a list); inside, each page shows only the actions their permissions allow (see lib/permissions.js).
 const AREA_NAV = [
   { area: 'leads', href: '/agent/leads', label: 'Leads', icon: Megaphone }, // the sources are tabs inside the page (LeadSourceTabs)
-  { area: 'proposals', href: '/agent/designs', label: 'Proposals', icon: PenTool },
   { area: 'clients', href: '/agent/clients', label: 'Clients', icon: Users },
+  { area: 'proposals', href: '/agent/designs', label: 'Proposals', icon: PenTool },
+  { area: 'finances', href: '/agent/billing', label: 'Finances', icon: Receipt },
   { area: 'loans', href: '/agent/loans', label: 'Loans', icon: Landmark },
   { area: 'subsidies', href: '/agent/subsidies', label: 'Subsidies', icon: BadgeIndianRupee },
-  { area: 'finances', href: '/agent/billing', label: 'Finances', icon: Receipt },
   { area: 'expenses', href: '/agent/expenses', label: 'Expenses', icon: WalletCards },
   { area: 'tasks', href: '/agent/installations', label: 'Installations', icon: HardHat },
   { area: 'helpdesk', href: '/agent/client-support', label: 'Client support', icon: Headset },
   { area: 'support', href: '/agent/support', label: 'Platform support', icon: LifeBuoy },
-  { area: 'inventory', href: '/agent/packages', label: 'Packages', icon: Boxes },
   { area: 'inventory', href: '/agent/catalog', label: 'Product catalog', icon: PanelsTopLeft },
+  { area: 'inventory', href: '/agent/packages', label: 'Packages', icon: Boxes },
   { area: 'inventory', href: '/agent/suppliers', label: 'Suppliers', icon: Truck },
 ];
 

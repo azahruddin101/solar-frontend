@@ -25,6 +25,8 @@ export async function loadBranding(company) {
   const branded = company?.features?.pdfBranding !== false;
   const theme = resolveTheme(branded ? company?.theme : null);
   const [logo, signature, qr] = branded ? await Promise.all([loadImage(company?.logo), loadImage(company?.signature), loadImage(company?.qr)]) : [null, null, null];
+  // the payment QR is how the client pays, not branding: printed even without branded PDFs
+  const paymentQr = await loadImage(company?.paymentQr);
   return {
     branded,
     primary: hexToRgb(theme.primary),
@@ -33,5 +35,6 @@ export async function loadBranding(company) {
     logo,
     signature,
     qr,
+    paymentQr,
   };
 }

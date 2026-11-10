@@ -1,6 +1,8 @@
 // Estimation (Dashboard → Estimation): a quick price estimate built from products, packages and services.
 // Nothing here is saved anywhere — the page keeps it in memory and the PDF is drawn in the browser.
+import { defaultTaxRate } from './tax.js';
 
+// new lines start at the company's usual tax rate (Settings → Company profile); kept for imports
 export const DEFAULT_ESTIMATE_GST = 18;
 
 const money2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -10,7 +12,7 @@ let seq = 0;
 /** A fresh line. `kind`: product | package | service | custom. Prices are before GST. */
 export function newLine(kind, fields = {}) {
   seq += 1;
-  return { key: `l${Date.now().toString(36)}${seq}`, kind, name: '', detail: '', hsn: '', unit: 'Nos', qty: 1, rate: 0, gstPercent: DEFAULT_ESTIMATE_GST, ...fields };
+  return { key: `l${Date.now().toString(36)}${seq}`, kind, name: '', detail: '', hsn: '', unit: 'Nos', qty: 1, rate: 0, gstPercent: defaultTaxRate(), ...fields };
 }
 
 /**

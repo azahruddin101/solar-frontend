@@ -6,21 +6,23 @@ import { Plus, X } from 'lucide-react';
 import Link from 'next/link';
 import { useResource } from '@/lib/useResource';
 import { Input, NumField } from '../kit';
+import { defaultTaxRate, taxName } from '@/lib/tax';
 
 export const chargesTotal = (list) => (Array.isArray(list) ? list : []).reduce((a, c) => a + (Number(c.price) || 0), 0);
 
-const DEFAULT_GST = 18;
+// new rows start at the company's usual tax rate (Settings → Company profile)
+const DEFAULT_GST = () => defaultTaxRate();
 
-export const emptyInstallationCharge = () => ({ chargeId: '', name: '', price: 0, gstPercent: DEFAULT_GST });
+export const emptyInstallationCharge = () => ({ chargeId: '', name: '', price: 0, gstPercent: DEFAULT_GST() });
 
 const emptyRow = emptyInstallationCharge;
 
 const withDefaultGst = (row) => ({
   ...row,
-  gstPercent: row.gstPercent != null && row.gstPercent !== '' ? row.gstPercent : DEFAULT_GST,
+  gstPercent: row.gstPercent != null && row.gstPercent !== '' ? row.gstPercent : DEFAULT_GST(),
 });
 
-export default function ChargePicker({ value = [], onChange, currency = '₹', embedded = false }) {
+export default function ChargePicker({ value = [], onChange, currency = 'INR', embedded = false }) {
   const { data: options, loading, error } = useResource('/api/installation-charges');
   const catalog = Array.isArray(options) ? options : [];
   const rows = (Array.isArray(value) ? value : []).map(withDefaultGst);
@@ -32,7 +34,7 @@ export default function ChargePicker({ value = [], onChange, currency = '₹', e
       chargeId: o.id,
       name: o.name,
       price: rows[i]?.price != null && rows[i].price !== '' ? rows[i].price : o.defaultPrice || 0,
-      gstPercent: o.gstPercent != null && o.gstPercent !== '' ? o.gstPercent : DEFAULT_GST,
+      gstPercent: o.gstPercent != null && o.gstPercent !== '' ? o.gstPercent : DEFAULT_GST(),
       sac: o.sac || '', // printed in the HSN/SAC column
     });
   };
@@ -43,7 +45,7 @@ export default function ChargePicker({ value = [], onChange, currency = '₹', e
         <div className="mb-1.5 flex items-center justify-between gap-2">
           <div>
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-700">Installation charges</span>
-            <p className="text-[10px] text-slate-400">Ex-GST price; {DEFAULT_GST}% GST applied by default</p>
+            <p className="text-[10px] text-slate-400">Price before {taxName()}; {DEFAULT_GST()}% {taxName()} applied by default</p>
           </div>
           <button type="button" onClick={() => onChange([...rows, emptyRow()])} className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-brand hover:underline"><Plus className="h-3.5 w-3.5" />Add</button>
         </div>

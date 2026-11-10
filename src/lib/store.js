@@ -7,12 +7,14 @@ import { buildingIdOf, buildingList, nextBuildingName } from './buildings.js';
 
 export const STEPS = ['Project Setup', 'Draw Roof', 'Roof Details', 'Obstructions', 'Panel & Mounting', 'Manual Edit', '3D View & Shadows', 'Electrical Design', 'Financials', 'Report & Drawings'];
 
-export const SIMPLE_SLUGS = ['location', 'roof', 'plan'];
+// Location → Building → Package → Panels → Strings → Products → Proposal: the roof comes from Google's measurements (see
+// lib/solarModel.js) and is adjusted on the Building step; nothing is drawn
+export const SIMPLE_SLUGS = ['location', 'building', 'system', 'panels', 'strings', 'products', 'proposal'];
 export const PRO_SLUGS = ['location', 'roof', 'roof-details', 'obstructions', 'panels', 'layout', 'view-3d', 'electrical', 'financials', 'report'];
-export const SIMPLE_STEPS = ['Location', 'Roof', 'Solar plan'];
+export const SIMPLE_STEPS = ['Location', 'Building', 'Package', 'Panels', 'Strings', 'Products', 'Proposal'];
 
 // what is saved with the design
-export const SAVED_KEYS = ['mode', 'layoutKey', 'project', 'place', 'origin', 'buildings', 'sections', 'objects', 'config', 'electrical', 'finance', 'sun'];
+export const SAVED_KEYS = ['mode', 'layoutKey', 'project', 'place', 'origin', 'roofArea', 'roofAreas', 'buildings', 'sections', 'objects', 'config', 'electrical', 'finance', 'sun'];
 
 const initial = {
   step: 0,
@@ -20,14 +22,19 @@ const initial = {
   project: { name: '', customer: '', preparedBy: '' },
   place: null, // {address, location}
   origin: null, // confirmed {lat, lng}
+  roofArea: null, // the first roof the user marked on the map: [{lat, lng}] (older designs have only this one)
+  roofAreas: null, // every roof marked on the map, one outline per building: [[{lat, lng}]] (Google is read inside them only)
+  markedDraft: null, // transient: the outlines marked on the location step but not yet confirmed with Continue
   catalog: null,
   solar: { status: 'idle', data: null, error: null },
+  solarModel: { status: 'idle', data: null, error: null, key: '' }, // Google's measured house (planes + height map), not saved
   buildings: [], // {id, name} — several for a campus; empty = one building (see lib/buildings.js)
   buildingId: null, // transient: the building being edited on the roof step
   sections: [], // {id, name, building, points, height, parapetH, parapetT}
   objects: [], // array | zone | tree | block
-  config: { specId: '', pillarId: '', orientation: 'portrait', tilt: 15, azimuthMode: 'building', azimuth: 180, setback: 0.6, frontLeg: 0.4, rowsPerTable: 2, rowGap: 0, maxPanels: 0, targetKw: 0, sizeBy: 'bill', sizeBill: '', sizeKw: '', pricingMode: 'custom', packageId: '', floorPlacement: 0, floorCost: 0, installationCharges: [], outlookYears: 10, tariff: 0, customMaterials: {}, withGst: true, gstPercent: 18 }, // sized by monthly bill or by kW; both are kept so switching shows the same system either way
-  electrical: { inverterId: 'auto' },
+  config: { specId: '', pillarId: '', orientation: 'portrait', tilt: 15, azimuthMode: 'building', azimuth: 180, setback: 0.6, frontLeg: 0.4, rowsPerTable: 2, rowGap: 0, maxPanels: 0, targetKw: 0, sizeBy: 'bill', sizeBill: '', sizeKw: '', pricingMode: 'custom', packageId: '', floorPlacement: 0, floorCost: 0, installationCharges: [], outlookYears: 10, tariff: 0, customMaterials: {}, withGst: true, gstPercent: undefined }, // sized by monthly bill or by kW; both are kept so switching shows the same system either way
+  electrical: { inverterId: 'auto', strings: [] }, // strings: [{id, name, modules: [moduleId]}] the user picked by hand
+  activeStringId: null, // transient: the string being filled with the string tool
   finance: { currency: 'INR', tariff: 8, costPerKw: 55000, efficiency: 85, degradation: 0.5, init: false },
   sun: { season: 'today', hour: 12 },
   // transient {day, hour} the shadow report drives the sun with; the user's `sun` is left untouched
@@ -99,6 +106,7 @@ export const useStore = create((set, get) => ({
         navigate: st.navigate,
         ...saved,
         config: { ...initial.config, ...(saved.config || {}) },
+        electrical: { ...initial.electrical, ...(saved.electrical || {}) },
         finance: { ...initial.finance, ...(saved.finance || {}) },
         project: { name: design.name, customer: design.client?.name || '', preparedBy: company?.name || '' },
         designId: design.id,

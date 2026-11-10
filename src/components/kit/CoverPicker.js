@@ -6,6 +6,7 @@
 import { Check, Download } from 'lucide-react';
 import { useState } from 'react';
 import { COVER_STYLES, lastCover, rememberCover } from '@/lib/coverStyles';
+import { lastPages, rememberPages } from '@/lib/pdfPages';
 import { resolveTheme } from '@/lib/theme';
 import { cx } from '../ui';
 import { Button, Modal } from './index';
@@ -201,16 +202,26 @@ export default function CoverPicker({ open, ...props }) {
   return open ? <Picker {...props} /> : null; // mounted per opening, so it starts from the last choice
 }
 
-function Picker({ onClose, onDownload, company, snapshot = null, title = 'Choose a front page', submitLabel = 'Download PDF' }) {
+/**
+ * With `pages` (lib/pdfPages PDF_PAGES, or a subset) the dialog first asks which pages go in the
+ * PDF, and `onDownload(style, pageIds)` gets the choice; without it, only the front page is asked.
+ */
+function Picker({ onClose, onDownload, company, snapshot = null, title = 'Choose a front page', submitLabel = 'Download PDF', pages = null }) {
   const [style, setStyle] = useState(lastCover);
   const [busy, setBusy] = useState(false);
+  const [chosen, setChosen] = useState(() => (pages ? lastPages().filter((id) => pages.some((p) => p.id === id)) : null));
+  const withCover = !chosen || chosen.includes('cover');
+  const toggle = (id) => setChosen((c) => (c.includes(id) ? c.filter((x) => x !== id) : pages.map((p) => p.id).filter((x) => x === id || c.includes(x))));
+  const allOn = pages && chosen.length === pages.length;
   const theme = company?.features?.pdfBranding !== false ? company?.theme : null; // as the PDF resolves it
 
   const download = async () => {
+    if (chosen && !chosen.length) return;
     rememberCover(style);
+    if (chosen) rememberPages(chosen);
     setBusy(true);
     try {
-      await onDownload(style);
+      await onDownload(style, chosen);
     } finally {
       setBusy(false);
     }
@@ -220,12 +231,35 @@ function Picker({ onClose, onDownload, company, snapshot = null, title = 'Choose
     <Modal
       open
       onClose={busy ? () => {} : onClose}
-      title={title}
-      description="Pick the first page of the PDF. All the other pages stay the same."
+      title={pages ? 'Download proposal' : title}
+      description={pages ? 'Choose the pages to put in the PDF, and the look of its front page.' : 'Pick the first page of the PDF. All the other pages stay the same.'}
       size="lg"
-      footer={<><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="primary" icon={Download} loading={busy} onClick={download}>{submitLabel}</Button></>}
+      footer={<>{chosen && <span className="mr-auto text-sm text-slate-500">{chosen.length ? `${chosen.length} of ${pages.length} selected` : 'Pick at least one page'}</span>}<Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="primary" icon={Download} loading={busy} disabled={chosen && !chosen.length} onClick={download}>{submitLabel}</Button></>}
     >
-      <div role="radiogroup" aria-label="Front page" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {pages && (
+        <div className="mb-5">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-sm font-semibold text-slate-900">Pages to include</div>
+            <button type="button" disabled={busy} onClick={() => setChosen(allOn ? [] : pages.map((p) => p.id))} className="text-sm font-semibold text-brand hover:underline">{allOn ? 'Clear all' : 'Select all'}</button>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {pages.map((p) => {
+              const on = chosen.includes(p.id);
+              return (
+                <button key={p.id} type="button" role="checkbox" aria-checked={on} disabled={busy} onClick={() => toggle(p.id)} className={cx('flex items-start gap-2.5 rounded-lg border px-3 py-2 text-left transition', on ? 'border-brand bg-brand-soft/40' : 'border-slate-200 hover:bg-slate-50')}>
+                  <span className={cx('mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded border-2', on ? 'border-brand bg-brand text-brand-fg' : 'border-slate-300 bg-white')}>{on && <Check className="h-3.5 w-3.5" />}</span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-slate-900">{p.name}</span>
+                    <span className="block text-xs text-slate-500">{p.hint}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {pages && withCover && <div className="mb-2 text-sm font-semibold text-slate-900">Front page style</div>}
+      {withCover && <div role="radiogroup" aria-label="Front page" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {COVER_STYLES.map((c) => {
           const on = c.id === style;
           return (
@@ -237,7 +271,7 @@ function Picker({ onClose, onDownload, company, snapshot = null, title = 'Choose
             </button>
           );
         })}
-      </div>
+      </div>}
     </Modal>
   );
 }

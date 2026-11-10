@@ -2,13 +2,16 @@
 
 import { Html, Line, OrbitControls } from '@react-three/drei';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Building2, ChevronDown, ChevronUp, Maximize, Pause, Play, Sun, X } from 'lucide-react';
+import { Building2, ChevronDown, ChevronUp, Maximize, Maximize2, Pause, Play, RotateCw, Sun, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { formatMoney, formatNumber } from '@/lib/energy';
 import { compassLabel, toLatLng } from '@/lib/geo';
 import { offsetPolygon, rectPoly, signedArea } from '@/lib/geometry';
-import { magnetize, PANEL_THICKNESS, ridgeHeight, roofHeightAt, roofPlanes, roofZ } from '@/lib/model';
+import { hipParts, hipPlaneZ, hipZ } from '@/lib/hipRoof';
+import { addBase, togglePanelAt, withinPackage } from '@/lib/autofill';
+import { activeStringPath, allStringColors, stringPaint, stringStroke } from '@/lib/strings';
+import { magnetize, PANEL_GAP, PANEL_THICKNESS, PATH_COLORS, pathCount, pathOn, resizeBase, ridgeHeight, roofHeightAt, roofPlanes, roofZ, slotAt, slotStart } from '@/lib/model';
 import { dayFor, fmtDay, fmtHour, fmtHour24, SEASON_DAYS } from '@/lib/seasons';
 import { PANEL_MESH_TAG, SUN_LIGHT_NAME } from '@/lib/shadowReport/sceneAdapter';
 import { staticMapSize, staticMapUrl, zoomForSpan } from '@/lib/staticMap';
@@ -20,7 +23,7 @@ import { cx } from '../ui';
  * Bridge out of the R3F canvas for code that lives outside it: `capture` gives the proposal its
  * cover picture, `getScene` hands the live scene, renderer and camera to the shadow report.
  */
-export const sceneApi = { capture: null, getScene: null };
+export const sceneApi = { capture: null, getScene: null, focusBuilding: null };
 
 function useSatellite(origin, zoom) {
   const [tex, setTex] = useState(null);
@@ -100,6 +103,162 @@ function slopedRoofGeo(section, mapSize, at = HERE) {
     return g;
   };
   return { top: make(top, topUv), walls: walls.length ? make(walls) : null };
+}
+
+/* ───────────── hip / Kerala roofs ───────────── */
+
+// one Mangalore tile is about 25 cm wide and shows about 33 cm per course; the texture holds 8 × 8
+const TILE_W = 0.25;
+const TILE_H = 0.33;
+const TILE_GRID = 8;
+const ROOF_BOARD = 0.12; // thickness of the roof edge (eave board)
+const TIMBER = '#6b4226';
+
+let tileTexture;
+/** Terracotta Mangalore tiles: rows run along the eave, two ribs per tile, a shadow under each course. */
+function tiles() {
+  if (tileTexture) return tileTexture;
+  const size = 512;
+  const cell = size / TILE_GRID;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  let seed = 11;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let row = 0; row < TILE_GRID; row++) {
+    for (let col = 0; col < TILE_GRID; col++) {
+      const x = col * cell;
+      const y = row * cell;
+      const hue = 12 + rand() * 7;
+      const sat = 52 + rand() * 12;
+      const lit = 36 + rand() * 9;
+      // canvas y grows down; v grows up the slope, so the top of a cell is the upper end of the tile
+      const grad = g.createLinearGradient(0, y, 0, y + cell);
+      grad.addColorStop(0, `hsl(${hue} ${sat}% ${lit - 6}%)`);
+      grad.addColorStop(0.7, `hsl(${hue} ${sat}% ${lit + 4}%)`);
+      grad.addColorStop(0.86, `hsl(${hue} ${sat}% ${lit + 2}%)`);
+      grad.addColorStop(1, `hsl(${hue} ${sat}% ${lit - 16}%)`); // the lower edge throws a shadow on the course below
+      g.fillStyle = grad;
+      g.fillRect(x, y, cell, cell);
+      // two ribs per tile
+      for (const k of [0.3, 0.7]) {
+        const rib = g.createLinearGradient(x + cell * (k - 0.09), 0, x + cell * (k + 0.09), 0);
+        rib.addColorStop(0, 'rgba(0,0,0,0.18)');
+        rib.addColorStop(0.45, 'rgba(255,255,255,0.16)');
+        rib.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = rib;
+        g.fillRect(x + cell * (k - 0.09), y, cell * 0.18, cell);
+      }
+      g.fillStyle = 'rgba(30,10,4,0.55)';
+      g.fillRect(x, y, 1.5, cell); // joint between tiles
+    }
+  }
+  tileTexture = new THREE.CanvasTexture(c);
+  tileTexture.wrapS = tileTexture.wrapT = THREE.RepeatWrapping;
+  tileTexture.colorSpace = THREE.SRGBColorSpace;
+  tileTexture.anisotropy = 8;
+  return tileTexture;
+}
+
+/** Quads [{x, y, z}×4] in plan + height → a geometry (two triangles each). */
+function quadsGeo(quads) {
+  if (!quads.length) return null;
+  const pos = [];
+  for (const [a, b, c, d] of quads) for (const p of [a, b, c, a, c, d]) pos.push(p.x, p.z, -p.y);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * A hip / Kerala roof: tiled slopes (tile rows parallel to each eave), the same surface a board's
+ * thickness lower as the underside of the overhang, the eave board, gable triangles and the small
+ * upright triangles of Kerala ends.
+ */
+function hipRoofGeo(section) {
+  const parts = hipParts(section, ROOF_BOARD);
+  const cos = Math.cos((section.pitch * Math.PI) / 180);
+  const top = [];
+  const uv = [];
+  for (const pl of parts.roof) {
+    const t = { x: -pl.eave.n.y, y: pl.eave.n.x }; // along the eave
+    const contour = pl.poly.map((p) => new THREE.Vector2(p.x, p.y));
+    for (const tri of THREE.ShapeUtils.triangulateShape(contour, [])) {
+      // counter-clockwise in plan is counter-clockwise seen from above, so the face looks up
+      const [a, b, c] = tri.map((i) => pl.poly[i]);
+      if ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) < 0) tri.reverse();
+      for (const i of tri) {
+        const p = pl.poly[i];
+        top.push(p.x, hipPlaneZ(section, pl, p), -p.y);
+        const up = (pl.eave.c - (pl.eave.n.x * p.x + pl.eave.n.y * p.y)) / cos; // metres up the slope
+        uv.push((p.x * t.x + p.y * t.y) / (TILE_W * TILE_GRID), up / (TILE_H * TILE_GRID));
+      }
+    }
+  }
+  if (!parts.roof.length) {
+    // an outline the slopes can't be worked out for (slanted walls with an inward corner): a finely
+    // cut surface that follows the roof height, tiles laid in plan
+    const poly = section.frame.roofPoly;
+    const z = (p) => hipZ(section, p.x, p.y);
+    const emit = (a, b, c, depth) => {
+      if (depth === 0) {
+        for (const p of [a, b, c]) {
+          top.push(p.x, z(p), -p.y);
+          uv.push(p.x / (TILE_W * TILE_GRID), p.y / (TILE_H * TILE_GRID));
+        }
+        return;
+      }
+      const m = (p, q) => ({ x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 });
+      const [ab, bc, ca] = [m(a, b), m(b, c), m(c, a)];
+      emit(a, ab, ca, depth - 1);
+      emit(ab, b, bc, depth - 1);
+      emit(ca, bc, c, depth - 1);
+      emit(ab, bc, ca, depth - 1);
+    };
+    for (const tri of THREE.ShapeUtils.triangulateShape(poly.map((p) => new THREE.Vector2(p.x, p.y)), [])) {
+      const [a, b, c] = tri.map((i) => poly[i]);
+      if ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) < 0) emit(a, c, b, 4);
+      else emit(a, b, c, 4);
+    }
+  }
+  const surface = new THREE.BufferGeometry();
+  surface.setAttribute('position', new THREE.Float32BufferAttribute(top, 3));
+  surface.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  surface.computeVertexNormals();
+  const under = surface.clone();
+  under.translate(0, -ROOF_BOARD, 0);
+  return { top: surface, under, walls: quadsGeo(parts.walls), gablets: quadsGeo(parts.gablets), fascia: quadsGeo(parts.fascia) };
+}
+
+function HipRoof({ section }) {
+  const geos = useMemo(() => hipRoofGeo(section), [section]);
+  useEffect(() => () => Object.values(geos).forEach((g) => g?.dispose?.()), [geos]);
+  return (
+    <group>
+      <mesh geometry={geos.top} castShadow receiveShadow>
+        <meshStandardMaterial map={tiles()} roughness={0.85} />
+      </mesh>
+      <mesh geometry={geos.under} receiveShadow>
+        <meshStandardMaterial color="#8a6a52" roughness={0.95} side={THREE.BackSide} />
+      </mesh>
+      {geos.fascia && (
+        <mesh geometry={geos.fascia} castShadow>
+          <meshStandardMaterial color={TIMBER} roughness={0.8} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+      {geos.walls && (
+        <mesh geometry={geos.walls} castShadow receiveShadow>
+          <meshStandardMaterial color={WALL} roughness={0.92} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+      {geos.gablets && (
+        <mesh geometry={geos.gablets} castShadow receiveShadow>
+          <meshStandardMaterial color={TIMBER} roughness={0.75} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+    </group>
+  );
 }
 
 /* ───────────── building finish ───────────── */
@@ -263,6 +422,10 @@ function Building({ section, tex, mapSize, at = HERE }) {
     const plinthH = Math.min(0.45, wallH * 0.2);
     // a slightly proud, darker band at ground level
     const plinth = plinthH > 0.05 ? ringGeo(offsetPolygon(section.poly, -0.03), null, plinthH, 0) : null;
+    if (section.frame?.hip) {
+      const body = ringGeo(section.poly, null, wallH, 0);
+      return { body, hip: true, plinth, edges: new THREE.EdgesGeometry(body, 30) };
+    }
     if (section.frame) {
       const roof = slopedRoofGeo(section, mapSize, at);
       const body = ringGeo(section.poly, null, wallH, 0);
@@ -298,10 +461,11 @@ function Building({ section, tex, mapSize, at = HERE }) {
           <meshStandardMaterial color={PLINTH} roughness={0.95} />
         </mesh>
       )}
-      <mesh geometry={geos.top} receiveShadow castShadow={Boolean(geos.sloped)}>
+      {geos.hip && <HipRoof section={section} />}
+      {geos.top && <mesh geometry={geos.top} receiveShadow castShadow={Boolean(geos.sloped)}>
         {/* a pitched roof is seen from both sides near the eaves; without imagery it gets a tile colour */}
         <meshStandardMaterial key={tex ? 'sat' : 'plain'} map={tex} color={tex ? '#ffffff' : geos.sloped ? '#a1604a' : '#cfcbc2'} roughness={1} side={geos.sloped ? THREE.DoubleSide : THREE.FrontSide} />
-      </mesh>
+      </mesh>}
       {geos.gables && (
         <mesh geometry={geos.gables} castShadow receiveShadow>
           <meshStandardMaterial color={WALL} roughness={0.92} side={THREE.DoubleSide} />
@@ -321,7 +485,7 @@ function Building({ section, tex, mapSize, at = HERE }) {
   );
 }
 
-function Instances({ items, geometry, children, cast = true, userData }) {
+function Instances({ items, geometry, children, cast = true, userData, colors = null }) {
   const ref = useRef(null);
   useLayoutEffect(() => {
     if (!ref.current) return;
@@ -329,6 +493,14 @@ function Instances({ items, geometry, children, cast = true, userData }) {
     ref.current.instanceMatrix.needsUpdate = true;
     ref.current.computeBoundingSphere();
   }, [items]);
+  // an optional tint per instance (string colours on the panels); white = the material as it is
+  useLayoutEffect(() => {
+    const mesh = ref.current;
+    if (!mesh || (!colors && !mesh.instanceColor)) return;
+    const c = new THREE.Color();
+    items.forEach((_, i) => mesh.setColorAt(i, c.set((colors && colors[i]) || '#ffffff')));
+    mesh.instanceColor.needsUpdate = true;
+  }, [items, colors]);
   if (!items.length) return null;
   return (
     <instancedMesh key={items.length} ref={ref} args={[geometry, undefined, items.length]} castShadow={cast} receiveShadow userData={userData}>
@@ -337,68 +509,145 @@ function Instances({ items, geometry, children, cast = true, userData }) {
   );
 }
 
+function legGeometry(shape) {
+  if (shape === 'cylindrical') return new THREE.CylinderGeometry(0.04, 0.04, 1, 14);
+  if (shape === 'l-shape') {
+    // angle section: two thin plates meeting at a corner
+    const g = new THREE.ExtrudeGeometry(new THREE.Shape([[0, 0], [0.08, 0], [0.08, 0.012], [0.012, 0.012], [0.012, 0.08], [0, 0.08]].map(([x, y]) => new THREE.Vector2(x - 0.03, y - 0.03))), { depth: 1, bevelEnabled: false });
+    g.rotateX(-Math.PI / 2);
+    g.translate(0, -0.5, 0);
+    return g;
+  }
+  if (shape === 'c-channel') {
+    const g = new THREE.ExtrudeGeometry(new THREE.Shape([[0, 0], [0.08, 0], [0.08, 0.012], [0.012, 0.012], [0.012, 0.068], [0.08, 0.068], [0.08, 0.08], [0, 0.08]].map(([x, y]) => new THREE.Vector2(x - 0.04, y - 0.04))), { depth: 1, bevelEnabled: false });
+    g.rotateX(-Math.PI / 2);
+    g.translate(0, -0.5, 0);
+    return g;
+  }
+  return new THREE.BoxGeometry(0.07, 1, 0.07);
+}
+
+/** The string being built, in 3D: a numbered marker on each picked panel and a line in tap order. */
+function StringPath({ design }) {
+  const tool = useStore((s) => s.tool);
+  const activeId = useStore((s) => s.activeStringId);
+  const picked = useStore((s) => s.electrical.strings);
+  const path = useMemo(() => activeStringPath(design, activeId, tool), [design, activeId, tool, picked]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!path || !path.points.length) return null;
+  const lift = 0.25;
+  const pts = path.points.map((m) => [m.position[0], m.position[1] + lift, m.position[2]]);
+  return (
+    <group>
+      {pts.length > 1 && <Line points={pts} color={path.color} lineWidth={3} depthTest={false} />}
+      {path.points.map((m, i) => (
+        <Html key={m.id} position={[m.position[0], m.position[1] + lift, m.position[2]]} center zIndexRange={[15, 0]} style={{ pointerEvents: 'none' }}>
+          <div className="grid h-6 w-6 place-items-center rounded-full border-2 border-white text-[11px] font-bold text-white shadow" style={{ background: path.color }}>{i + 1}</div>
+        </Html>
+      ))}
+    </group>
+  );
+}
+
 function PanelTables({ design }) {
+  const { poleFor } = design;
+  // the string tool is out: every panel shows its string's colour
+  const stringTool = useStore((s) => s.tool === 'string');
+  const stringColors = useMemo(() => (stringTool ? allStringColors(design.electrical) : null), [stringTool, design.electrical]);
   const data = useMemo(() => {
     const byDim = new Map();
-    const legs = [];
+    const legs = new Map(); // pole shape → column matrices (each base stands on its own kind of pole)
     const blocks = [];
-    const rails = [];
+    const rods = []; // rafters (along the slope, pole to pole) and purlins (across, under the panels)
     const e = new THREE.Euler();
     const q = new THREE.Quaternion();
     const one = new THREE.Vector3(1, 1, 1);
     for (const t of design.tables) {
       const key = `${t.size.cross.toFixed(3)}|${t.size.slope.toFixed(3)}|${t.valid}`;
-      if (!byDim.has(key)) byDim.set(key, { key, bad: !t.valid, cross: t.size.cross, slope: t.size.slope, list: [] });
+      if (!byDim.has(key)) byDim.set(key, { key, bad: !t.valid, cross: t.size.cross, slope: t.size.slope, list: [], ids: [] });
       for (const m of t.modules) {
         e.set(...m.rotation);
         q.setFromEuler(e);
         byDim.get(key).list.push(new THREE.Matrix4().compose(new THREE.Vector3(...m.position), q, one));
+        byDim.get(key).ids.push(m.id);
       }
-      for (const l of t.legs) {
-        legs.push(new THREE.Matrix4().makeScale(1, l.h, 1).setPosition(l.x, l.base + l.h / 2, -l.y));
-        if (!t.flush) blocks.push(new THREE.Matrix4().makeTranslation(l.x, l.base + 0.09, -l.y)); // hooks need no pedestal
-      }
-      // two rails under the table following the tilt
-      e.set(t.tilt * (Math.PI / 180), Math.PI - t.azimuth * (Math.PI / 180), 0, 'YXZ');
+      const tilt = t.tilt * (Math.PI / 180);
+      const sin = Math.sin(tilt);
+      const cos = Math.cos(tilt);
+      const f = { x: Math.sin(t.azimuth * (Math.PI / 180)), y: Math.cos(t.azimuth * (Math.PI / 180)) };
+      const c = { x: f.y, y: -f.x };
+      e.set(tilt, Math.PI - t.azimuth * (Math.PI / 180), 0, 'YXZ');
       q.setFromEuler(e);
-      const mid = t.base + (t.frontLeg + t.backLeg) / 2 - 0.05;
-      rails.push(new THREE.Matrix4().compose(new THREE.Vector3(t.x, mid, -t.y), q, new THREE.Vector3(t.size.width, 1, t.size.slopeLen)));
+      // a rod lying on the frame: at `sl` metres up the slope from the front edge, `u` across from
+      // the middle, `drop` metres under the panel plane; local x across, local z along the slope
+      const rod = (sl, u, drop, sx, sz) => {
+        const v = t.size.depth / 2 - sl * cos;
+        const z = t.base + t.frontLeg + sl * sin - drop;
+        rods.push(new THREE.Matrix4().compose(new THREE.Vector3(t.x + c.x * u + f.x * v, z, -(t.y + c.y * u + f.y * v)), q, new THREE.Vector3(sx, 0.05, sz)));
+      };
+      const { slopeLen, width, slope } = t.size;
+      const inset = Math.min(0.3, slopeLen * 0.15);
+      // purlins: two under every panel row — the rows planted, or the rows the base has room for
+      const rows = Math.max(t.rows, t.grid?.rows || 0);
+      const rowPath = pathOn(t, 'row', rows); // a pathway between two rows shifts the rows past it
+      const sl0 = (slopeLen - (rows * slope + (rows - 1) * PANEL_GAP + pathCount(rows, rowPath) * (rowPath?.extra || 0))) / 2;
+      if (t.flush) {
+        // on a sloped roof the rails sit on hooks, right where the hooks are
+        for (const sl of [inset, slopeLen - inset]) rod(sl, 0, 0.03, width, 0.05);
+      } else {
+        for (let r = 0; r < rows; r++) {
+          const top = sl0 + slotStart(r, slope, rowPath);
+          rod(top + slope * 0.2, 0, 0.03, width, 0.05);
+          rod(top + slope * 0.8, 0, 0.03, width, 0.05);
+        }
+      }
+      const shape = t.flush ? 'square' : poleFor?.(t)?.shape || 'square';
+      if (!legs.has(shape)) legs.set(shape, []);
+      const own = legs.get(shape);
+      for (let i = 0; i < t.legs.length; i += 2) {
+        const front = t.legs[i];
+        const back = t.legs[i + 1];
+        if (!back) break;
+        own.push(new THREE.Matrix4().makeScale(1, front.h, 1).setPosition(front.x, front.base + front.h / 2, -front.y));
+        own.push(new THREE.Matrix4().makeScale(1, back.h, 1).setPosition(back.x, back.base + back.h / 2, -back.y));
+        if (t.flush) continue; // hooks: no pedestal, no rafter
+        blocks.push(new THREE.Matrix4().makeTranslation(front.x, front.base + 0.09, -front.y));
+        blocks.push(new THREE.Matrix4().makeTranslation(back.x, back.base + 0.09, -back.y));
+        // the rafter from this front pole to its back pole, carrying the purlins
+        const u = (front.x - t.x) * c.x + (front.y - t.y) * c.y;
+        rod(slopeLen / 2, u, 0.08, 0.06, slopeLen - 2 * inset + 0.1);
+      }
+      // supports between panel rows planted one above the other: a column under each rafter at
+      // the junction, and a cross rod joining them under the panel edges
+      for (const l of t.midLegs || []) {
+        own.push(new THREE.Matrix4().makeScale(1, l.h, 1).setPosition(l.x, l.base + l.h / 2, -l.y));
+        blocks.push(new THREE.Matrix4().makeTranslation(l.x, l.base + 0.09, -l.y));
+      }
+      for (const sl of t.joins || []) rod(sl, 0, 0.08, width, 0.06);
     }
-    return { groups: [...byDim.values()], legs, blocks, rails };
-  }, [design.tables]);
+    return { groups: [...byDim.values()], legs: [...legs.entries()].map(([shape, list]) => ({ shape, list })), blocks, rods };
+  }, [design.tables, poleFor]);
 
-  const shape = design.pillar?.shape || 'square';
-  const legGeo = useMemo(() => {
-    if (shape === 'cylindrical') return new THREE.CylinderGeometry(0.04, 0.04, 1, 14);
-    if (shape === 'l-shape') {
-      // angle section: two thin plates meeting at a corner
-      const g = new THREE.ExtrudeGeometry(new THREE.Shape([[0, 0], [0.08, 0], [0.08, 0.012], [0.012, 0.012], [0.012, 0.08], [0, 0.08]].map(([x, y]) => new THREE.Vector2(x - 0.03, y - 0.03))), { depth: 1, bevelEnabled: false });
-      g.rotateX(-Math.PI / 2);
-      g.translate(0, -0.5, 0);
-      return g;
-    }
-    return new THREE.BoxGeometry(0.07, 1, 0.07);
-  }, [shape]);
+  const legGeos = useMemo(() => new Map(data.legs.map((l) => [l.shape, legGeometry(l.shape)])), [data.legs]);
   const blockGeo = useMemo(() => new THREE.BoxGeometry(0.35, 0.18, 0.35), []);
-  const frameGeo = useMemo(() => {
-    // open frame: thin border only (4 bars) merged would be nicer; a thin slab reads fine from above
-    return new THREE.BoxGeometry(1, 0.03, 1);
-  }, []);
+  const rodGeo = useMemo(() => new THREE.BoxGeometry(1, 1, 1), []);
 
   return (
     <group>
       {data.groups.map((g) => (
-        <PanelGroup key={g.key} group={g} />
+        <PanelGroup key={g.key} group={g} colors={stringColors ? g.ids.map((id) => stringColors.get(id) || '#ffffff') : null} />
       ))}
       {design.tables.map((t) => (
         <TablePick key={t.id} t={t} design={design} />
       ))}
-      <Instances items={data.rails} geometry={frameGeo}>
-        <meshStandardMaterial color="#4b5563" metalness={0.6} roughness={0.5} />
+      {design.tables.map((t) => (t.pathways?.length ? <Pathways key={`${t.id}-paths`} t={t} /> : null))}
+      <Instances items={data.rods} geometry={rodGeo}>
+        <meshStandardMaterial color="#6b7280" metalness={0.6} roughness={0.5} />
       </Instances>
-      <Instances key={shape} items={data.legs} geometry={legGeo}>
-        <meshStandardMaterial color="#9ca3af" metalness={0.7} roughness={0.4} />
-      </Instances>
+      {data.legs.map((l) => (
+        <Instances key={l.shape} items={l.list} geometry={legGeos.get(l.shape)}>
+          <meshStandardMaterial color="#9ca3af" metalness={0.7} roughness={0.4} />
+        </Instances>
+      ))}
       <Instances items={data.blocks} geometry={blockGeo}>
         <meshStandardMaterial color="#a8a29e" roughness={1} />
       </Instances>
@@ -406,61 +655,249 @@ function PanelTables({ design }) {
   );
 }
 
-/** Click / drag target over a table: click selects the group, dragging slides it on the roof. */
+/**
+ * Follow the pointer on a horizontal plane at height `y` until the button is let go; `onPoint`
+ * gets the roof-plan point {x, y} under the pointer (orbit controls are paused meanwhile).
+ */
+function dragOnPlane(e, get, y, onPoint) {
+  const { camera, gl, controls, raycaster } = get();
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -y);
+  const ndc = new THREE.Vector2();
+  const hit = new THREE.Vector3();
+  let frame = 0;
+  if (controls) controls.enabled = false;
+  gl.domElement.style.cursor = 'grabbing';
+  const move = (ev) => {
+    // the button was let go where we did not hear it (outside the window, a dialog…): stop here,
+    // or the group would keep following the mouse
+    if (ev.buttons === 0) {
+      up();
+      return;
+    }
+    const r = gl.domElement.getBoundingClientRect();
+    ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+    if (!raycaster.ray.intersectPlane(plane, hit)) return;
+    const pos = { x: hit.x, y: -hit.z };
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => onPoint(pos, ev));
+  };
+  function up() {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', up);
+    window.removeEventListener('blur', up);
+    if (controls) controls.enabled = true;
+    gl.domElement.style.cursor = '';
+  }
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', up);
+  window.addEventListener('blur', up);
+}
+
+/** A grab handle on a selected base: a small ball the user drags (resize corner, turn). */
+function Handle({ position, anchor, color, cursor, onDown, title, Icon }) {
+  // an icon button floating a little away from the base (so it never sits over the panels), with
+  // a thin line back to the point it controls; the button itself is what the user drags
+  return (
+    <group>
+      {anchor && <Line points={[anchor, position]} color={color} lineWidth={1.5} transparent opacity={0.9} depthTest={false} />}
+      <mesh position={anchor || position} renderOrder={20}>
+        <sphereGeometry args={[0.08, 10, 8]} />
+        <meshBasicMaterial color={color} depthTest={false} />
+      </mesh>
+      <Html position={position} center zIndexRange={[20, 0]}>
+        <button
+          type="button"
+          title={title}
+          aria-label={title}
+          onPointerDown={(ev) => { ev.stopPropagation(); ev.preventDefault(); onDown(ev); }}
+          className="grid h-9 w-9 cursor-grab place-items-center rounded-full border-2 border-white text-white shadow-lg active:cursor-grabbing"
+          style={{ background: color, cursor }}
+        >
+          <Icon className="h-5 w-5" strokeWidth={2.5} />
+        </button>
+      </Html>
+    </group>
+  );
+}
+
+/**
+ * Click / drag target over a table: click selects the group, dragging slides it on the roof.
+ * A selected base also gets a corner handle to resize it (whole panels, any number) and a dot in
+ * front of it to turn it — the same editing as the plan view.
+ */
+/**
+ * The pathways of one base: amber walkway strips. Their size is in the sidebar; with the base
+ * selected, the first pathway of each direction also gets a width mark (a measuring line with
+ * end ticks and a small "60 cm" tag), not a label on every strip.
+ */
+function Pathways({ t }) {
+  const selected = useStore((s) => s.selectedId === t.source);
+  // one mesh per direction, each in its own colour
+  const geos = useMemo(() => ['row', 'col'].map((axis) => {
+    const list = t.pathways.filter((p) => p.axis === axis);
+    if (!list.length) return null;
+    const g = new THREE.BufferGeometry();
+    const v = [];
+    const idx = [];
+    list.forEach((p, i) => {
+      v.push(...p.corners.flatMap((q) => [q.x, q.z + (axis === 'col' ? 0.035 : 0.03), -q.y]));
+      idx.push(i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3);
+    });
+    g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return { axis, g };
+  }).filter(Boolean), [t.pathways]);
+  useEffect(() => () => geos.forEach(({ g }) => g.dispose()), [geos]);
+  const marks = selected ? ['row', 'col'].map((axis) => t.pathways.find((p) => p.axis === axis)).filter(Boolean) : [];
+  return (
+    <group>
+      {geos.map(({ axis, g }) => (
+        <mesh key={axis} geometry={g} raycast={() => null}>
+          <meshStandardMaterial color={PATH_COLORS[axis]} transparent opacity={0.6} side={THREE.DoubleSide} depthWrite={false} />
+        </mesh>
+      ))}
+      {marks.map((p) => <WidthMark key={p.axis} p={p} />)}
+    </group>
+  );
+}
+
+/** A dimension mark across a pathway: a line with a tick at each end and the width in the middle. */
+function WidthMark({ p }) {
+  const lift = 0.08;
+  const [a, b] = p.dim.map((q) => new THREE.Vector3(q.x, q.z + lift, -q.y));
+  // the ticks run along the pathway, square to the measuring line
+  const along = new THREE.Vector3(p.corners[1].x - p.corners[0].x, 0, -(p.corners[1].y - p.corners[0].y));
+  if (p.axis === 'col') along.set(p.corners[3].x - p.corners[0].x, 0, -(p.corners[3].y - p.corners[0].y));
+  along.normalize().multiplyScalar(0.18);
+  const tick = (q) => [q.clone().sub(along), q.clone().add(along)];
+  const mid = a.clone().add(b).multiplyScalar(0.5);
+  return (
+    <group>
+      <Line points={[a, b]} color="#ffffff" lineWidth={2} depthTest={false} />
+      <Line points={tick(a)} color="#ffffff" lineWidth={2} depthTest={false} />
+      <Line points={tick(b)} color="#ffffff" lineWidth={2} depthTest={false} />
+      <Html position={mid} center zIndexRange={[12, 0]} style={{ pointerEvents: 'none' }}>
+        <div className="whitespace-nowrap rounded px-1.5 py-px text-[10px] font-bold text-white shadow" style={{ background: PATH_COLORS[p.axis] }}>{Math.round(p.width * 100)} cm</div>
+      </Html>
+    </group>
+  );
+}
+
+/** A press-and-drag across panels with the string tool: { mode: 'add' | 'remove' }, or null. */
+let stringDrag = null;
+
 function TablePick({ t, design }) {
   const selected = useStore((s) => s.selectedId === t.source);
   const get = useThree((s) => s.get);
   const mid = t.base + (t.frontLeg + t.backLeg) / 2 + 0.06;
   const movable = t.kind !== 'zone';
+  const top = t.base + t.backLeg + 0.3;
+
+  /** The id of the panel under a pointer event on this table, or null. */
+  const panelAt = (e) => {
+    const slot = slotAt(t, { x: e.point.x, y: -e.point.z }, design.spec);
+    const id = slot && `${t.id}:${slot.key}`;
+    return id && t.modules.some((m) => m.id === id) ? id : null;
+  };
+  const onMove = (e) => {
+    if (!stringDrag || !(e.buttons & 1)) return;
+    e.stopPropagation();
+    const id = panelAt(e);
+    if (id) stringPaint(id, stringDrag.mode, design.electrical?.maxLen);
+  };
 
   const onDown = (e) => {
     e.stopPropagation();
     const store = useStore.getState();
     if (store.readOnly) return; // the client's view-only 3D: no selecting, no moving
+    if (store.tool === 'string') {
+      // the string tool: a click puts the panel in the open string (or starts one); pressing and
+      // dragging across panels adds them in that order (the camera holds still meanwhile)
+      if (e.button === 0) {
+        const id = panelAt(e);
+        if (!id) return;
+        const { controls } = get();
+        stringDrag = { mode: stringStroke(id, design.electrical?.maxLen) };
+        if (controls) controls.enabled = false;
+        const up = () => {
+          stringDrag = null;
+          if (controls) controls.enabled = true;
+          window.removeEventListener('pointerup', up);
+          window.removeEventListener('pointercancel', up);
+          window.removeEventListener('blur', up);
+        };
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', up);
+        window.addEventListener('blur', up);
+      }
+      return;
+    }
+    if (store.tool === 'add-panel' || store.tool === 'remove-panel') {
+      // one panel at a time: the slot under the click
+      if (movable && e.button === 0) togglePanelAt(design, t, { x: e.point.x, y: -e.point.z }, store.tool === 'add-panel' ? 'add' : 'remove');
+      return;
+    }
     store.set({ selectedId: t.source });
     if (!movable || e.button !== 0) return;
-    const { camera, gl, controls, raycaster } = get();
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -e.point.y);
     const off = { x: t.x - e.point.x, y: t.y + e.point.z };
-    const ndc = new THREE.Vector2();
-    const hit = new THREE.Vector3();
-    let frame = 0;
-    if (controls) controls.enabled = false;
-    gl.domElement.style.cursor = 'grabbing';
-    const move = (ev) => {
-      const r = gl.domElement.getBoundingClientRect();
-      ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
-      raycaster.setFromCamera(ndc, camera);
-      if (!raycaster.ray.intersectPlane(plane, hit)) return;
-      const pos = { x: hit.x + off.x, y: -hit.z + off.y };
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const st = useStore.getState();
-        const o = st.objects.find((k) => k.id === t.source);
-        if (o) st.updateObject(o.id, ev.altKey ? pos : magnetize(o, pos, design));
-      });
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      if (controls) controls.enabled = true;
-      gl.domElement.style.cursor = '';
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    dragOnPlane(e, get, e.point.y, (p, ev) => {
+      const pos = { x: p.x + off.x, y: p.y + off.y };
+      const st = useStore.getState();
+      const o = st.objects.find((k) => k.id === t.source);
+      if (o) st.updateObject(o.id, ev.altKey ? pos : magnetize(o, pos, design));
+    });
+  };
+  // the corner opposite the anchor is dragged: whole panel slots, no limit
+  const onResize = (e) => {
+    e.stopPropagation();
+    if (useStore.getState().readOnly || e.button !== 0) return;
+    const anchor = t.poly[3];
+    dragOnPlane(e, get, top, (p) => {
+      const st = useStore.getState();
+      const o = st.objects.find((k) => k.id === t.source);
+      if (o) st.updateObject(o.id, withinPackage(o, resizeBase(o, anchor, p, design.spec), design.spec)); // a package caps the panels
+    });
+  };
+  const onTurn = (e) => {
+    e.stopPropagation();
+    if (useStore.getState().readOnly || e.button !== 0) return;
+    dragOnPlane(e, get, top, (p, ev) => {
+      let az = ((Math.atan2(p.x - t.x, p.y - t.y) * 180) / Math.PI + 360) % 360;
+      if (ev.shiftKey) az = Math.round(az / 15) * 15;
+      useStore.getState().updateObject(t.source, { azimuth: Math.round(az), auto: false });
+    });
   };
 
+  const f = { x: Math.sin(t.azimuth * (Math.PI / 180)), y: Math.cos(t.azimuth * (Math.PI / 180)) };
+  const c = { x: f.y, y: -f.x };
+  // handles sit clear of the base: the turn dot 2 m in front of it, the resize icon 1.2 m out
+  // from the corner it moves (diagonally, away from the base)
+  const turnAt = { x: t.x + f.x * (t.size.depth / 2 + 2), y: t.y + f.y * (t.size.depth / 2 + 2) };
+  const corner = t.poly[1];
+  const su = Math.sign((corner.x - t.x) * c.x + (corner.y - t.y) * c.y) || 1;
+  const sv = Math.sign((corner.x - t.x) * f.x + (corner.y - t.y) * f.y) || 1;
+  const resizeAt = { x: corner.x + (c.x * su + f.x * sv) * 0.85, y: corner.y + (c.y * su + f.y * sv) * 0.85 };
+  const resizeHandle = <Handle position={[resizeAt.x, top, -resizeAt.y]} anchor={[corner.x, top, -corner.y]} color="#0f172a" cursor="nwse-resize" onDown={onResize} title="Resize: drag to add or remove panel rows and columns" Icon={Maximize2} />;
   return (
-    <mesh
-      position={[t.x, mid, -t.y]}
-      rotation={[t.tilt * (Math.PI / 180), Math.PI - t.azimuth * (Math.PI / 180), 0, 'YXZ']}
-      onPointerDown={onDown}
-      onPointerOver={() => !useStore.getState().readOnly && (document.body.style.cursor = movable ? 'grab' : 'pointer')}
-      onPointerOut={() => (document.body.style.cursor = '')}
-    >
-      <boxGeometry args={[t.size.width + 0.1, 0.08, t.size.slopeLen + 0.1]} />
-      <meshBasicMaterial color="#f5a524" transparent opacity={selected ? 0.45 : 0} depthWrite={false} />
-    </mesh>
+    <group>
+      <mesh
+        position={[t.x, mid, -t.y]}
+        rotation={[t.tilt * (Math.PI / 180), Math.PI - t.azimuth * (Math.PI / 180), 0, 'YXZ']}
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerOver={() => !useStore.getState().readOnly && (document.body.style.cursor = ['string', 'add-panel', 'remove-panel'].includes(useStore.getState().tool) ? 'crosshair' : movable ? 'grab' : 'pointer')}
+        onPointerOut={() => (document.body.style.cursor = '')}
+      >
+        <boxGeometry args={[t.size.width + 0.1, 0.08, t.size.slopeLen + 0.1]} />
+        <meshBasicMaterial color="#f5a524" transparent opacity={selected ? 0.45 : 0} depthWrite={false} />
+      </mesh>
+      {selected && movable && resizeHandle}
+      {selected && movable && !t.flush && <Handle position={[turnAt.x, top, -turnAt.y]} anchor={[t.x + f.x * (t.size.depth / 2), top, -(t.y + f.y * (t.size.depth / 2))]} color="#f5a524" cursor="grab" onDown={onTurn} title="Turn: drag to change the facing direction" Icon={RotateCw} />}
+    </group>
   );
 }
 
@@ -512,11 +949,11 @@ function panelTexture(cross, slope) {
   return t;
 }
 
-function PanelGroup({ group }) {
+function PanelGroup({ group, colors }) {
   const geo = useMemo(() => new THREE.BoxGeometry(group.cross, PANEL_THICKNESS, group.slope), [group.cross, group.slope]);
   const tex = useMemo(() => panelTexture(group.cross, group.slope), [group.cross, group.slope]);
   return (
-    <Instances items={group.list} geometry={geo} userData={{ [PANEL_MESH_TAG]: !group.bad }}>
+    <Instances items={group.list} geometry={geo} colors={colors} userData={{ [PANEL_MESH_TAG]: !group.bad }}>
       <meshStandardMaterial map={tex} roughness={0.3} metalness={0.2} color={group.bad ? '#ff5a5a' : '#ffffff'} emissive={group.bad ? '#ff0000' : '#000000'} emissiveIntensity={group.bad ? 0.55 : 0} />
     </Instances>
   );
@@ -791,164 +1228,6 @@ function SunSlider({ label: name, min, max, step, value, onChange }) {
 
 /* ───────────── selected panel group ───────────── */
 
-const groupName = (objects, id) => {
-  const list = objects.filter((o) => o.type === 'array' || o.type === 'zone');
-  const i = list.findIndex((o) => o.id === id);
-  const o = list[i];
-  if (!o) return 'Panel group';
-  return `${o.type === 'zone' ? 'Zone' : o.elevated ? 'Elevated structure' : 'Array'} ${i + 1}`;
-};
-
-/** Everything known about the tables of one panel group (an array or zone) and its poles. */
-function groupInfo(design, objects, id, efficiency) {
-  const tables = design.tables.filter((t) => t.source === id);
-  if (!tables.length) return null;
-  const { spec } = design;
-  const mods = tables.flatMap((t) => t.modules);
-  const kwp = (mods.length * spec.watts) / 1000;
-  const eff = efficiency / 100;
-  let energy = 0;
-  let gross = 0;
-  for (const m of mods) {
-    const g = (spec.watts / 1000) * (design.yieldModel?.specificYield(m.tilt, m.azimuth) || 0);
-    gross += g;
-    energy += g * (1 - (design.shade?.get(m.id) || 0)) * eff;
-  }
-  const strings = [...new Set(mods.map((m) => design.electrical?.stringOf?.get(m.id)).filter((v) => v != null))].map((k) => design.electrical.strings[k]);
-  const legs = tables.filter((t) => !t.flush).flatMap((t) => t.legs.map((l, k) => ({ ...l, front: k % 2 === 0, len: Math.ceil(l.h * 20) / 20 })));
-  const hooks = tables.filter((t) => t.flush).reduce((a, t) => a + t.legs.length, 0);
-  const poleM = legs.reduce((a, l) => a + l.len, 0);
-  const lens = (front) => {
-    const v = legs.filter((l) => l.front === front).map((l) => l.len);
-    if (!v.length) return '-';
-    const lo = Math.min(...v);
-    const hi = Math.max(...v);
-    return hi - lo < 0.01 ? `${lo.toFixed(2)} m` : `${lo.toFixed(2)} - ${hi.toFixed(2)} m`;
-  };
-  const t0 = tables[0];
-  const kinds = [...new Set(tables.map((t) => (t.flush ? 'Flush on roof' : t.kind === 'elevated' ? 'Elevated' : 'Standard')))].join(', ');
-  // callout anchor: the middle of the group, just above its highest panel edge
-  const topZ = Math.max(...tables.map((t) => t.base + t.backLeg));
-  return {
-    name: groupName(objects, id),
-    anchor: [tables.reduce((a, t) => a + t.x, 0) / tables.length, topZ + 0.15, -tables.reduce((a, t) => a + t.y, 0) / tables.length],
-    invalid: tables.some((t) => !t.valid),
-    panels: [
-      ['Capacity', `${kwp.toFixed(2)} kWp`],
-      ['Panels', `${mods.length} x ${spec.watts} W`],
-      ['Module', [spec.brand, spec.model].filter(Boolean).join(' ') || spec.name || `${spec.watts} W module`],
-      ['Module size', `${spec.length} x ${spec.width} m`],
-      ['Layout', tables.length > 1 ? `${tables.length} tables (${tables.map((t) => `${t.rows}x${t.cols}`).join(', ')})` : `${t0.rows} rows x ${t0.cols} columns`],
-      ['Tilt', `${Math.round(t0.tilt * 10) / 10}°`],
-      ['Facing', `${Math.round(t0.azimuth)}° ${compassLabel(t0.azimuth)}`],
-      ['Mounting', kinds],
-      ['Energy / year', `${formatNumber(energy)} kWh`],
-      ['Specific yield', kwp ? `${formatNumber(energy / kwp)} kWh/kWp` : '-'],
-      ['Shading loss', gross ? `${(((gross * eff - energy) / (gross * eff)) * 100).toFixed(1)} %` : '-'],
-      ['Strings', strings.length ? strings.map((st) => st.name).join(', ') : '-'],
-      ['Inverter', strings.length ? [...new Set(strings.map((st) => `INV-${st.inverter}`))].join(', ') : '-'],
-    ],
-    poles: legs.length
-      ? [
-          ['Pole type', `${design.pillar?.name || 'Iron column'}${design.pillar?.shape ? ` (${design.pillar.shape})` : ''}`],
-          ['Number of poles', `${legs.length} (${legs.filter((l) => l.front).length} front, ${legs.filter((l) => !l.front).length} back)`],
-          ['Front pole height', lens(true)],
-          ['Back pole height', lens(false)],
-          ['Total pole length', `${poleM.toFixed(2)} m (${formatNumber(poleM * 3.281)} ft)`],
-          ['Base plates', `${legs.length} nos, 200 x 200 x 8`],
-          ['Anchor bolts', `${legs.length * 4} nos, M12`],
-          ['Pedestals', `${legs.length} nos, 300 x 300 x 300`],
-          ...(design.pillar?.pricePerFt ? [['Pole cost', formatMoney(poleM * 3.281 * design.pillar.pricePerFt, design.currency)]] : []),
-        ]
-      : [
-          ['Structure', 'Flush on roof, no poles'],
-          ['Roof hooks', `${hooks} nos`],
-        ],
-  };
-}
-
-function PanelInfo({ info, onClose }) {
-  const get = (list, k) => list.find((r) => r[0] === k)?.[1] ?? '-';
-  const hasPoles = info.poles.length > 2;
-  const stats = [
-    ['Capacity', info.panels[0][1]],
-    ['Energy / yr', get(info.panels, 'Energy / year')],
-    [hasPoles ? 'Poles' : 'Hooks', (hasPoles ? get(info.poles, 'Number of poles') : get(info.poles, 'Roof hooks')).split(' ')[0]],
-  ];
-  const section = (title, list) => (
-    <details className="group border-t border-slate-100">
-      <summary className="flex cursor-pointer list-none items-center justify-between py-2 text-xs font-semibold text-slate-700 hover:text-brand">
-        {title}
-        <ChevronDown className="h-3.5 w-3.5 text-slate-400 transition group-open:rotate-180" />
-      </summary>
-      <dl className="divide-y divide-slate-100 pb-1">
-        {list.map(([k, v]) => (
-          <div key={k} className="flex justify-between gap-3 py-1 text-xs">
-            <dt className="shrink-0 text-slate-500">{k}</dt>
-            <dd className="text-right font-medium text-slate-800">{v}</dd>
-          </div>
-        ))}
-      </dl>
-    </details>
-  );
-  return (
-    <div className="absolute left-4 top-20 flex max-h-[calc(100%-10rem)] w-72 max-w-[calc(100%-2rem)] flex-col rounded-xl bg-white/95 text-slate-800 shadow-xl backdrop-blur" onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
-      <div className="flex items-start justify-between px-4 pt-3">
-        <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold">{info.name}</h3>
-          <p className="truncate text-xs text-slate-500">
-            {info.panels[1][1]} · {get(info.panels, 'Module')}
-          </p>
-        </div>
-        <button type="button" aria-label="Close" onClick={onClose} className="-mr-1.5 grid h-7 w-7 shrink-0 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="mt-2 grid grid-cols-3 gap-2 px-4 pb-3">
-        {stats.map(([k, v]) => (
-          <div key={k} className="rounded-lg bg-slate-50 px-2 py-1.5">
-            <div className="text-[10px] uppercase tracking-wide text-slate-500">{k}</div>
-            <div className="truncate text-sm font-semibold">{v}</div>
-          </div>
-        ))}
-      </div>
-      <div className="overflow-y-auto px-4 pb-1">
-        {info.invalid && <p className="mb-2 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700">Some tables do not fit and are left out of the totals.</p>}
-        {section('Panel details', info.panels.slice(1))}
-        {section('Poles & structure', info.poles)}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Callout for the selected group: the tag floats `lift` metres above it, joined to a dot on the
- * group by a leader line, so the panels underneath stay visible.
- */
-function GroupTag({ info, lift }) {
-  const [x, y, z] = info.anchor;
-  const head = [x, y + lift, z];
-  return (
-    <group>
-      <Line points={[info.anchor, head]} color="#ffffff" lineWidth={1.5} transparent opacity={0.9} depthTest={false} />
-      <mesh position={info.anchor} renderOrder={10}>
-        <sphereGeometry args={[0.12, 16, 16]} />
-        <meshBasicMaterial color="#ffffff" depthTest={false} toneMapped={false} />
-      </mesh>
-      <Html position={head} zIndexRange={[1, 0]} style={{ pointerEvents: 'none' }}>
-        <div className="-translate-x-1/2 -translate-y-full pb-1">
-          <div className="whitespace-nowrap rounded-md bg-brand/90 px-3 py-1 text-center text-xs font-semibold text-brand-fg shadow-lg">
-            <div>{info.name}</div>
-            <div className="font-normal">
-              {info.panels[1][1].split(' x ')[0]} panels, {info.panels[0][1]}
-            </div>
-          </div>
-        </div>
-      </Html>
-    </group>
-  );
-}
-
 /**
  * Sun study controls, docked at the bottom centre. Collapsed: date, time and play in one pill.
  * Expanded: date and time sliders, solstice presets and the path legend.
@@ -1092,9 +1371,6 @@ export default function Scene3D({ design }) {
   const [playing, setPlaying] = useState(false);
   const dial = useRef(null);
   const selectedId = useStore((s) => s.selectedId);
-  const efficiency = useStore((s) => s.finance?.efficiency ?? 80);
-  const objects = useStore((s) => s.objects);
-  const info = useMemo(() => (selectedId ? groupInfo(design, objects, selectedId, efficiency) : null), [design, objects, selectedId, efficiency]);
   const turnCompass = (deg) => {
     if (dial.current) dial.current.style.transform = `rotate(${deg}deg)`;
   };
@@ -1132,6 +1408,16 @@ export default function Scene3D({ design }) {
     return { id: b.id, name: b.name, point: new THREE.Vector3((Math.max(...xs) + Math.min(...xs)) / 2, top * 0.6, -(Math.max(...ys) + Math.min(...ys)) / 2), distance: Math.max(size * 1.7 + top, 18) };
   }).filter(Boolean), [design.buildings, design.sections]);
   const wholeSite = () => focusApi.go?.(new THREE.Vector3(...center), Math.max(span * 1.25, 20) * 1.15);
+  // the sidebar's building picker turns the view to the chosen building (see StepSimpleDesign)
+  useEffect(() => {
+    sceneApi.focusBuilding = (id) => {
+      const b = places.find((p) => p.id === id);
+      if (b) focusApi.go?.(b.point, b.distance);
+    };
+    return () => {
+      sceneApi.focusBuilding = null;
+    };
+  }, [places]);
 
   useEffect(() => {
     if (!playing) return undefined;
@@ -1156,7 +1442,6 @@ export default function Scene3D({ design }) {
         <CameraFocus />
         <Bridge span={span} height={maxH} center={center} />
         <CompassTracker onTurn={turnCompass} />
-        {info && !sunOverride && <GroupTag info={info} lift={Math.max(3, span * 0.2)} />}
       </Canvas>
 
       {!sunOverride && (
@@ -1165,7 +1450,7 @@ export default function Scene3D({ design }) {
             <div className="flex flex-wrap gap-1.5 rounded-xl bg-black/70 p-1.5 shadow-lg ring-1 ring-white/15 backdrop-blur-sm">
               <button type="button" onClick={wholeSite} className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-white/15"><Maximize className="h-3.5 w-3.5" /> Whole site</button>
               {places.map((b) => (
-                <button key={b.id} type="button" title={`Bring ${b.name} into view`} onClick={() => focusApi.go?.(b.point, b.distance)} className="inline-flex max-w-[11rem] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-white/90 hover:bg-white/15"><Building2 className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{b.name}</span></button>
+                <button key={b.id} type="button" title={`Bring ${b.name} into view`} onClick={() => { focusApi.go?.(b.point, b.distance); useStore.getState().set({ buildingId: b.id }); }} className="inline-flex max-w-[11rem] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-white/90 hover:bg-white/15"><Building2 className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{b.name}</span></button>
               ))}
             </div>
           )}
@@ -1173,7 +1458,6 @@ export default function Scene3D({ design }) {
         </div>
       )}
       <Compass dial={dial} />
-      {info && !sunOverride && <PanelInfo info={info} onClose={() => useStore.getState().set({ selectedId: null })} />}
       <SunControls day={userDay} hour={sun.hour} sunrise={sunrise} sunset={sunset} playing={playing} onPlay={() => setPlaying((v) => !v)} patch={patch} />
     </div>
   );
@@ -1243,10 +1527,22 @@ function SceneContent({ design, origin, day, hour, span, maxH }) {
           <meshStandardMaterial map={texNear} roughness={1} />
         </mesh>
       )}
-      {groups.near.map((s) => (
-        <Building key={s.id} section={s} tex={texNear} mapSize={nearSize} />
-      ))}
-      {groups.far.map((g) => <FarBuilding key={g.id} group={g} />)}
+      {/* the roofs: with the base tool armed, a tap on a roof puts a base right there */}
+      <group
+        onPointerDown={(e) => {
+          const st = useStore.getState();
+          if (st.tool !== 'add-base' || st.readOnly || e.button !== 0) return;
+          e.stopPropagation();
+          addBase(design, { x: e.point.x, y: -e.point.z }); // adding selects the base and puts the tool away
+        }}
+        onPointerOver={() => useStore.getState().tool === 'add-base' && (document.body.style.cursor = 'crosshair')}
+        onPointerOut={() => useStore.getState().tool === 'add-base' && (document.body.style.cursor = '')}
+      >
+        {groups.near.map((s) => (
+          <Building key={s.id} section={s} tex={texNear} mapSize={nearSize} />
+        ))}
+        {groups.far.map((g) => <FarBuilding key={g.id} group={g} />)}
+      </group>
       {design.blocks.map((b) => {
         const base = roofHeightAt(design.sections, b.x, b.y);
         const c = rectPoly(b.x, b.y, b.w, b.d, b.rot || 0);
@@ -1262,6 +1558,7 @@ function SceneContent({ design, origin, day, hour, span, maxH }) {
         <Tree key={t.id} t={t} base={roofHeightAt(design.sections, t.x, t.y)} />
       ))}
       <PanelTables design={design} />
+      <StringPath design={design} />
     </>
   );
 }

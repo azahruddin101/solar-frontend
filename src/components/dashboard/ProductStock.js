@@ -13,6 +13,7 @@ import { batchUpdateSchema, stockReceiveSchema, useValidation } from '@/lib/vali
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, FormField, FormModal, IconButton, Input, LoadingBlock, Select, Table, TablePagination, Td, Textarea, Th, Tr, formatDate, toast } from '../kit';
 import { SupplierForm } from './Suppliers';
 import SerialRange from './SerialRange';
+import { taxName } from '@/lib/tax';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const dateInput = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
@@ -133,7 +134,7 @@ function BatchForm({ product, batch, currency, onClose, onSaved }) {
           </FormField>
         </div>
         <fieldset>
-          <legend className="mb-1.5 text-[13px] font-medium text-slate-700">Prices per {product.unit} before GST ({currency})</legend>
+          <legend className="mb-1.5 text-[13px] font-medium text-slate-700">Prices per {product.unit} before {taxName()} ({currency})</legend>
           <div className="grid gap-3 sm:grid-cols-4">
             <FormField label="Purchase price" optional error={v.error('purchasePrice')}><Input type="number" min={0} step="any" value={form.purchasePrice} onValue={(x) => set({ purchasePrice: num(x) })} /></FormField>
             {PRICES.map((p) => (

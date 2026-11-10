@@ -7,6 +7,7 @@
     "dev:api": "npm --prefix backend run dev",
     "build": "next build",
     "start": "next start",
+    "test:sld": "node --test tests/sld.test.mjs",
     "start:api": "npm --prefix backend start",
     "seed": "npm --prefix backend run seed",
     "seed:fresh": "npm --prefix backend run seed:fresh",

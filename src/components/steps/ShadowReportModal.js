@@ -9,6 +9,7 @@ import { CheckCircle2, Circle, Download, FileStack, Loader2, RefreshCw, Sun } fr
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { isFullProposal } from '@/lib/pdfPages';
 import { generatePdf } from '@/lib/pdf';
 import { REPORT_SEASONS } from '@/lib/shadowReport/config';
 import { generateShadowReport, reportSteps } from '@/lib/shadowReport/generateShadowReport';
@@ -46,9 +47,10 @@ export default function ShadowReportModal({ open, onClose, design, mode = 'repor
         designId: st.designId,
         validUntil: st.validUntil,
         cover: st.cover,
+        pages: st.pdfPages || null, // the pages picked at download (null: the whole proposal)
         shadow: { meta: res.meta, seasons: REPORT_SEASONS, results: res.results, summaries: res.summaries },
       });
-      if (st.designId && blob) {
+      if (st.designId && blob && isFullProposal(st.pdfPages)) {
         const form = new FormData();
         form.append('file', blob, filename);
         api(`/api/designs/${st.designId}/versions`, { method: 'POST', form }).catch((e) => console.error('Could not archive quotation PDF version', e));

@@ -9,6 +9,7 @@ import { loadBranding } from './branding.js';
 import { estimateTotals } from './estimation.js';
 import { downloadBlob } from './invoicePdf.js';
 import { pdfKit } from './pdf.js';
+import { currentTax } from './tax.js';
 
 const { text, clip, wrap } = pdfKit;
 const { W, H, M, CW } = pdfKit.pageSize;
@@ -27,15 +28,15 @@ export async function buildEstimatePdfBlob({ estimate, company = {}, currency = 
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
   doc.setProperties({ title: `Estimate${client.name ? ` — ${client.name}` : ''}`, author: co.name, subject: 'Price estimate', creator: co.name });
 
-  let y = letterhead(doc, brand, co, { title: 'ESTIMATE', subtitle: withGst ? 'Including GST' : 'Without GST', date });
+  let y = letterhead(doc, brand, co, { title: 'ESTIMATE', subtitle: withGst ? `Including ${currentTax().label}` : `Without ${currentTax().label}`, date });
 
   const half = (CW - 10) / 2;
   const a = party(doc, brand, M, y, half, 'Estimate for', client.name || '-', [client.phone && `Phone: ${client.phone}`, client.email, client.address]);
-  const b = party(doc, brand, M + half + 10, y, half, 'Summary', money(t.total), [`${t.rows.length} item${t.rows.length === 1 ? '' : 's'}`, withGst ? `Includes GST of ${money(t.gstTotal)}` : 'Prices without GST']);
+  const b = party(doc, brand, M + half + 10, y, half, 'Summary', money(t.total), [`${t.rows.length} item${t.rows.length === 1 ? '' : 's'}`, withGst ? `Includes ${currentTax().label} of ${money(t.gstTotal)}` : `Prices without ${currentTax().label}`]);
   y = Math.max(a, b) + 6;
 
   label(doc, 'Items', M, y, brand);
-  const head = ['#', 'Description', 'Qty', 'Rate', ...(withGst ? ['GST'] : []), 'Amount'];
+  const head = ['#', 'Description', 'Qty', 'Rate', ...(withGst ? [currentTax().label] : []), 'Amount'];
   const right = withGst ? [2, 3, 4, 5] : [2, 3, 4];
   autoTable(doc, {
     startY: y + 3,
@@ -54,7 +55,7 @@ export async function buildEstimatePdfBlob({ estimate, company = {}, currency = 
       ...(withGst ? [`${r.gstRate}%`] : []),
       money(withGst ? r.total : r.amount),
     ]),
-    columnStyles: { 0: { cellWidth: 9 }, 2: { cellWidth: 22 }, ...(withGst ? { 4: { cellWidth: 14 } } : {}) },
+    columnStyles: { 0: { cellWidth: 11, halign: 'center', cellPadding: { top: 2.4, bottom: 2.4, left: 1, right: 1 } }, 2: { cellWidth: 22 }, ...(withGst ? { 4: { cellWidth: 14 } } : {}) },
     didParseCell: (d) => {
       if (right.includes(d.column.index)) d.cell.styles.halign = 'right';
     },
@@ -62,7 +63,7 @@ export async function buildEstimatePdfBlob({ estimate, company = {}, currency = 
   y = doc.lastAutoTable.finalY + 8;
 
   // totals, right-aligned block
-  const rowsOut = [['Subtotal', money(t.subtotal)], ...(withGst ? t.gstGroups.map((g) => [`GST @ ${g.rate}%`, money(g.gst)]) : [])];
+  const rowsOut = [['Subtotal', money(t.subtotal)], ...(withGst ? t.gstGroups.map((g) => [`${currentTax().label} @ ${g.rate}%`, money(g.gst)]) : [])];
   y = needRoom(doc, y, rowsOut.length * 6 + 24);
   const lx = W - M - 80;
   for (const [k, v] of rowsOut) {

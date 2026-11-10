@@ -6,7 +6,9 @@ import { buildingIdOf, buildingList, isMainSection, mainSection, sectionsOf } fr
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DEG } from '@/lib/geo';
 import { dist, edges, pointInPolygon, polygonArea, polygonCentroid, rectPoly } from '@/lib/geometry';
-import { magnetize, newId, normSection, PANEL_GAP, ridgeSegment, roofPlanes, tableSize } from '@/lib/model';
+import { addBase, togglePanelAt, withinPackage } from '@/lib/autofill';
+import { stringPaint, stringStroke } from '@/lib/strings';
+import { magnetize, newId, normSection, planeAt, resizeBase, ridgeSegment, roofPlanes, slotAt, slotsBetween, topSection, PATH_COLORS } from '@/lib/model';
 import { staticMapSize, staticMapUrl } from '@/lib/staticMap';
 import { useStore } from '@/lib/store';
 
@@ -82,6 +84,32 @@ const AMBER = '#f59e0b';
 const azOf = (e) => Math.round((((Math.atan2(e.outward.x, e.outward.y) * 180) / Math.PI) % 360 + 360) % 360);
 const sameWay = (a, b) => Math.abs(((a - b + 540) % 360) - 180) < 2;
 
+/** Hip / Kerala roof overlay: the roof's edge, every slope outlined (ridges, hips, valleys) with a downhill arrow. */
+function HipMarks({ sec, toS }) {
+  const planes = roofPlanes(sec);
+  const pts = (poly) => poly.map((p) => { const q = toS(p); return `${q.x},${q.y}`; }).join(' ');
+  return (
+    <g pointerEvents="none">
+      {sec.frame.roofPoly && <polygon points={pts(sec.frame.roofPoly)} fill="none" stroke="#fff" strokeWidth={1.5} strokeDasharray="4 4" opacity={0.8} />}
+      {planes.map((pl, i) => <polygon key={`p${i}`} points={pts(pl.poly)} fill="none" stroke="#fff" strokeWidth={2} strokeLinejoin="round" opacity={0.9} />)}
+      {planes.filter((pl) => polygonArea(pl.poly) > 4).map((pl, i) => {
+        const c = polygonCentroid(pl.poly);
+        const r = (pl.azimuth * Math.PI) / 180;
+        const from = toS({ x: c.x - Math.sin(r) * 0.7, y: c.y - Math.cos(r) * 0.7 });
+        const to = toS({ x: c.x + Math.sin(r) * 0.7, y: c.y + Math.cos(r) * 0.7 });
+        const ang = Math.atan2(to.y - from.y, to.x - from.x);
+        const head = (d) => `${to.x - 10 * Math.cos(ang + d)},${to.y - 10 * Math.sin(ang + d)}`;
+        return (
+          <g key={`a${i}`}>
+            <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="#fff" strokeWidth={3} strokeLinecap="round" />
+            <polygon points={`${to.x},${to.y} ${head(0.45)} ${head(-0.45)}`} fill="#fff" />
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
 /**
  * Sloped roof overlay: ridge (dashed), a downhill arrow with the pitch on every slope, and the low
  * edges in amber. With `edit`, the roof is adjusted right on the picture: click an edge to make it the
@@ -90,6 +118,7 @@ const sameWay = (a, b) => Math.abs(((a - b + 540) % 360) - 180) < 2;
 function SlopeMarks({ section, toS, edit, onLowEdge, onRidgeDown }) {
   const sec = normSection(section);
   if (!sec.frame) return null;
+  if (sec.frame.hip || sec.frame.plane) return <HipMarks sec={sec} toS={toS} />;
   const ridge = ridgeSegment(sec);
   const gable = sec.roofType === 'gable';
   const isLow = (az) => sameWay(az, sec.frame.az) || (gable && sameWay(az, sec.frame.az + 180));
@@ -139,13 +168,14 @@ function SlopeMarks({ section, toS, edit, onLowEdge, onRidgeDown }) {
   );
 }
 
-export default function Editor2D({ design, showPanels = true, showObjects = true, editSections = false, slopeEdit = false, stringColors = null, children }) {
+export default function Editor2D({ design, showPanels = true, showObjects = true, editSections = false, slopeEdit = false, stringColors = null, stringPath = null, children }) {
   const ref = useRef(null);
   const [size, setSize] = useState({ w: 1000, h: 700 });
   const [view, setView] = useState({ cx: 0, cy: 0, scale: 14 });
   const [draft, setDraft] = useState([]);
   const [cursor, setCursor] = useState(null);
   const [area, setArea] = useState(null); // rectangle being dragged with the mark-area tool
+  const [baseDraft, setBaseDraft] = useState(null); // the base being dragged out with the add-base tool
   const drag = useRef(null);
   const fitted = useRef(false);
 
@@ -187,7 +217,14 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
     const r = ref.current.getBoundingClientRect();
     return toW(e.clientX - r.left, e.clientY - r.top);
   };
-  const pts = (poly) => poly.map((p) => toS(p)).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  /** The id of the panel at a plan point, or null. */
+  const moduleAt = (w) => {
+    const t = design.tables.find((k) => pointInPolygon(w, k.poly));
+    const slot = t && slotAt(t, w, design.spec);
+    const id = slot && `${t.id}:${slot.key}`;
+    return id && t.modules.some((m) => m.id === id) ? id : null;
+  };
+  const pts =(poly) => poly.map((p) => toS(p)).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
 
   const images = useMemo(() => {
     if (!origin) return [];
@@ -272,6 +309,30 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
     }
     if (tool === 'add-tree') return s.addObject({ id: newId('t'), type: 'tree', x: w.x, y: w.y, r: 2.5, h: 8 });
     if (tool === 'add-block') return s.addObject({ id: newId('b'), type: 'block', name: 'Water tank', w: 2, d: 2, h: 1.8, ...(s.pendingBlock || {}), x: w.x, y: w.y, rot: design.defaultAzimuth });
+    if (tool === 'string') {
+      // the string tool: tap a panel to put it in the open string (or start one), or press and
+      // drag across panels to add them in that order; starting on a panel of the open string takes
+      // panels out instead. Starting off the panels pans the plan as usual.
+      const id = moduleAt(w);
+      if (id) {
+        drag.current = { kind: 'string', mode: stringStroke(id, design.electrical?.maxLen) };
+        ref.current.setPointerCapture(e.pointerId);
+        return;
+      }
+    }
+    if (tool === 'add-panel' || tool === 'remove-panel') {
+      // one panel at a time: the slot under the tap on whichever base is there
+      const t = design.tables.find((k) => k.kind !== 'zone' && pointInPolygon(w, k.poly));
+      if (t) togglePanelAt(design, t, w, tool === 'add-panel' ? 'add' : 'remove');
+      return;
+    }
+    if (tool === 'add-base') {
+      // base first: press and drag out the base (any number of rows × columns, snapped to whole
+      // panels); a plain tap drops a small one. Panels are planted on it afterwards.
+      drag.current = { kind: 'base', start: w, sx: e.clientX, sy: e.clientY };
+      ref.current.setPointerCapture(e.pointerId);
+      return;
+    }
     if (tool === 'add-array' || tool === 'add-elevated') {
       const elevated = tool === 'add-elevated';
       if (s.config.pricingMode === 'package') s.patch('config', { pricingMode: 'custom' });
@@ -284,7 +345,7 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
   };
 
   const startDrag = (e, d) => {
-    if (drawing || tool.startsWith('add') || tool === 'mark-area') return;
+    if (drawing || tool.startsWith('add') || tool === 'mark-area' || tool === 'string') return;
     e.stopPropagation();
     if (e.button !== 0) return;
     st().set({ selectedId: d.id });
@@ -299,6 +360,19 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
     if (!d) return;
     const s = st();
     if (d.kind === 'area') return setArea({ ...areaRect(d.start, w), start: d.start, end: w });
+    if (d.kind === 'base') {
+      if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6) return;
+      const sec = topSection(design.sections, d.start.x, d.start.y);
+      const plane = sec && planeAt(sec, d.start.x, d.start.y);
+      const shape = { orientation: s.config.orientation, tilt: plane ? plane.tilt : s.config.tilt, azimuth: plane ? plane.azimuth : design.azimuthFor ? design.azimuthFor(sec || design.sections[0]) : design.defaultAzimuth };
+      const slots = slotsBetween(d.start, w, shape, design.spec);
+      return setBaseDraft({ ...slots, azimuth: shape.azimuth, poly: rectPoly(slots.center.x, slots.center.y, slots.width, slots.depth, shape.azimuth) });
+    }
+    if (d.kind === 'string') {
+      const id = moduleAt(w);
+      if (id) stringPaint(id, d.mode, design.electrical?.maxLen);
+      return;
+    }
     if (d.kind === 'pan') {
       if (d.click && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 5) return;
       d.click = null;
@@ -330,16 +404,8 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
     } else if (d.kind === 'resize-table') {
       const o = s.objects.find((k) => k.id === d.id);
       if (!o) return;
-      const f = { x: Math.sin(o.azimuth * DEG), y: Math.cos(o.azimuth * DEG) };
-      const c = { x: f.y, y: -f.x };
-      const one = tableSize({ ...o, rows: 1, cols: 1 }, design.spec);
-      const uExt = (w.x - d.anchor.x) * c.x + (w.y - d.anchor.y) * c.y;
-      const vExt = -((w.x - d.anchor.x) * f.x + (w.y - d.anchor.y) * f.y);
-      const cols = Math.max(1, Math.min(40, Math.round((uExt + PANEL_GAP) / (one.width + PANEL_GAP))));
-      const rows = Math.max(1, Math.min(8, Math.round((vExt + PANEL_GAP) / (one.depth + PANEL_GAP))));
-      const size = tableSize({ ...o, rows, cols }, design.spec);
-      s.updateObject(o.id, { rows, cols, x: d.anchor.x + c.x * (size.width / 2) - f.x * (size.depth / 2), y: d.anchor.y + c.y * (size.width / 2) - f.y * (size.depth / 2) });
-      if (s.config.pricingMode === 'package') s.patch('config', { pricingMode: 'custom' });
+      // whole panel slots, any number of them; a base keeps the panels planted on it
+      s.updateObject(o.id, withinPackage(o, resizeBase(o, d.anchor, w, design.spec), design.spec)); // a package caps the panels
     } else if (d.kind === 'resize-block') {
       const o = s.objects.find((k) => k.id === d.id);
       if (!o) return;
@@ -357,6 +423,13 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
   const onUp = () => {
     const d = drag.current;
     drag.current = null;
+    if (d?.kind === 'base') {
+      const draft = baseDraft;
+      setBaseDraft(null);
+      if (draft) addBase(design, draft.center, { rows: draft.rows, cols: draft.cols });
+      else addBase(design, d.start);
+      return;
+    }
     if (d?.kind === 'area') {
       const s = st();
       const kind = s.pendingKey;
@@ -407,7 +480,7 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
       );
     });
 
-  const cursorStyle = drawing || tool.startsWith('add') || tool === 'mark-area' ? 'crosshair' : 'grab';
+  const cursorStyle = drawing || tool.startsWith('add') || tool === 'mark-area' || tool === 'string' || tool === 'remove-panel' ? 'crosshair' : 'grab';
 
   return (
     <div ref={ref} className="absolute inset-0 touch-none select-none overflow-hidden bg-[#0b1020]" style={{ cursor: cursorStyle }} onWheel={onWheel} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}>
@@ -499,12 +572,40 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
             const front = [t.poly[2], t.poly[3]];
             const mid = toS({ x: (front[0].x + front[1].x) / 2, y: (front[0].y + front[1].y) / 2 });
             const handle = toS({ x: t.x + Math.sin(t.azimuth * DEG) * (t.size.depth / 2 + 1.2), y: t.y + Math.cos(t.azimuth * DEG) * (t.size.depth / 2 + 1.2) });
+            const empty = manual && t.modules.length === 0;
+            const centre = toS({ x: t.x, y: t.y });
             return (
               <g key={t.id} onPointerDown={manual ? (e) => startDrag(e, { kind: 'move', id: t.source, x: t.x, y: t.y }) : (e) => startDrag(e, { kind: 'none', id: t.source })} style={{ cursor: manual ? 'move' : 'pointer' }}>
                 {elevated && <polygon points={pts(rectPoly(t.x, t.y, t.size.width + 0.5, t.size.depth + 0.5, t.azimuth))} fill="rgba(245,165,36,0.45)" stroke={ORANGE} strokeWidth={2} />}
+                {/* the base (mounting frame) the panels sit on; shown on its own until panels are planted */}
+                {manual && <polygon points={pts(t.poly)} fill={!t.valid ? 'rgba(239,68,68,0.35)' : empty ? 'rgba(148,163,184,0.55)' : 'rgba(71,85,105,0.75)'} stroke={empty ? '#f8fafc' : '#1e293b'} strokeWidth={empty ? 2 : 1.2} strokeDasharray={empty ? '6 4' : ''} />}
+                {empty && t.size.width * view.scale > 48 && (
+                  <text x={centre.x} y={centre.y + 4} textAnchor="middle" fontSize="12" fontWeight="700" fill="#0f172a" pointerEvents="none">Empty base</text>
+                )}
                 {t.modules.map((m) => {
                   const si = stringColors?.get(m.id);
                   return <polygon key={m.id} points={pts(m.corners)} fill={!t.valid ? 'rgba(239,68,68,0.7)' : si != null ? si : 'rgba(40,98,235,0.85)'} stroke={elevated || sel ? ORANGE : '#dbe6ff'} strokeWidth={0.8} />;
+                })}
+                {/* pathways left between rows / columns: walkway strips; a selected base also shows the
+                    width of the first one in each direction as a dimension mark */}
+                {(t.pathways || []).map((p, pi) => (
+                  <polygon key={`${p.axis}-${pi}`} points={pts(p.poly)} fill={PATH_COLORS[p.axis]} fillOpacity={0.5} stroke={PATH_COLORS[p.axis]} strokeWidth={1} pointerEvents="none" />
+                ))}
+                {sel && ['row', 'col'].map((axis) => t.pathways?.find((p) => p.axis === axis)).filter(Boolean).map((p) => {
+                  const a = toS(p.dim[0]);
+                  const b = toS(p.dim[1]);
+                  const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+                  const n = { x: -(b.y - a.y) / len * 5, y: (b.x - a.x) / len * 5 }; // tick half-length, square to the line
+                  const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+                  const label = `${Math.round(p.width * 100)} cm`;
+                  return (
+                    <g key={`dim-${p.axis}`} pointerEvents="none">
+                      <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#fff" strokeWidth={1.5} />
+                      {[a, b].map((q, i) => <line key={i} x1={q.x - n.x} y1={q.y - n.y} x2={q.x + n.x} y2={q.y + n.y} stroke="#fff" strokeWidth={1.5} />)}
+                      <rect x={m.x - label.length * 2.9} y={m.y - 7} width={label.length * 5.8} height={14} rx={3} fill={PATH_COLORS[p.axis]} />
+                      <text x={m.x} y={m.y + 3.5} textAnchor="middle" fontSize="10" fontWeight="600" fill="#fff">{label}</text>
+                    </g>
+                  );
                 })}
                 {sel && (
                   <>
@@ -521,6 +622,28 @@ export default function Editor2D({ design, showPanels = true, showObjects = true
             );
           })}
 
+        {baseDraft && (
+          <g pointerEvents="none">
+            <polygon points={pts(baseDraft.poly)} fill="rgba(148,163,184,0.5)" stroke="#f8fafc" strokeWidth={2} strokeDasharray="6 4" />
+            <text x={toS(baseDraft.center).x} y={toS(baseDraft.center).y + 5} textAnchor="middle" fontSize="14" fontWeight="700" fill="#0f172a">{baseDraft.rows} × {baseDraft.cols} panels</text>
+          </g>
+        )}
+        {/* the string being built: its panels numbered in the order they were tapped, joined in that order */}
+        {stringPath && stringPath.points.length > 0 && (
+          <g pointerEvents="none">
+            {stringPath.points.length > 1 && <polyline points={stringPath.points.map((m) => { const q = toS(m); return `${q.x},${q.y}`; }).join(' ')} fill="none" stroke="#ffffff" strokeWidth={4} strokeLinejoin="round" strokeLinecap="round" opacity={0.9} />}
+            {stringPath.points.length > 1 && <polyline points={stringPath.points.map((m) => { const q = toS(m); return `${q.x},${q.y}`; }).join(' ')} fill="none" stroke={stringPath.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
+            {stringPath.points.map((m, i) => {
+              const q = toS(m);
+              return (
+                <g key={m.id}>
+                  <circle cx={q.x} cy={q.y} r={9} fill={stringPath.color} stroke="#ffffff" strokeWidth={2} />
+                  <text x={q.x} y={q.y + 3.5} textAnchor="middle" fontSize="10" fontWeight="700" fill="#ffffff">{i + 1}</text>
+                </g>
+              );
+            })}
+          </g>
+        )}
         {area && (
           <g pointerEvents="none">
             {st().pendingKey === 'tree' ? (

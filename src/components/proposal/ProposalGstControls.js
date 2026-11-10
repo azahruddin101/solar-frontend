@@ -1,15 +1,16 @@
 'use client';
 
 import { cx } from '../ui';
+import { taxName } from '@/lib/tax';
 
 /** Top-level proposal GST mode (like plain vs tax invoice). */
 export function ProposalGstModeToggle({ withGst, onChange, className }) {
   const on = withGst !== false;
   return (
     <div className={className}>
-      <p className="mb-1.5 text-xs font-medium text-slate-600">GST on proposal</p>
+      <p className="mb-1.5 text-xs font-medium text-slate-600">{taxName()} on proposal</p>
       <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-200/80 p-1">
-        {[[false, 'Without GST'], [true, 'With GST']].map(([v, label]) => (
+        {[[false, `Without ${taxName()}`], [true, `With ${taxName()}`]].map(([v, label]) => (
           <button
             key={label}
             type="button"
@@ -24,7 +25,7 @@ export function ProposalGstModeToggle({ withGst, onChange, className }) {
         ))}
       </div>
       <p className="mt-1.5 text-[11px] text-slate-400">
-        {on ? 'Show GST breakdown on the quote and PDF.' : 'Prices are final — no GST lines on the quote.'}
+        {on ? `Show the ${taxName()} breakdown on the quote and PDF.` : `Prices are final — no ${taxName()} lines on the quote.`}
       </p>
     </div>
   );

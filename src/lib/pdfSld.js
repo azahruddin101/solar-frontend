@@ -1,110 +1,73 @@
 'use client';
 
-// Sheet E-03 of the proposal: a detailed single line diagram, drawn as vector graphics.
-//   PV strings → DCDB (string fuses, isolator + SPD per MPPT) → inverters → ACDB (incomers,
-//   busbar, SPD, main breaker) → generation meter → LT panel → net meter → DISCOM grid,
-//   with earthing (E1 DC, E2 AC, E3 lightning arrestor), cable tags and a symbol legend.
-// Ratings follow the usual rules of thumb (string fuse 1.56 x Isc, DC isolator 1.25 x Isc per
-// MPPT, AC breakers 1.25 x inverter current); `sldSchedule` lists every tagged item in full.
+// The single line diagram sheets of the proposal, drawn as vector graphics from the SLD engine (./sld): the
+// engine builds the electrical topology (nodes and connections) and lays it out; this file only draws the
+// layout's primitives with the symbols below, and lists the equipment schedule from the same topology.
+// A design too big for one sheet is drawn over several (DC sheets, then the AC sheet).
+
+import { layoutSld } from './sld/layout.js';
+import { indexDocument } from './sld/topology.js';
 
 const INK = [15, 23, 42];
 const BODY = [0, 0, 0];
-const MUTED = [0, 0, 0];
+const MUTED = [71, 85, 105];
 const LINE = [226, 232, 240];
 const WHITE = [255, 255, 255];
 const DC = [220, 38, 38];
 const AC = [37, 99, 235];
 const PE = [22, 163, 74];
+const COLORS = { DC, AC, PE, MUTED, INK, BODY };
 
-const FUSES = [6, 8, 10, 12, 15, 16, 20, 25, 30, 32, 40, 50, 63];
-const BREAKERS = [6, 10, 16, 20, 25, 32, 40, 50, 63, 80, 100, 125, 160, 200, 250, 320, 400, 500, 630, 800, 1000, 1250, 1600];
-const CTS = [150, 200, 250, 300, 400, 500, 600, 800, 1000, 1500, 2000];
-// indicative current-carrying capacity (A) of copper cables, derated for rooftop runs
-const DC_CABLES = [[4, 30], [6, 40], [10, 55], [16, 75], [25, 100], [35, 125], [50, 150]];
-const AC_CABLES = [[2.5, 24], [4, 32], [6, 41], [10, 57], [16, 76], [25, 101], [35, 125], [50, 151], [70, 192], [95, 232], [120, 269], [150, 309], [185, 353], [240, 415], [300, 470]];
+/* ───────────── schedule ───────────── */
 
-const pick = (list, a) => list.find((v) => v >= a) ?? list[list.length - 1];
-const cableFor = (list, a) => (list.find(([, amp]) => amp >= a) ?? list[list.length - 1])[0];
-const range = (prefix, a, b) => (a === b ? `${prefix}${a}` : `${prefix}${a}-${prefix}${b}`);
+const range = (tags) => (tags.length > 1 ? `${tags[0]}-${tags[tags.length - 1]}` : tags[0] || '-');
+const fmtA = (a) => (a == null ? 'rating to be confirmed' : `${a} A`);
 
-/* ───────────── ratings ───────────── */
-
-/** Strings grouped per inverter and MPPT, with protection and cable ratings. */
-export function sldPlan(el) {
-  const inv = el.inverter;
-  const first = el.inverterFrom || 1; // one building of a campus: its inverters continue the campus numbering
-  const single = inv.kw <= 6;
-  const groups = Array.from({ length: el.inverterCount }, (_, g) => {
-    const strings = el.strings.filter((s) => s.inverter === g + first);
-    const m = Math.min(strings.length, inv.mppt);
-    const mppts = Array.from({ length: m }, () => []);
-    strings.forEach((s, j) => mppts[Math.floor((j * m) / strings.length)].push(s));
-    return { no: g + first, strings, mppts };
-  });
-  const isc = Math.max(...el.strings.map((s) => s.isc));
-  const vocCold = Math.max(...el.strings.map((s) => s.vocCold));
-  const perMppt = Math.max(1, ...groups.flatMap((g) => g.mppts.map((m) => m.length)));
-  const iDc = 1.25 * isc * perMppt;
-  const iAc = (inv.kw * 1000) / (single ? 230 : Math.sqrt(3) * 415);
-  const incomer = pick(BREAKERS, 1.25 * iAc);
-  const main = pick(BREAKERS, 1.25 * iAc * el.inverterCount);
-  return {
-    inv,
-    single,
-    groups,
-    isc,
-    voc: Math.max(...el.strings.map((s) => s.voc)),
-    vocCold,
-    dcClass: vocCold <= 1000 ? 1000 : 1500,
-    fuse: pick(FUSES, 1.56 * isc),
-    dcIso: pick(BREAKERS.filter((v) => v >= 16), iDc),
-    dcCable: cableFor(DC_CABLES, iDc),
-    mppts: groups.reduce((a, g) => a + g.mppts.length, 0),
-    iAc,
-    incomer,
-    main,
-    ct: main > 100 ? pick(CTS, main) : 0,
-    acCable: cableFor(AC_CABLES, incomer),
-    mainCable: cableFor(AC_CABLES, main),
-    cores: single ? '3C' : '4C',
-    phase: single ? '1-ph, 230 V' : '3-ph, 415 V',
-  };
+/** Equipment schedule for the tags on the diagram: [tag, item, specification, qty], read from the SLD document. */
+export function sldSchedule(el, spec, moduleName, moduleCount) {
+  const doc = el.sld;
+  if (!doc) return [];
+  const of = (type, f = () => true) => doc.nodes.filter((n) => n.type === type && f(n));
+  const strings = of('PV_STRING');
+  const lens = [...new Set(strings.map((s) => s.ratings.modules))].sort((a, b) => a - b).join(' / ');
+  const vMax = Math.max(0, ...strings.map((s) => s.ratings.vocMax));
+  const rows = [['PV', 'Solar PV module', `${moduleName}, ${spec.watts} Wp${el.module?.assumed?.includes('voc') ? '' : `, Voc ${el.module?.voc ?? spec.voc} V, Isc ${el.module?.isc ?? spec.isc} A`}`, `${moduleCount} nos`]];
+  rows.push([range(strings.map((s) => s.tag)), 'PV strings', `${lens} modules in series, up to ${vMax.toFixed(0)} V (Voc at ${doc.metadata.temperatures.minCellC} °C)`, `${strings.length} nos`]);
+  const fuses = of('DC_FUSE');
+  if (fuses.length) rows.push(['F', 'String fuse', `${[...new Set(fuses.map((f) => fmtA(f.ratings.a)))].join(' / ')} gPV, ${fuses[0].ratings.v} V DC, + and - poles`, `${fuses.length * 2} nos`]);
+  const isos = of('DC_ISOLATOR', (n) => n.id !== 'Q-BAT');
+  if (isos.length) rows.push(['Q-DC', 'DC isolator', `${[...new Set(isos.map((q) => fmtA(q.ratings.a)))].join(' / ')}, ${isos[0].ratings.v} V DC, 2-pole, lockable, one per MPPT`, `${isos.length} nos`]);
+  const spds = of('DC_SPD');
+  if (spds.length) rows.push(['SPD-DC', 'DC surge protection', `Type 2, Ucpv ≥ ${spds[0].ratings.ucpv} V DC, one per MPPT`, `${spds.length} nos`]);
+  const dcdbs = of('DC_COMBINER', (n) => n.enclosure);
+  if (dcdbs.length) rows.push([range(dcdbs.map((d) => d.tag)), 'DC distribution box', 'IP65, inputs / outputs as drawn', `${dcdbs.length} nos`]);
+  const invs = of('INVERTER');
+  const iv = invs[0]?.spec;
+  if (iv) rows.push([range(invs.map((n) => n.tag)), iv.type === 'hybrid' ? 'Hybrid inverter' : iv.type === 'off-grid' ? 'Off-grid inverter / charger' : 'Grid-tie string inverter', `${iv.name}: ${iv.kw} kW, ${iv.phases === 3 ? '3-ph' : '1-ph'} ${iv.acV} V, ${iv.mppts} MPPT, ${iv.maxDcV} V DC max${iv.generic ? ' (generic: choose the product)' : ''}`, `${invs.length} nos`]);
+  if (doc.nodes.some((n) => n.id === 'BAT')) {
+    const b = doc.nodes.find((n) => n.id === 'BAT').ratings;
+    rows.push(['BAT', 'Battery storage', [b.kwh && `${b.kwh} kWh`, b.voltage && `${b.voltage} V`].filter(Boolean).join(', ') || 'capacity to be confirmed', '1 set']);
+  }
+  const incomers = of('AC_BREAKER', (n) => /^Q\d/.test(n.id));
+  if (incomers.length) rows.push([range(incomers.map((q) => q.tag)), 'ACDB incomer', `${[...new Set(incomers.map((q) => `${q.label.split(' ')[0]} ${fmtA(q.ratings.a)}, ${q.ratings.poles}P`))].join(' / ')}`, `${incomers.length} nos`]);
+  const acSpds = of('AC_SPD');
+  if (acSpds.length) rows.push(['SPD-AC', 'AC surge protection', `Type 2, ${acSpds[0].ratings.uc}, ${acSpds[0].ratings.config}`, `${acSpds.length} nos`]);
+  for (const q of of('AC_BREAKER', (n) => n.id === 'QM' || /\/QO$/.test(n.id))) rows.push([q.tag, q.id === 'QM' ? 'Main AC breaker' : 'ACDB outgoing', `${q.label.split(' ')[0]} ${fmtA(q.ratings.a)}, ${q.ratings.poles}P`, '1 nos']);
+  const acdbs = of('AC_COMBINER', (n) => n.enclosure);
+  rows.push([range(acdbs.map((a) => a.tag)), 'AC distribution box', `${doc.metadata.phases === 3 ? '3-ph' : '1-ph'} ${doc.metadata.acV} V, busbar, SPD, main breaker`, `${acdbs.length} nos`]);
+  for (const m of of('ENERGY_METER')) rows.push([m.tag, m.label, `${m.ratings.phases === 3 ? '3-ph' : '1-ph'}, ${m.ratings.ct ? `CT operated ${m.ratings.ct}/5 A` : 'whole current'}, class ${m.ratings.class}${m.ratings.bidirectional ? ', as approved by the DISCOM' : ''}`, '1 nos']);
+  for (const t of of('TRANSFORMER')) rows.push(['TX', 'Transformer', [t.ratings.kva && `${t.ratings.kva} kVA`, t.ratings.primaryV && `${t.ratings.primaryV} / ${t.ratings.secondaryV} V`].filter(Boolean).join(', ') || 'rating to be confirmed', '1 nos']);
+  const el2 = of('EARTH', (n) => n.id !== 'MET');
+  rows.push([`${el2.map((e) => e.tag).join(', ')}, MET`, 'Earthing', `${el2.map((e) => `${e.tag} ${e.label.replace(/^Earth electrode, /, '')}`).join('; ')}; all bonded to the main earthing terminal`, `${el2.length} pits`]);
+  if (doc.nodes.some((n) => n.id === 'LA')) rows.push(['LA', 'Lightning protection', 'Air terminal with dedicated down conductor to E3 (per the risk assessment)', '1 nos']);
+  return rows;
 }
 
-const breakerName = (p, a) => `${a <= 63 ? 'MCB' : 'MCCB'} ${a} A, ${p.single ? '2P' : '4P'}${a <= 63 ? ', C curve' : ''}, 10 kA`;
-
-/** Equipment schedule for the tags on the diagram: [tag, item, specification, qty]. */
-export function sldSchedule(el, spec, moduleName, moduleCount) {
-  const p = sldPlan(el);
-  const n = el.strings.length;
-  const k = el.inverterCount;
-  const bomQty = (name, fallback) => {
-    const row = el.bom?.find((b) => String(b[0]).startsWith(name));
-    return row ? `${row[2]} ${row[3]}` : fallback;
-  };
-  const lens = [...new Set(el.strings.map((s) => s.count))].sort((a, b) => a - b).join(' / ');
-  const volt = `${p.dcClass} V DC`;
-  const meter = `${p.single ? '1-ph' : '3-ph'}, ${p.ct ? `CT operated ${p.ct}/5 A` : 'whole current'}`;
-  return [
-    ['PV', 'Solar PV module', `${moduleName}, ${spec.watts} Wp, Voc ${spec.voc} V, Isc ${spec.isc} A`, `${moduleCount} nos`],
-    [el.strings.length ? (n > 1 ? `${el.strings[0].name}-${el.strings[n - 1].name}` : el.strings[0].name) : range('S', 1, n), 'PV strings', `${lens} modules in series, Voc ${p.voc.toFixed(0)} V (STC) / ${p.vocCold.toFixed(0)} V (cold)`, `${n} nos`],
-    ['C1', 'DC string cable', '4 sq.mm Cu, solar grade (EN 50618), red (+) / black (-)', bomQty('DC cable', '-')],
-    ['F', 'String fuse', `${p.fuse} A gPV, ${volt}, in + and - poles`, `${n * 2} nos`],
-    ['Q-DC', 'DC isolator', `${p.dcIso} A, ${volt}, 2-pole, lockable, one per MPPT`, `${p.mppts} nos`],
-    ['SPD-DC', 'DC surge protection', `Type II, Ucpv ${volt}, In 20 kA, one per MPPT`, `${p.mppts} nos`],
-    [range('DCDB-', el.inverterFrom || 1, (el.inverterFrom || 1) + k - 1), 'DC distribution box', `IP65, ${n} in / ${p.mppts} out`, `${k} nos`],
-    ['C2', 'DC cable, DCDB to inverter', `${p.dcCable} sq.mm Cu, solar grade`, `${p.mppts} pairs`],
-    [range('INV-', el.inverterFrom || 1, (el.inverterFrom || 1) + k - 1), 'Grid-tie string inverter', `${p.inv.kw} kW, ${p.phase}, ${p.inv.mppt} MPPT, ${p.inv.maxVdc} V DC max, anti-islanding`, `${k} nos`],
-    ['C3', 'AC cable, inverter to ACDB', `${p.cores} x ${p.acCable} sq.mm Cu, armoured`, `${k} ${k > 1 ? 'runs' : 'run'}`],
-    [range('Q', 1, k), 'ACDB incomer', breakerName(p, p.incomer), `${k} nos`],
-    ['SPD-AC', 'AC surge protection', `Type II, Uc 275 V AC, ${p.single ? '1+1' : '3+1'} configuration`, '1 nos'],
-    ['QM', 'ACDB main outgoing', breakerName(p, p.main), '1 nos'],
-    ['C4', 'AC cable, ACDB to LT panel', `${p.cores} x ${p.mainCable} sq.mm Cu, armoured`, '1 run'],
-    ['M1', 'Solar generation meter', `${meter}, class 1.0`, '1 nos'],
-    ['M2', 'Net meter', `Bi-directional, ${meter}, as approved by DISCOM`, '1 nos'],
-    ['E1-E3', 'Earthing', 'E1 array frames + DC SPD, E2 inverter + AC SPD, E3 lightning arrestor', bomQty('Earthing', '3 sets')],
-    ['LA', 'Lightning arrestor', 'ESE type, dedicated down conductor to E3', bomQty('Lightning', '1 nos')],
-  ];
+/** The validation of the design: status line and the findings, for the electrical page. */
+export function sldFindings(el) {
+  const v = el.validation;
+  if (!v) return null;
+  return { status: v.status, items: v.items };
 }
 
 /* ───────────── symbols ───────────── */
@@ -211,264 +174,103 @@ function pvModule(doc, x, y) {
 
 /* ───────────── drawing ───────────── */
 
-/**
- * The diagram inside the box (x0, y0, w, h) — laid out for the 178 mm content width of an A4 page.
- * Too many strings to draw are summarised per MPPT; too many inverters are summarised after the first.
- */
-export function drawSld(doc, el, spec, x0, y0, w, h) {
+const SYM = {
+  pv: (doc, p) => pvModule(doc, p.x, p.y),
+  fuse: (doc, p) => device(doc, 'fuse', p.x, p.y, p.v, DC),
+  isolator: (doc, p) => device(doc, 'isolator', p.x, p.y, p.v, DC),
+  breaker: (doc, p) => device(doc, 'breaker', p.x, p.y, p.v, AC),
+  spd: (doc, p) => spd(doc, p.x, p.y + 0.01),
+  meter: (doc, p) => meter(doc, p.x, p.y, AC),
+  earth: (doc, p) => earth(doc, p.x, p.y),
+  inverter: (doc, p) => {
+    pen(doc, INK, 0.3);
+    doc.rect(p.x - 3.3, p.y - 3.3, 6.6, 6.6);
+    doc.line(p.x - 3.3, p.y + 3.3, p.x + 3.3, p.y - 3.3);
+    text(doc, '=', p.x - 1.7, p.y - 0.6, { size: 6, style: 'bold', color: DC, align: 'center' });
+    text(doc, '~', p.x + 1.7, p.y + 2.6, { size: 6.5, style: 'bold', color: AC, align: 'center' });
+  },
+  tx: (doc, p) => {
+    pen(doc, INK, 0.4);
+    doc.circle(p.x - 1.9, p.y, 3.2);
+    doc.circle(p.x + 1.9, p.y, 3.2);
+  },
+  grid: (doc, p) => {
+    pen(doc, INK, 0.4);
+    doc.line(p.x - 4, p.y + 3.5, p.x, p.y - 3.5);
+    doc.line(p.x + 4, p.y + 3.5, p.x, p.y - 3.5);
+    doc.line(p.x - 2.6, p.y + 1, p.x + 2.6, p.y + 1);
+    doc.line(p.x - 1.4, p.y - 1.3, p.x + 1.4, p.y - 1.3);
+  },
+  la: (doc, p) => {
+    doc.setFillColor(...INK);
+    doc.triangle(p.x, p.y - 3.3, p.x - 1.3, p.y, p.x + 1.3, p.y, 'F');
+  },
+  battery: (doc, p) => {
+    pen(doc, INK, 0.4);
+    for (let k = -1; k <= 1; k += 2) {
+      doc.line(p.x + k * 1.2 - 0.0, p.y - 2.4, p.x + k * 1.2, p.y + 2.4);
+    }
+    doc.line(p.x - 3.4, p.y, p.x - 1.2, p.y);
+    doc.line(p.x + 1.2, p.y, p.x + 3.4, p.y);
+    pen(doc, INK, 0.8);
+    doc.line(p.x + 1.2, p.y - 1.2, p.x + 1.2, p.y + 1.2);
+  },
+};
+
+/** Draw one laid-out sheet at (x0, y0). */
+export function drawSldSheet(doc, sheet, x0, y0) {
+  const { w, h } = sheet;
   doc.setFillColor(...WHITE);
   doc.setDrawColor(...LINE);
   doc.setLineWidth(0.3);
   doc.rect(x0, y0, w, h, 'FD');
-  if (!el.strings?.length || !el.inverter) {
-    text(doc, 'No modules placed - the single line diagram is drawn once the array is designed.', x0 + w / 2, y0 + h / 2, { size: 8, color: MUTED, align: 'center' });
-    return;
-  }
-  const p = sldPlan(el);
-  const X = { tag: x0 + 4, chain: x0 + 12, info: x0 + 36, dcdb: x0 + 64, inv: x0 + 110, acdb: x0 + w - 34 };
-  const invW = 22;
-  const xDiv = X.inv + invW / 2;
-  const legendH = 15;
-  const bandH = 42;
-  const yT = y0 + 14;
-  const yB = y0 + h - legendH - bandH - 2;
-
-  // ── fit: largest row height that shows every string, else summarise, else drop inverters ──
-  const GAP = 6;
-  const MORE_H = 14;
-  const maxPerMppt = Math.max(1, ...p.groups.flatMap((g) => g.mppts.map((m) => m.length)));
-  const rowsOf = (g, k) => g.mppts.map((m) => (m.length <= k ? m.map((s) => ({ s })) : [...m.slice(0, k - 1).map((s) => ({ s })), { more: m.slice(k - 1) }]));
-  const bandOf = (g, k, rh) => {
-    const rows = rowsOf(g, k);
-    const n = rows.reduce((a, m) => a + m.length, 0);
-    const dcdbH = 6 + n * rh + Math.max(0, rows.length - 1) * 1.5 + 13;
-    return { rows, dcdbH, h: Math.max(dcdbH, 26) };
-  };
-  const heightOf = (bands, hidden) => bands.reduce((a, b) => a + b.h, 0) + GAP * (bands.length - 1) + (hidden ? MORE_H + GAP : 0);
-  let shown = p.groups;
-  let fit;
-  for (;;) {
-    search: for (let k = maxPerMppt; k >= 1; k--) {
-      for (const rh of [7, 6, 5, 4.2]) {
-        const bands = shown.map((g) => bandOf(g, k, rh));
-        if (heightOf(bands, shown.length < p.groups.length) <= yB - yT) {
-          fit = { rh, bands };
-          break search;
-        }
-      }
-    }
-    if (fit || shown.length === 1) break;
-    shown = shown.slice(0, -1);
-  }
-  fit ??= { rh: 4.2, bands: shown.map((g) => bandOf(g, 1, 4.2)) };
-  const hidden = p.groups.slice(shown.length);
-  const { rh, bands } = fit;
-  const spare = Math.max(0, yB - yT - heightOf(bands, hidden.length));
-  const nBands = bands.length + (hidden.length ? 1 : 0);
-  const slack = Math.min(spare / (nBands + 1), 10);
-
-  // ── headings and the DC | AC boundary ──
-  const heading = (str, x, align) => text(doc, str, x, y0 + 5.5, { size: 6, style: 'bold', color: MUTED, align });
-  heading('PV ARRAY', X.tag);
-  heading('DC COMBINER (DCDB)', X.dcdb);
-  heading('INVERTER', xDiv, 'center');
-  heading('AC COMBINER (ACDB)', X.acdb);
-  text(doc, `${el.strings.length} strings, ${el.kwp.toFixed(2)} kWp`, X.tag, y0 + 9.5, { size: 5, color: MUTED });
-  text(doc, 'DC SIDE', xDiv - 2, y0 + 9.5, { size: 5, style: 'bold', color: DC, align: 'right' });
-  text(doc, 'AC SIDE', xDiv + 2, y0 + 9.5, { size: 5, style: 'bold', color: AC });
-  pen(doc, MUTED, 0.2, [1.2, 1]);
-  doc.line(xDiv, y0 + 7, xDiv, yB + 1);
-  doc.setLineDashPattern([], 0);
-
-  // ── PV strings, DCDB and inverter, one band per inverter ──
-  const acIn = []; // AC outputs to the ACDB: { y, label, dashed }
-  let cursor = yT + (spare - slack * (nBands - 1)) / 2; // centred in the free height
-  shown.forEach((g, gi) => {
-    const band = bands[gi];
-    const top = cursor;
-    cursor += band.h + GAP + slack;
-    let yy = top + 6 + rh / 2;
-    const mp = band.rows.map((rows) => {
-      const ys = rows.map(() => {
-        const y = yy;
-        yy += rh;
-        return y;
-      });
-      yy += 1.5;
-      return { rows, ys, y: (ys[0] + ys[ys.length - 1]) / 2 };
-    });
-    const allY = mp.flatMap((m) => m.ys);
-    const lastY = allY[allY.length - 1];
-    const yc = mp.length ? (mp[0].y + mp[mp.length - 1].y) / 2 : top + band.h / 2;
-    const xb = X.dcdb + 13; // MPPT busbars
-    const xs = X.dcdb + 29; // SPD tap
-
-    if (mp.length) {
-      pen(doc, INK, 0.35);
-      doc.setFillColor(...WHITE);
-      doc.rect(X.dcdb, top, 36, band.dcdbH, 'FD');
-      text(doc, `DCDB-${g.no}`, X.dcdb + 2, top + 4, { size: 5.5, style: 'bold', color: INK });
-      text(doc, `F: ${p.fuse} A gPV`, X.dcdb + 2, lastY + rh / 2 + 6.5, { size: 4.8, color: MUTED });
-      text(doc, `Q-DC: ${p.dcIso} A, ${p.dcClass} V`, X.dcdb + 2, lastY + rh / 2 + 9.8, { size: 4.8, color: MUTED });
-
-      // array frames bonded to E1
-      wire(doc, PE, [[x0 + 2.4, allY[0] - 1.5], [x0 + 2.4, lastY + 3]]);
-      earth(doc, x0 + 2.4, lastY + 3);
-      text(doc, 'E1', x0 + 4.4, lastY + 6, { size: 4.8, style: 'bold', color: PE });
-    }
-
-    mp.forEach((m, mi) => {
-      m.rows.forEach((row, ri) => {
-        const y = m.ys[ri];
-        const s = row.s || row.more[0];
-        const count = s.count;
-        wire(doc, DC, [[X.chain - 1, y], [xb, y]], !!row.more);
-        const slots = count <= 4 ? Array.from({ length: count }, (_, i) => i) : [0, 1, 3];
-        slots.forEach((i) => pvModule(doc, X.chain + i * 5.4, y));
-        if (count > 4) text(doc, '...', X.chain + 2 * 5.4 + 2.1, y + 0.4, { size: 6, style: 'bold', color: INK, align: 'center' });
-        device(doc, 'fuse', X.dcdb + 4, y, false, DC);
-        dot(doc, DC, xb, y);
-
-        const tag = row.more ? `${row.more[0].name}-${row.more[row.more.length - 1].name}` : s.name;
-        text(doc, tag, X.tag, y + 0.7, { size: row.more ? 4.5 : 5.5, style: 'bold', color: INK });
-        const infoW = X.dcdb - X.info - 5;
-        const line1 = row.more ? `${row.more.length} strings, not drawn` : `${count} x ${spec.watts} W = ${s.kwp.toFixed(2)} kWp`;
-        const line2 = row.more ? `${[...new Set(row.more.map((q) => q.count))].join(' / ')} modules each` : `Voc ${s.voc.toFixed(0)} V, Isc ${s.isc} A`;
-        text(doc, clip(doc, line1, infoW, 5), X.info, y - 0.9, { size: 5, color: BODY });
-        if (rh >= 6) text(doc, clip(doc, line2, infoW, 4.6), X.info, y + 2.6, { size: 4.6, color: MUTED });
-        if (gi === 0 && mi === 0 && ri === 0) text(doc, 'C1', X.dcdb - 1, y - 0.8, { size: 4.6, style: 'bold', color: MUTED, align: 'right' });
-      });
-
-      // busbar → isolator → inverter MPPT input
-      if (m.ys.length > 1) wire(doc, DC, [[xb, m.ys[0]], [xb, m.ys[m.ys.length - 1]]]);
-      wire(doc, DC, [[xb, m.y], [X.inv, m.y]]);
-      device(doc, 'isolator', X.dcdb + 19, m.y, false, DC);
-      if (gi === 0 && mi === 0) text(doc, 'C2', X.dcdb + 38.5, m.y - 0.8, { size: 4.6, style: 'bold', color: MUTED });
-    });
-
-    // one SPD drawn on the last MPPT (the schedule lists one per MPPT)
-    if (mp.length) {
-      const last = mp[mp.length - 1];
-      const spdTop = Math.max(last.y, lastY) + 2;
-      wire(doc, DC, [[xs, last.y], [xs, spdTop]]);
-      dot(doc, DC, xs, last.y);
-      spd(doc, xs, spdTop);
-      text(doc, 'SPD', xs + 1.9, spdTop + 3.8, { size: 4.6, color: MUTED });
-      text(doc, 'E1', xs + 2, spdTop + 8.4, { size: 4.8, style: 'bold', color: PE });
-    }
-
-    // inverter
-    const iTop = Math.min(yc - 10, (mp[0]?.y ?? yc) - 4);
-    const iBot = Math.max(yc + 10, (mp[mp.length - 1]?.y ?? yc) + 4);
-    pen(doc, INK, 0.4);
+  const P = (x, y) => [x0 + x, y0 + y];
+  // boxes first, wires over them, then symbols (which blank the wire under a switch), dots and text last
+  for (const p of sheet.items.filter((q) => q.t === 'box')) {
+    pen(doc, p.kind === 'met' ? PE : INK, p.kind === 'inverter' ? 0.4 : 0.35);
     doc.setFillColor(...WHITE);
-    doc.rect(X.inv, iTop, invW, iBot - iTop, 'FD');
-    text(doc, `INV-${g.no}`, xDiv, iTop + 4.2, { size: 6, style: 'bold', color: INK, align: 'center' });
-    const sy = (iTop + iBot) / 2 + 0.3;
-    pen(doc, INK, 0.3);
-    doc.rect(xDiv - 3.3, sy - 3.3, 6.6, 6.6);
-    doc.line(xDiv - 3.3, sy + 3.3, xDiv + 3.3, sy - 3.3);
-    text(doc, '=', xDiv - 1.7, sy - 0.6, { size: 6, style: 'bold', color: DC, align: 'center' });
-    text(doc, '~', xDiv + 1.7, sy + 2.6, { size: 6.5, style: 'bold', color: AC, align: 'center' });
-    text(doc, `${p.inv.kw} kW ${p.single ? '1-ph' : '3-ph'}`, xDiv, iBot - 2, { size: 5, color: BODY, align: 'center' });
-    if (mp.length > 1) mp.forEach((m, mi) => text(doc, `MPPT${mi + 1}`, X.inv + 1, m.y - 0.7, { size: 4, color: MUTED }));
-    const xe = X.inv + invW - 4;
-    wire(doc, PE, [[xe, iBot], [xe, iBot + 1.4]]);
-    earth(doc, xe, iBot + 1.4);
-    text(doc, 'E2', xe + 2, iBot + 4.4, { size: 4.8, style: 'bold', color: PE });
-    acIn.push({ y: yc, label: `Q${g.no}` });
-  });
-
-  if (hidden.length) {
-    const top = cursor;
-    const a = hidden[0].no;
-    const b = hidden[hidden.length - 1].no;
-    pen(doc, MUTED, 0.3, [1.2, 1]);
-    doc.setFillColor(...WHITE);
-    doc.rect(X.tag - 1, top, X.inv + invW - X.tag + 1, MORE_H - 2, 'FD');
+    doc.rect(x0 + p.x, y0 + p.y, p.w, p.h, 'FD');
+  }
+  for (const p of sheet.items.filter((q) => q.t === 'wire')) {
+    if (p.net === 'GUIDE') {
+      pen(doc, MUTED, 0.2, [1.2, 1]);
+      const [a, b] = p.pts;
+      doc.line(...P(...a), ...P(...b));
+      doc.setLineDashPattern([], 0);
+      continue;
+    }
+    const rgb = COLORS[p.net] || INK;
+    pen(doc, rgb, p.width || (p.net === 'PE' ? 0.3 : 0.4), p.net === 'PE' ? [0.9, 0.7] : []);
+    for (let i = 1; i < p.pts.length; i++) doc.line(...P(...p.pts[i - 1]), ...P(...p.pts[i]));
     doc.setLineDashPattern([], 0);
-    const nStr = hidden.reduce((acc, g) => acc + g.strings.length, 0);
-    text(doc, `${a === b ? `INV-${a}` : `INV-${a} to INV-${b}`}: ${nStr} more strings, arranged as above (DCDB, fuses, isolators, SPD, earthing)`, X.tag + 2, top + (MORE_H - 2) / 2 + 0.8, { size: 5.5, color: BODY });
-    acIn.push({ y: top + (MORE_H - 2) / 2, label: range('Q', a, b), dashed: true });
   }
+  for (const p of sheet.items.filter((q) => q.t === 'pe')) {
+    wire(doc, PE, [P(p.x, p.y), P(p.x, p.y + 1.6)]);
+    earth(doc, ...P(p.x, p.y + 1.6));
+    text(doc, p.to, x0 + p.x + 2, y0 + p.y + 4.4, { size: 4.6, style: 'bold', color: PE });
+  }
+  for (const p of sheet.items.filter((q) => q.t === 'sym')) {
+    const f = SYM[p.kind];
+    if (f) f(doc, { ...p, x: x0 + p.x, y: y0 + p.y });
+    if (p.kind === 'spd' && p.earth) text(doc, p.earth, x0 + p.x + 2, y0 + p.y + 8.4, { size: 4.6, style: 'bold', color: PE });
+  }
+  for (const p of sheet.items.filter((q) => q.t === 'arrow')) {
+    doc.setFillColor(...(COLORS[p.net] || INK));
+    const [x, y] = P(p.x, p.y);
+    if (p.v) doc.triangle(x - 1.2, y, x + 1.2, y, x, y + 2, 'F');
+    else doc.triangle(x, y - 1.2, x, y + 1.2, x + 2, y, 'F');
+  }
+  for (const p of sheet.items.filter((q) => q.t === 'dot')) dot(doc, COLORS[p.net] || INK, ...P(p.x, p.y));
+  for (const p of sheet.items.filter((q) => q.t === 'text' && q.s)) {
+    const color = COLORS[p.color] || (p.role === 'heading' ? MUTED : p.role === 'tag' ? INK : BODY);
+    const s = p.maxW ? clip(doc, p.s, p.maxW, p.size, p.style) : p.s;
+    text(doc, s, x0 + p.x, y0 + p.y, { size: p.size, style: p.style || 'normal', color, align: p.align });
+  }
+  drawLegend(doc, x0, y0 + h - 16, w);
+  if (sheet.count > 1) text(doc, `Sheet ${sheet.index + 1} of ${sheet.count}: ${sheet.title}`, x0 + w - 3, y0 + 5.5, { size: 5.5, style: 'bold', color: MUTED, align: 'right' });
+}
 
-  // ── ACDB: incomer per inverter → busbar → SPD, main breaker ──
-  const xa = X.acdb;
-  const aw = 30;
-  const pitch = 8;
-  const aH = 26 + (acIn.length - 1) * pitch;
-  const aTop = Math.max(yT - 2, Math.min(acIn[0].y - 10, yB - aH));
-  const yin = acIn.map((_, i) => aTop + 10 + i * pitch);
-  const yLast = yin[yin.length - 1];
-  const xbA = xa + 14;
-  pen(doc, INK, 0.35);
-  doc.setFillColor(...WHITE);
-  doc.rect(xa, aTop, aw, aH, 'FD');
-  text(doc, 'ACDB', xa + 2, aTop + 4.5, { size: 5.5, style: 'bold', color: INK });
-  text(doc, p.phase, xa + aw - 2, aTop + 4.5, { size: 4.6, color: MUTED, align: 'right' });
-  const step = Math.min(1.6, 8 / Math.max(1, acIn.length - 1));
-  acIn.forEach((a, i) => {
-    const xr = X.inv + invW + 3 + i * step;
-    wire(doc, AC, [[X.inv + invW, a.y], [xr, a.y], [xr, yin[i]], [xbA, yin[i]]], a.dashed);
-    device(doc, 'breaker', xa + 3, yin[i], false, AC);
-    dot(doc, AC, xbA, yin[i]);
-    text(doc, `${a.label} ${p.incomer} A`, xa + 2.2, yin[i] - 2.4, { size: 4.6, color: MUTED });
-  });
-  text(doc, 'C3', X.inv + invW + 0.6, acIn[0].y - 0.8, { size: 4.6, style: 'bold', color: MUTED });
-  pen(doc, AC, 0.8);
-  doc.line(xbA, yin[0] - 1.5, xbA, yLast + 7);
-  const yS = yLast + 4;
-  wire(doc, AC, [[xbA, yS], [xa + 23, yS]]);
-  dot(doc, AC, xa + 23, yS);
-  spd(doc, xa + 23, yS);
-  text(doc, 'SPD', xa + 25, yS + 3.8, { size: 4.6, color: MUTED });
-  text(doc, 'E2', xa + 25, yS + 8.4, { size: 4.8, style: 'bold', color: PE });
-  device(doc, 'breaker', xbA, yLast + 7, true, AC);
-  text(doc, `QM ${p.main} A`, xbA - 2.4, yLast + 10, { size: 4.6, color: MUTED, align: 'right' });
-
-  // ── utility interface: generation meter → LT panel → net meter → grid ──
-  const yb0 = yB + 2;
-  const yw = yb0 + 15;
-  text(doc, 'BUILDING & UTILITY INTERFACE', X.tag, yb0 + 4, { size: 6, style: 'bold', color: MUTED });
-  wire(doc, AC, [[xbA, yLast + 11], [xbA, yw], [x0 + 33.4, yw]]);
-  text(doc, 'C4', xbA - 1.5, (aTop + aH + yw) / 2 + 1, { size: 4.6, style: 'bold', color: MUTED, align: 'right' });
-  const label = (x, a, b) => {
-    text(doc, a, x, yw + 9.5, { size: 5.2, style: 'bold', color: INK, align: 'center' });
-    text(doc, b, x, yw + 12.6, { size: 4.6, color: MUTED, align: 'center' });
-  };
-  const m1 = x0 + 140;
-  const lt = x0 + 110;
-  const m2 = x0 + 74;
-  const tx = x0 + 30;
-  meter(doc, m1, yw, AC);
-  label(m1, 'M1  Generation meter', 'solar output');
-  pen(doc, INK, 0.4);
-  doc.setFillColor(...WHITE);
-  doc.rect(lt - 12, yw - 6, 24, 12, 'FD');
-  text(doc, 'LT PANEL', lt, yw - 0.8, { size: 5.5, style: 'bold', color: INK, align: 'center' });
-  text(doc, 'main distribution', lt, yw + 2.6, { size: 4.6, color: MUTED, align: 'center' });
-  wire(doc, AC, [[lt, yw + 6], [lt, yw + 11]]);
-  doc.setFillColor(...AC);
-  doc.triangle(lt - 1.2, yw + 11, lt + 1.2, yw + 11, lt, yw + 13, 'F');
-  text(doc, 'Building loads', lt, yw + 16.5, { size: 5, color: BODY, align: 'center' });
-  meter(doc, m2, yw, AC);
-  label(m2, 'M2  Net meter', 'bi-directional, DISCOM');
-  pen(doc, INK, 0.4);
-  doc.circle(tx - 1.9, yw, 3.2);
-  doc.circle(tx + 1.9, yw, 3.2);
-  wire(doc, AC, [[tx - 5.1, yw], [x0 + 12, yw]]);
-  label(tx, 'DISCOM LT grid', `${p.single ? '230 V 1-ph' : '415 V 3-ph'}, 50 Hz`);
-  // lightning arrestor on its own earth pit
-  const la = x0 + w - 6;
-  doc.setFillColor(...INK);
-  doc.triangle(la, yb0 + 4.5, la - 1.3, yb0 + 7.8, la + 1.3, yb0 + 7.8, 'F');
-  wire(doc, PE, [[la, yb0 + 7.8], [la, yw + 8]]);
-  earth(doc, la, yw + 8);
-  text(doc, 'LA (ESE)', la - 2.2, yb0 + 7.4, { size: 5, style: 'bold', color: INK, align: 'right' });
-  text(doc, 'E3', la - 2.2, yw + 10.6, { size: 4.8, style: 'bold', color: PE, align: 'right' });
-
-  // ── legend ──
-  const yL = y0 + h - legendH;
+function drawLegend(doc, x0, yL, w) {
   pen(doc, LINE, 0.3);
   doc.line(x0, yL, x0 + w, yL);
   const items = [
@@ -478,7 +280,7 @@ export function drawSld(doc, el, spec, x0, y0, w, h) {
     [(x, y) => device(doc, 'breaker', x, y, false, INK), 'Circuit breaker (MCB / MCCB)'],
     [(x, y) => spd(doc, x + 2, y - 2.4, true), 'Surge protection device'],
     [(x, y) => meter(doc, x + 2, y, INK, 2.2), 'Energy meter'],
-    [(x, y) => earth(doc, x + 2, y - 1.6), 'Earth electrode'],
+    [(x, y) => earth(doc, x + 2, y - 1.6), 'Earth (bonded to MET)'],
     [(x, y) => wire(doc, DC, [[x, y], [x + 5, y]]), 'DC circuit'],
     [(x, y) => wire(doc, AC, [[x, y], [x + 5, y]]), 'AC circuit'],
     [(x, y) => wire(doc, PE, [[x, y], [x + 5, y]]), 'Earthing conductor'],
@@ -490,3 +292,45 @@ export function drawSld(doc, el, spec, x0, y0, w, h) {
     text(doc, name, x + 7, y + 0.9, { size: 5, color: BODY });
   });
 }
+
+/** The sheets for a system (`el` from designElectrical), each `w` × `h` mm. */
+export function sldSheets(el, w, h, { stringId = null } = {}) {
+  if (!el?.sld) return layoutSld({ metadata: { systemType: 'on-grid', totals: { strings: 0, dcKw: 0, inverters: 0, acKw: 0, acdbs: 0 } }, nodes: [], connections: [], validation: [] }, w, h).sheets;
+  return layoutSld(stringId ? subDocument(el.sld, stringId) : el.sld, w, h).sheets;
+}
+
+/** Draw the first sheet in the box (x0, y0, w, h) — kept for callers that have room for one sheet only. */
+export function drawSld(doc, el, spec, x0, y0, w, h) {
+  const [first] = sldSheets(el, w, h);
+  drawSldSheet(doc, first, x0, y0);
+}
+
+/**
+ * One string's own diagram: the string, its protection, its MPPT and inverter, the AC path of that inverter to the
+ * grid, and the earthing — the rest of the system left out.
+ */
+export function subDocument(doc, stringId) {
+  const ix = indexDocument(doc);
+  const start = `S:${stringId}`;
+  if (!ix.node.get(start)) return doc;
+  const keep = new Set([start]);
+  const q = [start];
+  while (q.length) {
+    const id = q.shift();
+    for (const c of ix.out(id)) if (c.kind !== 'EARTH' && !keep.has(c.to)) (keep.add(c.to), q.push(c.to));
+  }
+  const s = ix.node.get(start);
+  keep.add(`ARRAY-${s.inverter}`);
+  // the busbar's other strings are left out, so the busbar itself is not needed: the string runs on directly
+  for (const n of doc.nodes) if (n.type === 'EARTH' || n.type === 'LIGHTNING_PROTECTION') keep.add(n.id);
+  const nodes = doc.nodes.filter((n) => keep.has(n.id));
+  const connections = doc.connections.filter((c) => keep.has(c.from) && keep.has(c.to));
+  const inv = ix.node.get(`INV-${s.inverter}`);
+  return {
+    ...doc,
+    nodes,
+    connections,
+    metadata: { ...doc.metadata, totals: { ...doc.metadata.totals, strings: 1, modules: s.ratings.modules, dcKw: s.ratings.powerW / 1000, inverters: 1, acKw: inv?.spec.kw ?? 0, acdbs: 1, dcdbs: 1 } },
+  };
+}
+

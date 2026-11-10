@@ -18,6 +18,7 @@ import { ProductForm, typeOf, warrantyLabel } from './CatalogProducts';
 import { ProductDocumentsCard } from './ProductDocuments';
 import { BatchesCard, UnitsCard } from './ProductStock';
 import { useBreadcrumb } from '@/lib/breadcrumbs';
+import { taxName } from '@/lib/tax';
 
 function Fact({ label, children }) {
   return (
@@ -139,7 +140,7 @@ export default function ProductDetail({ id, catalogPath = '/dashboard/catalog', 
               <Fact label="Model">{product.model}</Fact>
               <Fact label="SKU / item code">{product.sku}</Fact>
               <Fact label="HSN Code">{product.hsnCode}</Fact>
-              <Fact label="GST %">{product.gstPercent != null ? `${product.gstPercent}%` : '18%'}</Fact>
+              <Fact label={`${taxName()} %`}>{product.gstPercent != null ? `${product.gstPercent}%` : '18%'}</Fact>
               <Fact label="Unit">{product.unit}</Fact>
               {type === 'panels' && (
                 <>

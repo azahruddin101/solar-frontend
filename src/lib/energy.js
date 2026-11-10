@@ -68,8 +68,35 @@ export function guessCurrency(regionCode, lat, lng) {
   return 'USD';
 }
 
+// The currencies offered in Settings (a company picks one; it is only a symbol, nothing is converted).
+// Names and symbols for these, and for any other ISO code, come from the browser (Intl).
+export const CURRENCY_CODES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SAR', 'QAR', 'OMR', 'KWD', 'BHD', 'AUD', 'NZD', 'CAD', 'SGD', 'MYR', 'IDR', 'THB', 'PHP', 'VND', 'JPY', 'CNY', 'HKD', 'KRW', 'BDT', 'PKR', 'LKR', 'NPR', 'ZAR', 'NGN', 'KES', 'EGP', 'MAD', 'TRY', 'BRL', 'MXN', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN'];
+
+const info = new Map();
+/** Symbol and number style for a currency code: the table above, else worked out once from Intl. */
+export function currencyInfo(code) {
+  const key = String(code || 'INR').toUpperCase();
+  if (CURRENCIES[key]) return CURRENCIES[key];
+  if (!info.has(key)) {
+    let symbol = `${key} `;
+    try {
+      const sym = new Intl.NumberFormat('en', { style: 'currency', currency: key, currencyDisplay: 'narrowSymbol' }).formatToParts(0).find((p) => p.type === 'currency')?.value;
+      if (sym) symbol = /^[A-Z]{2,}$/.test(sym) ? `${sym} ` : sym; // letters-only symbols get a space: "SAR 100"
+    } catch { /* not an ISO code: show the code */ }
+    info.set(key, { code: key, symbol, locale: 'en-US' });
+  }
+  return info.get(key);
+}
+
+/** "Indian Rupee (₹)": a currency's name for pickers. */
+export function currencyName(code) {
+  let name = code;
+  try { name = new Intl.DisplayNames(['en'], { type: 'currency' }).of(code) || code; } catch { /* old browser */ }
+  return name;
+}
+
 export function formatMoney(value, code, { pdf = false, decimals = 0 } = {}) {
-  const c = CURRENCIES[code] || CURRENCIES.USD;
+  const c = currencyInfo(code);
   const num = Number(value || 0).toLocaleString(c.locale, { maximumFractionDigits: decimals, minimumFractionDigits: decimals });
   // Built-in PDF fonts cannot render ₹/€ etc., so the PDF uses ISO codes.
   return pdf ? `${c.code} ${num}` : `${c.symbol}${num}`;

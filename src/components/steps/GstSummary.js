@@ -4,6 +4,7 @@ import { ProposalGstModeToggle } from '../proposal/ProposalGstControls';
 import { cx } from '../ui';
 import { useStore } from '@/lib/store';
 import { netAfterSubsidy, subsidyOf } from '@/lib/subsidy';
+import { currentTax, taxLines } from '@/lib/tax';
 
 /** With/without GST on the proposal; tax amounts come from each line's product GST %. */
 export function GstSummary({ cost, config, onConfig, money, compact = false }) {
@@ -36,14 +37,13 @@ export function GstSummary({ cost, config, onConfig, money, compact = false }) {
             <span>Taxable value</span>
             <b>{money(cost.subtotal ?? cost.taxableTotal)}</b>
           </div>
-          <div className="flex justify-between">
-            <span>SGST</span>
-            <b>{money(cost.sgst)}</b>
-          </div>
-          <div className="flex justify-between">
-            <span>CGST</span>
-            <b>{money(cost.cgst)}</b>
-          </div>
+          {/* GST: CGST + SGST; any other tax: one line */}
+          {taxLines(currentTax(), { gst: cost.gstAmount, cgst: cost.cgst, sgst: cost.sgst }).map(([label, amount]) => (
+            <div key={label} className="flex justify-between">
+              <span>{label}</span>
+              <b>{money(amount)}</b>
+            </div>
+          ))}
         </div>
       )}
 

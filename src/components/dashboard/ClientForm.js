@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { useSignedUrl } from '@/lib/files';
 import { CLIENT_GRID_TYPES, clientSchema, useValidation } from '@/lib/validation';
 import { Alert, Button, CameraButton, FormField, IconButton, Input, NameInput, PhoneInput, LoadingBlock, Modal, Select, Textarea, toast } from '../kit';
+import { currentTax, taxIdName } from '@/lib/tax';
 
 const SOURCES = ['Website', 'Referral', 'Field / Direct Visit', 'Social Media', 'Channel Partner', 'Advertisement', 'Exhibition / Event', 'Other'];
 const GRID_TYPE_LABEL = { on_grid: 'On Grid', off_grid: 'Off Grid', hybrid: 'Hybrid' };
@@ -174,8 +175,8 @@ export default function ClientForm({ client, onClose, onSaved }) {
             <FormField label="PAN" optional hint="10-character Permanent Account Number." error={v.error('pan')}>
               <Input value={form.pan || ''} onValue={(x) => set({ pan: x.replace(/[^A-Za-z0-9]/g, '').toUpperCase() })} maxLength={10} placeholder="ABCDE1234F" autoCapitalize="characters" />
             </FormField>
-            <FormField label="GST Number" optional hint="15-character GSTIN (commercial / industrial)." error={v.error('gstNumber')}>
-              <Input value={form.gstNumber || ''} onValue={(x) => set({ gstNumber: x.replace(/[^A-Za-z0-9]/g, '').toUpperCase() })} maxLength={15} placeholder="27ABCDE1234F1Z5" autoCapitalize="characters" />
+            <FormField label={taxIdName()} optional hint={currentTax().isGst ? '15-character GSTIN (commercial / industrial).' : 'Their tax registration number (commercial / industrial).'} error={v.error('gstNumber')}>
+              <Input value={form.gstNumber || ''} onValue={(x) => set({ gstNumber: x.replace(/[^A-Za-z0-9]/g, '').toUpperCase() })} maxLength={20} placeholder={currentTax().isGst ? '27ABCDE1234F1Z5' : ''} autoCapitalize="characters" />
             </FormField>
           </div>
 
@@ -236,7 +237,7 @@ export default function ClientForm({ client, onClose, onSaved }) {
               <p className="mt-1.5 text-sm font-medium text-slate-800">
                 {uploading ? 'Uploading documents...' : 'Click to select and upload documents'}
               </p>
-              <p className="text-xs text-slate-500">Electricity bills, roof photos, GST, approvals, etc.</p>
+              <p className="text-xs text-slate-500">Electricity bills, roof photos, tax papers, approvals, etc.</p>
             </div>
 
             <div className="mt-2 flex items-center gap-2">

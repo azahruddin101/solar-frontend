@@ -11,12 +11,14 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { api, assetUrl } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { canEditOrgMasters } from '@/lib/tenant';
+import { ORG_MASTERS_API, canEditOrgMasters } from '@/lib/tenant';
+import { CURRENCY_CODES, currencyName, formatMoney } from '@/lib/energy';
 import { THEME_PRESETS, foregroundOn, isHex, luminance } from '@/lib/theme';
 import { companySelfSchema, invoiceNumberingSchema, useValidation } from '@/lib/validation';
-import { Alert, Badge, Button, Card, CardHeader, FormField, ImageFrame, ImageSourceButtons, Input, NameInput, PhoneInput, PageHeader, Spinner, Tabs, Textarea, cx, showError, toast } from '../kit';
+import { Alert, Badge, Button, Card, CardHeader, FormField, ImageFrame, ImageSourceButtons, Input, NameInput, PhoneInput, PageHeader, Select, Spinner, Tabs, Textarea, cx, showError, toast } from '../kit';
 import RichTextEditor from '../kit/RichTextEditor';
 import AccountSettings from '../layout/AccountSettings';
+import { currentTax, taxIdName } from '@/lib/tax';
 
 function useCompanyForm(keys, schema) {
   const { company, setCompany } = useSession();
@@ -50,10 +52,69 @@ function Profile() {
         <FormField label="Contact email" optional error={v.error('email')}><Input type="email" value={form.email} onValue={(x) => set({ email: x })} /></FormField>
         <FormField label="Phone" optional error={v.error('phone')}><PhoneInput maxLength={20} value={form.phone} onValue={(x) => set({ phone: x })} /></FormField>
         <FormField label="Website" optional error={v.error('website')}><Input maxLength={200} value={form.website} onValue={(x) => set({ website: x })} placeholder="www.company.com" /></FormField>
-        <FormField label="GSTIN" optional hint="15 characters, like 27ABCDE1234F1Z5." error={v.error('taxId')}><Input maxLength={15} value={form.taxId} onValue={(x) => set({ taxId: x.replace(/[^A-Za-z0-9]/g, '').toUpperCase() })} className="uppercase" /></FormField>
+        <FormField label={taxIdName()} optional hint={currentTax().isGst ? '15 characters, like 27ABCDE1234F1Z5.' : 'Your tax registration number.'} error={v.error('taxId')}><Input maxLength={20} value={form.taxId} onValue={(x) => set({ taxId: x.replace(/[^A-Za-z0-9]/g, '').toUpperCase() })} className="uppercase" /></FormField>
         <FormField label="PAN" optional hint="10 characters, like ABCDE1234F." error={v.error('pan')}><Input maxLength={10} value={form.pan} onValue={(x) => set({ pan: x.replace(/[^A-Za-z0-9]/g, '').toUpperCase() })} className="uppercase" /></FormField>
         <FormField label="Address" optional className="sm:col-span-2" error={v.error('address')}><Textarea rows={2} maxLength={400} value={form.address} onValue={(x) => set({ address: x })} /></FormField>
         <div className="sm:col-span-2"><Button type="submit" variant="primary" loading={busy}>Save profile</Button></div>
+      </form>
+    </Card>
+  );
+}
+
+const TAX_NAMES = ['GST', 'VAT', 'Sales tax', 'Tax'];
+
+/**
+ * The company's currency and tax, for every branch. The currency is only the symbol shown with amounts
+ * (nothing is converted); the tax name replaces "GST" on screens and PDFs, and the tax rate is only
+ * where new items start (every rate stays editable). One request to save; the session updates in place.
+ */
+function CurrencySetting() {
+  const { company, setCompany } = useSession();
+  const saved = { currency: company.currency || 'INR', taxLabel: company.taxLabel || 'GST', taxRate: company.taxRate ?? 18 };
+  const [form, setForm] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+  const codes = CURRENCY_CODES.includes(saved.currency) ? CURRENCY_CODES : [saved.currency, ...CURRENCY_CODES];
+  const rate = Number(form.taxRate);
+  const label = String(form.taxLabel || '').trim();
+  const invalid = !label || !(rate >= 0 && rate <= 100) || form.taxRate === '';
+  const dirty = form.currency !== saved.currency || label !== saved.taxLabel || rate !== Number(saved.taxRate);
+  const save = async (e) => {
+    e.preventDefault();
+    if (invalid) return;
+    const body = { currency: form.currency, taxLabel: label, taxRate: rate };
+    setBusy(true);
+    try {
+      await api(ORG_MASTERS_API.catalogSettings, { method: 'PUT', body });
+      setCompany({ ...company, ...body });
+      toast.success('Currency and tax saved');
+    } catch (err) {
+      showError(err, 'Not saved');
+    }
+    setBusy(false);
+  };
+  const isGst = label.toUpperCase() === 'GST';
+  return (
+    <Card className="max-w-3xl">
+      <CardHeader title="Currency & tax" description="Used on every screen and PDF, in every branch. Amounts are never converted." />
+      <form onSubmit={save} noValidate className="grid gap-4 p-6 sm:grid-cols-3">
+        <FormField label="Currency" className="sm:col-span-3">
+          <Select value={form.currency} onValue={(currency) => set({ currency })}>
+            {codes.map((c) => <option key={c} value={c}>{currencyName(c)} ({c}) · {formatMoney(0, c).replace(/0$/, '').trim() || c}</option>)}
+          </Select>
+        </FormField>
+        <FormField label="Tax name" hint="Shown instead of “GST”." error={!label ? 'Enter a name, like VAT' : ''}>
+          <Input list="tax-names" maxLength={20} value={form.taxLabel} onValue={(taxLabel) => set({ taxLabel })} placeholder="GST" />
+          <datalist id="tax-names">{TAX_NAMES.map((n) => <option key={n} value={n} />)}</datalist>
+        </FormField>
+        <FormField label="Usual tax rate (%)" hint="New items start with it; you can change it on any item." error={form.taxRate !== '' && !(rate >= 0 && rate <= 100) ? 'Between 0 and 100' : ''}>
+          <Input type="number" min={0} max={100} step="any" value={form.taxRate} onValue={(taxRate) => set({ taxRate })} />
+        </FormField>
+        <div className="self-end pb-2 text-sm text-slate-600">
+          {formatMoney(100000, form.currency)} + {label || 'tax'} {rate >= 0 ? rate : 0}% = <b className="text-slate-900">{formatMoney(100000 * (1 + (rate >= 0 ? rate : 0) / 100), form.currency)}</b>
+          {isGst && <div className="text-xs text-slate-500">GST is split into CGST + SGST.</div>}
+        </div>
+        <div className="sm:col-span-3"><Button type="submit" variant="primary" loading={busy} disabled={!dirty || invalid}>Save</Button></div>
       </form>
     </Card>
   );
@@ -104,14 +165,11 @@ const ASSETS = [
   { kind: 'qr', title: 'QR code', icon: QrCode, tip: 'Square image · at least 400 × 400 px', where: 'Payment (UPI), website or contact QR on the sign-off page.' },
 ];
 
-function AssetUploader({ asset }) {
-  const { kind, title, icon: Icon, tip, where } = asset;
+/** Upload / remove one company image (`kind`: logo, signature, qr, paymentQr). */
+function useAssetUpload(kind, title) {
   const { company, setCompany } = useSession();
-  const input = useRef(null);
   const [busy, setBusy] = useState(false);
-  const [over, setOver] = useState(false);
   const url = assetUrl(company[kind]);
-
   const upload = async (file) => {
     if (!file) return;
     if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return showError('Upload a PNG, JPG or WebP image.', 'That file can’t be used');
@@ -137,6 +195,14 @@ function AssetUploader({ asset }) {
     }
     setBusy(false);
   };
+  return { url, busy, upload, remove };
+}
+
+function AssetUploader({ asset }) {
+  const { kind, title, icon: Icon, tip, where } = asset;
+  const input = useRef(null);
+  const [over, setOver] = useState(false);
+  const { url, busy, upload, remove } = useAssetUpload(kind, title);
 
   return (
     <div className="flex flex-col rounded-xl border border-slate-200">
@@ -295,7 +361,8 @@ function Branding() {
 function Proposal() {
   const { form, set, save, busy, v } = useCompanyForm(['signatoryName', 'signatoryTitle', 'qrLabel', 'tagline', 'pdfTerms']);
   return (
-    <Card className="max-w-3xl">
+    <div className="grid gap-6">
+    <Card>
       <CardHeader title="Proposal text" description="The cover tagline, and the sign-off on the last page next to your e-signature and QR code." />
       <form onSubmit={save} noValidate className="grid gap-4 p-6 sm:grid-cols-2">
         <FormField label="Signatory name" optional error={v.error('signatoryName')}><NameInput maxLength={120} value={form.signatoryName} onValue={(x) => set({ signatoryName: x })} placeholder="Anita Sharma" /></FormField>
@@ -311,6 +378,148 @@ function Proposal() {
         <div className="sm:col-span-2"><Button type="submit" variant="primary" loading={busy}>Save</Button></div>
       </form>
     </Card>
+    <BankDetails />
+    <PaymentQr />
+    </div>
+  );
+}
+
+const BANK_KEYS = ['bankAccountName', 'bankName', 'bankAccountNumber', 'bankIfsc', 'bankBranch', 'bankAccountType', 'upiId'];
+
+/** Where the client pays: printed in the "Payment details" box of the proposal, next to the QR code. */
+function BankDetails() {
+  const { form, set, save, busy, v } = useCompanyForm(BANK_KEYS);
+  return (
+    <Card>
+      <CardHeader title="Bank details" description="Printed on the proposal under “Payment details”, next to your payment QR code. Leave empty to leave them off." />
+      <form onSubmit={(e) => save(e, undefined, 'Bank details saved')} noValidate className="grid gap-4 p-6 sm:grid-cols-2">
+        <FormField label="Account holder name" optional error={v.error('bankAccountName')}><Input maxLength={120} value={form.bankAccountName} onValue={(x) => set({ bankAccountName: x })} placeholder="Surya Shakti Energy Solutions Pvt Ltd" /></FormField>
+        <FormField label="Bank name" optional error={v.error('bankName')}><Input maxLength={120} value={form.bankName} onValue={(x) => set({ bankName: x })} placeholder="State Bank of India" /></FormField>
+        <FormField label="Account number" optional error={v.error('bankAccountNumber')}><Input inputMode="numeric" maxLength={24} value={form.bankAccountNumber} onValue={(x) => set({ bankAccountNumber: x.replace(/[^\d\s]/g, '') })} placeholder="00000012345678" className="font-mono" /></FormField>
+        <FormField label="IFSC" optional error={v.error('bankIfsc')}><Input maxLength={11} value={form.bankIfsc} onValue={(x) => set({ bankIfsc: x.replace(/[^A-Za-z0-9]/g, '').toUpperCase() })} placeholder="SBIN0001234" className="font-mono uppercase" /></FormField>
+        <FormField label="Branch" optional error={v.error('bankBranch')}><Input maxLength={120} value={form.bankBranch} onValue={(x) => set({ bankBranch: x })} placeholder="Shivajinagar, Pune" /></FormField>
+        <FormField label="Account type" optional error={v.error('bankAccountType')}>
+          <select value={form.bankAccountType} onChange={(e) => set({ bankAccountType: e.target.value })} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-brand">
+            <option value="">—</option>
+            {['Current', 'Savings', 'Cash credit', 'Overdraft'].map((k) => <option key={k} value={k}>{k}</option>)}
+          </select>
+        </FormField>
+        <FormField label="UPI ID" optional hint="Shown under the payment QR code." className="sm:col-span-2" error={v.error('upiId')}><Input maxLength={80} value={form.upiId} onValue={(x) => set({ upiId: x.trim() })} placeholder="suryashakti@okhdfc" /></FormField>
+        <div className="sm:col-span-2"><Button type="submit" variant="primary" loading={busy}>Save bank details</Button></div>
+      </form>
+    </Card>
+  );
+}
+
+/**
+ * The payment QR (UPI) and the line under it: its own image, separate from the company QR in
+ * Branding (website / proposal / contact), which stays next to the signatures. Left: the image and
+ * its caption; right: how "Payment details" will look on the proposal.
+ */
+function PaymentQr() {
+  const { company, form, set, save, busy, v } = useCompanyForm(['paymentQrLabel']);
+  const img = useAssetUpload('paymentQr', 'Payment QR code');
+  const input = useRef(null);
+  const [over, setOver] = useState(false);
+  const dirty = (form.paymentQrLabel || '') !== (company.paymentQrLabel || '');
+  return (
+    <Card>
+      <CardHeader title="Payment QR code" description="Your UPI or bank QR. Clients scan it to pay. Separate from the QR code in Branding, which stays next to the signatures." />
+      <div className="grid gap-8 p-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
+        <div className="space-y-6">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
+            {/* the QR itself: a square, like it is printed */}
+            <button
+              type="button"
+              aria-label={img.url ? 'Replace payment QR code' : 'Upload payment QR code'}
+              onClick={() => input.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+              onDragLeave={() => setOver(false)}
+              onDrop={(e) => { e.preventDefault(); setOver(false); img.upload(e.dataTransfer.files?.[0]); }}
+              className={cx('group relative aspect-square w-48 shrink-0 overflow-hidden rounded-xl border-2 border-dashed transition', over ? 'border-brand bg-brand-soft' : img.url ? 'border-slate-200 hover:border-brand' : 'border-slate-300 hover:border-brand hover:bg-brand-soft/50')}
+            >
+              {img.url && <ImageFrame src={img.url} alt="Payment QR code" padding="p-3" className="absolute inset-0 h-full w-full" />}
+              {img.busy ? (
+                <span className="absolute inset-0 grid place-items-center bg-white/70"><Spinner /></span>
+              ) : img.url ? (
+                <span className="absolute inset-0 grid place-items-center bg-slate-950/55 text-[13px] font-semibold text-white opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
+                  <span className="flex items-center gap-2"><Upload className="h-4 w-4" /> Replace</span>
+                </span>
+              ) : (
+                <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center">
+                  <span className="grid h-11 w-11 place-items-center rounded-full bg-slate-100 text-slate-500 group-hover:bg-white group-hover:text-brand"><QrCode className="h-6 w-6" /></span>
+                  <span className="text-[13px] font-medium text-slate-700">Upload QR <span className="block font-normal text-slate-500">click or drag &amp; drop</span></span>
+                </span>
+              )}
+            </button>
+            <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; img.upload(f); }} />
+            <div className="min-w-0 flex-1 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-slate-900">QR image</span>
+                <Badge tone={img.url ? 'green' : 'slate'} dot>{img.url ? 'Uploaded' : 'Not set'}</Badge>
+              </div>
+              <ul className="space-y-1 text-[13px] text-slate-600">
+                <li>• Download it from your bank or UPI app (GPay, PhonePe, Paytm for Business…).</li>
+                <li>• Square image, at least 400 × 400 px. PNG, JPG or WebP up to 2 MB.</li>
+                <li>• Crop away anything around the code, so it prints large enough to scan.</li>
+              </ul>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <ImageSourceButtons onFiles={img.upload} disabled={img.busy} galleryLabel={img.url ? 'Replace from gallery' : 'Choose from gallery'} />
+                {img.url && <Button size="sm" variant="dangerGhost" icon={Trash2} disabled={img.busy} onClick={img.remove}>Remove</Button>}
+              </div>
+            </div>
+          </div>
+          <form onSubmit={(e) => save(e, undefined, 'Payment QR caption saved')} noValidate className="flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-end">
+            <FormField label="Caption under the QR" optional className="flex-1" error={v.error('paymentQrLabel')}><Input maxLength={80} value={form.paymentQrLabel} onValue={(x) => set({ paymentQrLabel: x })} placeholder="Scan to pay with any UPI app" /></FormField>
+            <Button type="submit" variant="primary" loading={busy} disabled={!dirty}>Save caption</Button>
+          </form>
+        </div>
+        <PaymentPreview qr={img.url} caption={form.paymentQrLabel} />
+      </div>
+    </Card>
+  );
+}
+
+/** "Payment details" as it prints on the proposal: the saved bank details, the QR and its caption. */
+function PaymentPreview({ qr, caption }) {
+  const company = useSession((s) => s.company);
+  const rows = [
+    ['Account name', company.bankAccountName],
+    ['Bank', company.bankName],
+    ['Account number', company.bankAccountNumber],
+    ['IFSC', company.bankIfsc],
+    ['Branch', company.bankBranch],
+    ['Account type', company.bankAccountType],
+  ].filter(([, x]) => String(x || '').trim());
+  return (
+    <div>
+      <div className="mb-2 text-xs font-medium text-slate-500">On the proposal</div>
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" aria-hidden>
+        <div className="mb-3 flex items-center gap-2 text-[10px] font-bold tracking-wide text-slate-900"><span className="text-brand">01</span> PAYMENT DETAILS <span className="h-px flex-1 bg-slate-200" /></div>
+        {rows.length || qr ? (
+          <div className="flex gap-2.5">
+            {rows.length > 0 && (
+              <div className="min-w-0 flex-1 border border-slate-200 border-t-2 border-t-brand px-2.5 py-2">
+                <div className="mb-1.5 text-[8px] font-bold text-slate-400">BANK TRANSFER (NEFT / RTGS / IMPS)</div>
+                {rows.map(([k, x]) => (
+                  <div key={k} className="flex gap-2 text-[9px] leading-[1.6]"><span className="w-[70px] shrink-0 text-slate-400">{k}</span><span className="min-w-0 truncate font-semibold text-slate-800">{x}</span></div>
+                ))}
+              </div>
+            )}
+            {qr && (
+              <div className="flex w-[104px] shrink-0 flex-col items-center bg-slate-100 px-2 py-2 text-center">
+                <span className="relative block aspect-square w-full"><ImageFrame src={qr} padding="p-0" className="h-full w-full" /></span>
+                <span className="mt-1.5 line-clamp-2 text-[8px] leading-tight font-semibold text-slate-800">{caption}</span>
+                {company.upiId && <span className="mt-0.5 truncate text-[7.5px] text-slate-500">UPI: {company.upiId}</span>}
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="py-6 text-center text-xs text-slate-400">Add bank details or a payment QR, and they appear here.</p>
+        )}
+      </div>
+      {!rows.length && <p className="mt-2 text-xs text-slate-500">No bank details saved yet. They go in the card above.</p>}
+    </div>
   );
 }
 
@@ -428,7 +637,12 @@ export default function Settings() {
       <Tabs className="mb-6 flex-wrap" tabs={TABS} value={tab} onChange={(t) => router.replace(settingsTabUrl(t), { scroll: false })} />
       {!fresh && <div className="flex justify-center py-16"><Spinner /></div>}
       {fresh && <>
-      {tab === 'profile' && <Profile />}
+      {tab === 'profile' && (
+        <div className="grid gap-6">
+          <Profile />
+          <SharedSettings><CurrencySetting /></SharedSettings>
+        </div>
+      )}
       {tab === 'branding' && <SharedSettings><Branding /></SharedSettings>}
       {tab === 'proposal' && <SharedSettings><Proposal /></SharedSettings>}
       {tab === 'invoices' && <InvoiceNumbering />}

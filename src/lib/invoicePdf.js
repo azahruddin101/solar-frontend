@@ -6,6 +6,7 @@ import { enrichLinesGst, enrichLinesHsn, expandCollapsedPackageLines, gstSupplyT
 import { PAYMENT_MODE_LABEL, fmtPdfDate, pdfSlug } from './billingPdfShared.js';
 import { invoiceDetailRows } from './invoiceDetails.js';
 import { IM, IW, baseTable, ctx, detailGrid, ensurePage, finishDocument, goodsTable, moneyFormats, partyMetaTable, signatureStrip, taxSummary, termsBlock, titleBar, wordsRow } from './gridPdf.js';
+import { currentTax } from './tax.js';
 
 const fmtDate = fmtPdfDate;
 const slug = pdfSlug;
@@ -114,7 +115,7 @@ export async function buildInvoicePdfBlob({ invoice, company = {}, client = {}, 
     metaRows.push(['Paid on', fmtDate(paid.receivedOn || invoice.issuedOn)]);
   }
   if (invoice.status === 'void') metaRows.push(['Status', 'Void']);
-  if (withGst && supply) metaRows.push(['Supply type', supply === 'igst' ? 'Inter-state (IGST)' : 'Intra-state (CGST/SGST)']);
+  if (withGst && supply && currentTax().isGst) metaRows.push(['Supply type', supply === 'igst' ? 'Inter-state (IGST)' : 'Intra-state (CGST/SGST)']);
   y = partyMetaTable(doc, brand, { y, co, cl, coState, clState, metaRows });
 
   // the optional reference & delivery details that were filled in: a two-column grid, terms of delivery across the row

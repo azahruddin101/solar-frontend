@@ -9,7 +9,20 @@ import { normalizeCatalog } from './catalog.js';
 import { buildDesign, resolveAzimuth, sectionAzimuth } from './model.js';
 import { shadingLoss } from './shading.js';
 import { useStore } from './store.js';
-import { computeStructure } from './structure.js';
+import { columnsByPole, computeStructure } from './structure.js';
+import { defaultTaxRate } from './tax.js';
+
+/** The inverter chosen among the materials in Products (custom pricing), with its quantity; null when none. */
+function inverterPickOf(catalog, config) {
+  if (config.pricingMode === 'package') return null;
+  for (const cat of catalog.materialCategories || []) {
+    if (!/inverter/i.test(cat.name)) continue;
+    const entry = config.customMaterials?.[cat.id];
+    const product = entry?.productId && cat.products?.find((p) => p.id === entry.productId);
+    if (product) return { product, qty: Number(entry.qty) || 0 };
+  }
+  return null;
+}
 
 export function useDesign() {
   const sections = useStore((s) => s.sections);
@@ -20,6 +33,7 @@ export function useDesign() {
   const solarData = useStore((s) => s.solar.data);
   const finance = useStore((s) => s.finance);
   const inverterId = useStore((s) => s.electrical.inverterId);
+  const manualStrings = useStore((s) => s.electrical.strings);
   const lat = origin?.lat ?? 28.6;
   const rawCatalog = useStore((s) => s.catalog);
   // a design can carry its own electricity rate; otherwise the company's rate applies
@@ -69,6 +83,14 @@ export function useDesign() {
   }, [catalog.pillars, config.pillarId, config.pricingMode, selectedPackage]);
 
   const design = useMemo(() => buildDesign({ sections, buildings, objects, config, lat, spec }), [sections, buildings, objects, config, lat, spec]);
+  // each group may stand on its own kind of pole (o.poleId); the project's pole is the default.
+  // A package prices the structure as one item, so every group uses the package's pole then.
+  const poleFor = useMemo(() => {
+    const byId = new Map(catalog.pillars.map((p) => [p.id, p]));
+    return (t) => (config.pricingMode === 'package' ? pillar : (t.poleId && byId.get(t.poleId)) || pillar);
+  }, [catalog.pillars, config.pricingMode, pillar]);
+  const poles = useMemo(() => columnsByPole(design.tables, poleFor), [design.tables, poleFor]);
+  const poleNames = poles.length ? poles.map((p) => p.pillar.name).join(' + ') : pillar.name;
   // in "follow the building" mode every building's panels follow its own walls
   const azimuthFor = useMemo(() => (sec) => sectionAzimuth(config, design.sections, lat, sec), [config, design.sections, lat]);
   const defaultAzimuth = useMemo(() => resolveAzimuth(config, design.sections, lat), [config, design.sections, lat]);
@@ -78,7 +100,15 @@ export function useDesign() {
   const shade = useMemo(() => shadingLoss(settled, lat), [settled, lat]);
   const structure = useMemo(() => computeStructure(design), [design]);
   const structures = useMemo(() => new Map(design.buildings.map((b) => [b.id, { ...computeStructure({ ...design, tables: design.tables.filter((t) => t.building === b.id) }), pillar }])), [design, pillar]);
-  const electrical = useMemo(() => designElectricalByBuilding(design, structures, { inverterId }), [design, structures, inverterId]);
+  // the inverter chosen in Products (its datasheet attributes drive the strings and the SLD), and its quantity
+  const inverterPick = inverterPickOf(catalog, config);
+  const invProduct = inverterPick?.product || null;
+  const invQty = inverterPick?.qty || 0;
+  // an on-grid system with the default site temperatures (no setting for these in the designer)
+  const electrical = useMemo(
+    () => designElectricalByBuilding(design, structures, { inverterId, manual: manualStrings || [], inverterProduct: invProduct, inverterQty: invQty }),
+    [design, structures, inverterId, manualStrings, invProduct, invQty],
+  );
 
   const totals = useMemo(() => {
     const eff = finance.efficiency / 100;
@@ -125,18 +155,21 @@ export function useDesign() {
   }, [design, yieldModel, shade, finance.efficiency]);
 
   const cost = useMemo(() => {
-    const pillarFt = structure.columnM * 3.281;
+    const pillarFt = structure.frameM * 3.281; // the whole frame, in the pole section
     const panels = totals.count * spec.price;
-    const pillars = pillarFt * pillar.pricePerFt;
+    const pillars = poles.reduce((a, p) => a + p.ft * p.pillar.pricePerFt, 0);
     const applyGst = config.withGst !== false;
-    const defGst = Number(config.gstPercent) || 18;
+    const defGst = Number(config.gstPercent) || defaultTaxRate(); // a design without its own rate: the company's
 
     // Dynamic material categories from company
     const cm = config.customMaterials || {};
     const categories = catalog.materialCategories || [];
     const selectedCategoryMaterials = [];
 
-    for (const cat of categories) {
+    // a package has its own price for everything: the materials picked for "my own choice" are kept
+    // (for switching back) but not added on top of it
+    const packageMode = config.pricingMode === 'package' && Boolean(selectedPackage);
+    for (const cat of packageMode ? [] : categories) {
       const entry = cm[cat.id];
       if (entry && entry.productId) {
         const prod = cat.products?.find((p) => p.id === entry.productId);
@@ -185,7 +218,7 @@ export function useDesign() {
       restLines.push(...packageToPricingLines(selectedPackage, packagePrice, defGst));
     } else {
       restLines.push({ name: 'Solar modules', detail: spec.name, qty: totals.count, unit: 'nos', rate: spec.price, gstPercent: spec.gstPercent ?? defGst, hsn: spec.hsnCode || '' });
-      if (pillars > 0) restLines.push({ name: 'Mounting structure', detail: pillar.name, qty: 1, unit: 'Nos', rate: pillars, gstPercent: pillar.gstPercent ?? defGst, hsn: pillar.hsnCode || '7308' });
+      for (const p of poles) if (p.ft > 0) restLines.push({ name: 'Mounting structure', detail: `${p.pillar.name} · ${Math.ceil(p.ft)} ft (poles ${Math.ceil(p.columnM * 3.281)}, rafters ${Math.ceil(p.rafterM * 3.281)}, purlins ${Math.ceil(p.purlinM * 3.281)}${p.braceM > 0 ? `, bracing ${Math.ceil(p.braceM * 3.281)}` : ''} ft)`, qty: 1, unit: 'Nos', rate: p.ft * p.pillar.pricePerFt, gstPercent: p.pillar.gstPercent ?? defGst, hsn: p.pillar.hsnCode || '7308' });
       if (!hasChosenMaterials) restLines.push({ name: 'Balance of system', qty: 1, unit: 'Set', rate: bosFallback, gstPercent: defGst, hsn: '85049090' });
     }
     if (floorCost > 0) restLines.push({ name: 'Floor placement', detail: `Floor ${Number(config.floorPlacement) || 0}`, qty: 1, unit: 'Nos', rate: floorCost, gstPercent: defGst, hsn: '' });
@@ -221,7 +254,7 @@ export function useDesign() {
       discountIsPercent: Boolean(config.discountIsPercent),
       discountRemark: String(config.discountRemark || '').trim(),
     };
-    const own = totals.buildings.map((b) => (isPackage ? 0 : b.count * spec.price + (structures.get(b.id)?.columnM || 0) * 3.281 * pillar.pricePerFt));
+    const own = totals.buildings.map((b) => (isPackage ? 0 : b.count * spec.price + columnsByPole(design.tables.filter((t) => t.building === b.id), poleFor).reduce((a, p) => a + p.ft * p.pillar.pricePerFt, 0)));
     const ownSum = own.reduce((a, v) => a + v, 0);
     const shares = allocate(total - Math.min(ownSum, total), totals.buildings.map((b) => b.kwp));
     const scale = ownSum > total && ownSum > 0 ? total / ownSum : 1; // never more than the price itself
@@ -252,7 +285,7 @@ export function useDesign() {
       ...gst,
       total: gst.grandTotal,
     };
-  }, [structure, structures, totals, spec, pillar, catalog, config.pricingMode, config.floorCost, config.floorPlacement, config.installationCharges, config.customMaterials, config.withGst, config.gstPercent, selectedPackage]);
+  }, [structure, structures, totals, spec, pillar, poles, poleFor, design.tables, catalog, config.pricingMode, config.floorCost, config.floorPlacement, config.installationCharges, config.customMaterials, config.withGst, config.gstPercent, config.discount, config.discountIsPercent, config.discountRemark, selectedPackage]);
 
 
 
@@ -261,6 +294,6 @@ export function useDesign() {
     [totals, finance, cost, catalog.tariff, config.outlookYears],
   );
 
-  return { ...design, catalog, pillar, cost, selectedPackage, currency: catalog.currency, lat, origin, defaultAzimuth, azimuthFor, structures, yieldModel, shade, electrical, structure, totals, fin, solarData };
+  return { ...design, catalog, pillar, poleFor, poles, poleNames, cost, selectedPackage, currency: catalog.currency, lat, origin, defaultAzimuth, azimuthFor, structures, yieldModel, shade, electrical, structure, totals, fin, solarData };
 }
 

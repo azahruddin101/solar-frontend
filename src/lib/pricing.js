@@ -1,5 +1,6 @@
 // The price breakdown saved with every proposal (design.summary.pricing). Bills and the invoice are built from it.
 import { computeGst } from './energy.js';
+import { defaultTaxRate } from './tax.js';
 
 const n = (v) => Number(v) || 0;
 const round2 = (v) => Math.round(n(v) * 100) / 100;
@@ -321,7 +322,7 @@ function quoteItemLines(it, defGst) {
 
 /** A proposal without a 3D design. */
 export function pricingFromQuote(quote) {
-  const defGst = n(quote.gstPercent) || 18;
+  const defGst = n(quote.gstPercent) || defaultTaxRate(); // no rate of its own: the company's
   const isPackage = quote.pricingMode === 'package';
   const lines = (quote.items || []).flatMap((it) => quoteItemLines(it, defGst));
   for (const it of quote.extraItems || []) {
@@ -354,7 +355,7 @@ export function pricingFromQuote(quote) {
 
 /** A design made in the 3D designer. */
 export function pricingFrom3D(design, config) {
-  const defGst = n(config.gstPercent) || 18;
+  const defGst = n(config.gstPercent) || defaultTaxRate(); // no rate of its own: the company's
   const { cost, totals, spec } = design;
   let lines;
   if (cost.isPackage) {

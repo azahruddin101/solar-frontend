@@ -4,6 +4,7 @@
 // wrong before a request is sent; the server checks again. Keep the two in step.
 import { useCallback, useMemo, useState } from 'react';
 import { z } from 'zod';
+import { currentTax } from './tax.js';
 
 // null → '' so a cleared field counts as blank; undefined (key absent) is left alone so partial updates stay partial
 const blankToEmpty = (v) => (v === null ? '' : v);
@@ -30,14 +31,23 @@ function required(check, message, { max = 200, transform = (v) => v, blank = 'Th
 const EMAIL = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.[A-Za-z]{2,}$/;
 const validEmail = (v) => EMAIL.test(v) && !v.includes('..') && !v.startsWith('.') && !v.split('@')[0].endsWith('.');
 
-/** A 10-digit Indian mobile (starting 6–9). A leading +91 / 91 / 0 and separators are accepted and dropped. */
+/**
+ * A phone number, from any country. An Indian mobile is kept as its 10 digits (a leading +91 / 91 / 0
+ * and separators are dropped, as before); any other number is kept with its country code, "+971501234567".
+ */
 const normalizePhone = (v) => {
-  let p = v.replace(/[\s().+-]/g, '');
-  if (p.length === 12 && p.startsWith('91')) p = p.slice(2);
-  else if (p.length === 11 && p.startsWith('0')) p = p.slice(1);
-  return p;
+  const raw = String(v).trim();
+  if (/[^\d\s().+-]/.test(raw)) return raw; // letters or other junk: kept, so it is rejected (not emptied)
+  let p = raw.replace(/[^\d]/g, '');
+  const plus = raw.startsWith('+') || raw.startsWith('00');
+  if (raw.startsWith('00')) p = p.slice(2); // 00 971… = +971…
+  if (p.length === 12 && p.startsWith('91') && /^[6-9]/.test(p.slice(2))) return p.slice(2); // +91 98765 43210
+  if (!plus && p.length === 11 && p.startsWith('0') && /^[6-9]/.test(p.slice(1))) return p.slice(1); // 098765 43210
+  if (!plus) return p; // no country code: must be an Indian mobile (so a mistyped one is caught, not read as abroad)
+  return p ? `+${p}` : '';
 };
-const validPhone = (v) => /^[6-9]\d{9}$/.test(v);
+// an Indian mobile (10 digits, 6–9 first), or another country's number: + country code, 8–15 digits (E.164)
+const validPhone = (v) => /^[6-9]\d{9}$/.test(v) || (/^\+[1-9]\d{7,14}$/.test(v) && !v.startsWith('+91')); // +91 must be a real Indian mobile
 
 /** PAN: 5 letters, 4 digits, 1 letter; the 4th letter is the holder type (P person, C company, …). */
 const validPan = (v) => /^[A-Z]{3}[ABCFGHJKLPT][A-Z]\d{4}[A-Z]$/.test(v);
@@ -61,9 +71,14 @@ const ORG = /^[\p{L}\p{N}][\p{L}\p{N}\p{M}\s.,&'’()/+-]*$/u;
 
 export const emailRequired = required(validEmail, 'Enter a valid email address (like name@company.com)', { transform: (v) => v.toLowerCase(), blank: 'Email is required' });
 export const emailOptional = optional(validEmail, 'Enter a valid email address (like name@company.com)', { transform: (v) => v.toLowerCase() });
-export const phoneOptional = optional(validPhone, 'Enter a valid 10-digit mobile number (starting with 6, 7, 8 or 9)', { max: 20, transform: normalizePhone });
+export const phoneOptional = optional(validPhone, 'Enter a valid mobile number: 10 digits in India, or with the country code elsewhere (like +971 50 123 4567)', { max: 20, transform: normalizePhone });
 export const panOptional = optional(validPan, 'Enter a valid PAN, like ABCDE1234F', { max: 10, transform: (v) => v.toUpperCase() });
-export const gstinOptional = optional(validGstin, 'Enter a valid 15-character GSTIN, like 27ABCDE1234F1Z5', { max: 15, transform: (v) => v.toUpperCase() });
+/** Another country's tax number (VAT, TIN…): 4–20 letters and digits, at least two digits. */
+// (something that starts like a GSTIN, 2 digits + 5 letters, must be a valid GSTIN: catches typos)
+const validTaxNumber = (v) => !/^\d{2}[A-Z]{5}/.test(v) && /^[A-Z0-9][A-Z0-9 ./-]{3,19}$/.test(v) && /\d.*\d/.test(v); // real tax numbers carry digits
+// a GST company's numbers must be real GSTINs; any other tax takes its own country's number
+const validTaxId = (v) => (currentTax().isGst ? validGstin(v) : validTaxNumber(v));
+export const gstinOptional = optional(validTaxId, 'Enter a valid tax number (a GSTIN looks like 27ABCDE1234F1Z5)', { max: 20, transform: (v) => v.toUpperCase() });
 export const websiteOptional = optional(validWebsite, 'Enter a valid website, like www.example.com');
 export const personNameRequired = required((v) => v.length >= 2 && PERSON.test(v), 'Enter a valid name (letters only, at least 2)', { max: 120, blank: 'Name is required' });
 export const personNameOptional = optional((v) => v.length >= 2 && PERSON.test(v), 'Enter a valid name (letters only, at least 2)', { max: 120 });
@@ -183,8 +198,18 @@ export const companySelfSchema = obj({
   signatoryName: f.personNameOptional,
   signatoryTitle: f.textOptional(80, 'Title'),
   qrLabel: f.textOptional(80, 'QR label'),
+  paymentQrLabel: f.textOptional(80, 'Payment QR caption'),
+  bankAccountName: f.textOptional(120, 'Account name'),
+  bankName: f.textOptional(120, 'Bank name'),
+  bankAccountNumber: f.z.preprocess((v) => (typeof v === 'string' ? v.replace(/\s+/g, '') : v), f.z.string().regex(/^\d{6,20}$|^$/, 'Account number is 6 to 20 digits')).optional(),
+  bankIfsc: f.z.preprocess((v) => (typeof v === 'string' ? v.trim().toUpperCase() : v), f.z.string().regex(/^[A-Z]{4}0[A-Z0-9]{6}$|^$/, 'IFSC looks like SBIN0001234')).optional(),
+  bankBranch: f.textOptional(120, 'Branch'),
+  bankAccountType: f.textOptional(40, 'Account type'),
+  upiId: f.z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), f.z.string().regex(/^[\w.-]{2,}@[a-zA-Z][\w.-]*$|^$/, 'UPI ID looks like name@bank')).optional(),
   tagline: f.textOptional(160, 'Tagline'),
   currency: f.currencyCode.optional(),
+  taxLabel: f.textOptional(20, 'Tax name'),
+  taxRate: f.num({ min: 0, max: 100, label: 'Tax rate' }).optional(),
   tariff: f.num({ min: 0, max: 1000, label: 'Tariff' }).optional(),
   otherCostPerKw: f.num({ min: 0, max: 1e7, label: 'Other cost per kW' }).optional(),
 }).partial();

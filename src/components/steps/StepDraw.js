@@ -7,6 +7,7 @@ import { useStore } from '@/lib/store';
 import Editor2D from '../editor/Editor2D';
 import { cx } from '../ui';
 import { Card, RoundBtn } from './common';
+import { DetectRoofHero } from './RoofDetect';
 
 const key = (k) => window.dispatchEvent(new KeyboardEvent('keydown', { key: k }));
 
@@ -73,6 +74,7 @@ export default function StepDraw({ design }) {
   const renameBuilding = useStore((s) => s.renameBuilding);
   const removeBuilding = useStore((s) => s.removeBuilding);
   const addingBuilding = tool === 'draw-section' && pendingKey === 'building';
+  const origin = useStore((s) => s.origin);
 
   useEffect(() => {
     if (!useStore.getState().sections.length) set({ tool: 'draw-section' });
@@ -81,6 +83,11 @@ export default function StepDraw({ design }) {
   return (
     <Editor2D design={design} showPanels={false} showObjects={false} editSections>
       <RoofHelp drawing={tool === 'draw-section'} />
+      {!sections.length && (
+        <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2">
+          <DetectRoofHero point={origin} />
+        </div>
+      )}
       {tool === 'draw-section' && (
         <div className="absolute bottom-6 right-6 flex gap-2" onPointerDown={(e) => e.stopPropagation()}>
           <button type="button" onClick={() => key('Backspace')} className="h-12 rounded-md bg-white px-5 text-sm font-semibold shadow-lg hover:bg-slate-50">Undo last point</button>

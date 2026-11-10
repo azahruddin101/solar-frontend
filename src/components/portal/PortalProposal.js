@@ -16,6 +16,7 @@ import { useResource } from '@/lib/useResource';
 import { Alert, Badge, Button, Card, FormField, IconButton, LoadingBlock, Modal, RichTextContent, Table, Td, Textarea, Th, Tr, buttonClass, formatDate, toast } from '../kit';
 import { DesignStatusBadge } from '../dashboard/shared';
 import { netAfterSubsidy, subsidyOf } from '@/lib/subsidy';
+import { taxLines, taxOf } from '@/lib/tax';
 
 const RESPONSE_COPY = {
   accepted: {
@@ -207,10 +208,10 @@ export default function PortalProposal({ id }) {
                   <Td className="text-right tabular-nums">{money(l.amount)}</Td>
                 </Tr>
               ))}
-              {tax?.rate > 0 && [['Taxable value', tax.taxable], [`CGST @ ${tax.rate / 2}%`, tax.cgst], [`SGST @ ${tax.rate / 2}%`, tax.sgst]].map(([k, v]) => (
+              {tax?.rate > 0 && [['Taxable value', tax.taxable], ...taxLines(taxOf(company), { gst: tax.gst, cgst: tax.cgst, sgst: tax.sgst }, tax.rate)].map(([k, v]) => (
                 <Tr key={k}><Td className="text-slate-600" colSpan={3}>{k}</Td><Td className="text-right tabular-nums">{money(v)}</Td></Tr>
               ))}
-              <Tr><Td className="font-semibold text-slate-900" colSpan={3}>Total{pricing.withGst !== false && tax?.gst ? ' (incl. GST)' : ''}</Td><Td className="text-right font-semibold tabular-nums text-slate-900">{money(total)}</Td></Tr>
+              <Tr><Td className="font-semibold text-slate-900" colSpan={3}>Total{pricing.withGst !== false && tax?.gst ? ` (incl. ${taxOf(company).label})` : ''}</Td><Td className="text-right font-semibold tabular-nums text-slate-900">{money(total)}</Td></Tr>
               {subsidyOf(p.subsidy).on && (
                 <>
                   {subsidyOf(p.subsidy).central > 0 && <Tr><Td className="text-slate-600" colSpan={3}>Central government subsidy</Td><Td className="text-right tabular-nums">− {money(subsidyOf(p.subsidy).central)}</Td></Tr>}

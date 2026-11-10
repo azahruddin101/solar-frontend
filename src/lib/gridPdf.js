@@ -9,6 +9,7 @@ import { formatMoney } from './energy.js';
 import { pdfKit } from './pdf.js';
 import { drawRichText, richTextIsEmpty } from './pdfRichText.js';
 import { amountInWords, amountInWordsInr } from './billingPdfShared.js';
+import { currentTax } from './tax.js';
 
 const { text, clip, wrap, tableStyle, placeImage } = pdfKit;
 const { W, H } = pdfKit.pageSize;
@@ -67,7 +68,7 @@ export function companyLines(co, coState) {
     co.name,
     co.address,
     [co.phone, co.email].filter(Boolean).join('  |  '),
-    co.taxId ? `GSTIN/UIN: ${co.taxId}` : '',
+    co.taxId ? `${currentTax().isGst ? 'GSTIN/UIN' : currentTax().idLabel}: ${co.taxId}` : '',
     coState ? `State: ${coState}` : '',
   ].filter(Boolean);
 }
@@ -78,7 +79,7 @@ export function clientLines(cl, clState) {
     ...(cl.company && cl.company !== name ? [cl.company, name] : [name]), // a company is the bold heading, the contact person below it
     cl.address,
     [cl.phone && `Mob: ${cl.phone}`, cl.email].filter(Boolean).join('  |  '),
-    cl.gstNumber ? `GSTIN/UIN: ${cl.gstNumber}` : '',
+    cl.gstNumber ? `${currentTax().isGst ? 'GSTIN/UIN' : currentTax().idLabel}: ${cl.gstNumber}` : '',
     clState ? `State: ${clState}` : '',
   ].filter(Boolean);
 }
@@ -287,8 +288,11 @@ export function goodsTable(doc, brand, { y, groups, withGst, amt, rs, extraRows 
     if (withGst) foot('Taxable value', amt(tax.taxable));
   }
   const qtyTotal = all.reduce((a, l) => a + (Number(l.qty) || 0), 0);
-  if (withGst && useIgst && tax.igst > 0) foot('IGST', amt(tax.igst));
-  if (withGst && !useIgst && (tax.cgst > 0 || tax.sgst > 0)) {
+  const tx = currentTax();
+  // a tax other than GST (VAT…): one line; GST: IGST, or CGST + SGST
+  if (withGst && !tx.isGst && tax.gst > 0) foot(tx.label, amt(tax.gst));
+  if (withGst && tx.isGst && useIgst && tax.igst > 0) foot('IGST', amt(tax.igst));
+  if (withGst && tx.isGst && !useIgst && (tax.cgst > 0 || tax.sgst > 0)) {
     foot('CGST', amt(tax.cgst));
     foot('SGST', amt(tax.sgst));
   }
@@ -301,7 +305,7 @@ export function goodsTable(doc, brand, { y, groups, withGst, amt, rs, extraRows 
 
   const descW = IW - 11 - 18 - 20 - 20 - 12 - (withGst ? 16 : 0) - 24;
   const head = withGst
-    ? [['Sl\nNo.', descriptionHead, 'HSN/SAC', 'Quantity', 'Rate', 'per', 'GST', 'Amount']]
+    ? [['Sl\nNo.', descriptionHead, 'HSN/SAC', 'Quantity', 'Rate', 'per', currentTax().label, 'Amount']]
     : [['Sl\nNo.', descriptionHead, 'HSN/SAC', 'Quantity', 'Rate', 'per', 'Amount']];
   const columnStyles = withGst
     ? {
@@ -354,8 +358,10 @@ export function wordsRow(doc, brand, y, label, words) {
 }
 
 /** GST by HSN/SAC — CGST + SGST columns, or one IGST column for an inter-state supply — and the tax in words. */
-export function taxSummary(doc, brand, { y, tax, useIgst, amt, currency }) {
+export function taxSummary(doc, brand, { y, tax, useIgst: igst, amt, currency }) {
   if (!(tax.gst > 0)) return y;
+  const tx = currentTax();
+  const useIgst = igst || !tx.isGst; // any tax other than GST: one tax column, like IGST
   y = ensurePage(doc, y, 32);
   const rows = (tax.taxByHsn?.length ? tax.taxByHsn : [{ hsn: '-', taxable: tax.taxable, gst: tax.gst, rate: tax.rate }]).map((r) => {
     if (useIgst) return [r.hsn, amt(r.taxable), r.rate != null ? `${r.rate}%` : '', amt(r.gst), amt(r.gst)];
@@ -364,7 +370,7 @@ export function taxSummary(doc, brand, { y, tax, useIgst, amt, currency }) {
     return [r.hsn, amt(r.taxable), halfRate, amt(half), halfRate, amt(half), amt(r.gst)];
   });
   const head = useIgst
-    ? [['HSN/SAC', 'Taxable\nValue', { content: 'Integrated Tax', colSpan: 2, styles: { halign: 'center' } }, 'Total\nTax Amount'], ['', '', 'Rate', 'Amount', '']]
+    ? [['HSN/SAC', 'Taxable\nValue', { content: tx.isGst ? 'Integrated Tax' : tx.label, colSpan: 2, styles: { halign: 'center' } }, 'Total\nTax Amount'], ['', '', 'Rate', 'Amount', '']]
     : [['HSN/SAC', 'Taxable\nValue', { content: 'CGST', colSpan: 2, styles: { halign: 'center' } }, { content: 'SGST', colSpan: 2, styles: { halign: 'center' } }, 'Total\nTax Amount'], ['', '', 'Rate', 'Amount', 'Rate', 'Amount', '']];
   y = baseTable(doc, brand, {
     startY: y,

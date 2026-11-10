@@ -7,6 +7,7 @@ import { loadBranding } from './branding.js';
 import { gstSupplyType, invoiceTax, stateFromGstin } from './pricing.js';
 import { PAYMENT_MODE_LABEL, fmtPdfDate, pdfSlug } from './billingPdfShared.js';
 import { IM, IW, baseTable, ctx, ensurePage, finishDocument, goodsTable, moneyFormats, partyMetaTable, signatureStrip, taxSummary, termsBlock, titleBar, wordsRow } from './gridPdf.js';
+import { currentTax } from './tax.js';
 
 /** Build the credit note PDF. `billNo` is the bill it is against (the note's populated `bill` carries it too). */
 export async function buildCreditNotePdfBlob({ note, billNo = '', company = {}, client = {}, currency = 'INR' }) {
@@ -39,7 +40,7 @@ export async function buildCreditNotePdfBlob({ note, billNo = '', company = {}, 
     ['Refunded by', [PAYMENT_MODE_LABEL[refund.mode] || refund.mode, refund.reference].filter(Boolean).join(' · ') || '—'],
     ['Refunded on', refund.refundedOn ? fmtPdfDate(refund.refundedOn) : fmtPdfDate(note.issuedOn)],
   ];
-  if (withGst && supply) metaRows.push(['Supply type', supply === 'igst' ? 'Inter-state (IGST)' : 'Intra-state (CGST/SGST)']);
+  if (withGst && supply && currentTax().isGst) metaRows.push(['Supply type', supply === 'igst' ? 'Inter-state (IGST)' : 'Intra-state (CGST/SGST)']);
   y = partyMetaTable(doc, brand, { y, co, cl, coState: stateFromGstin(co.taxId), clState: stateFromGstin(cl.gstNumber), metaRows });
 
   const extraRows = pricing.discountAmount > 0 ? [['Discount reversed', `-${amt(pricing.discountAmount)}`]] : [];

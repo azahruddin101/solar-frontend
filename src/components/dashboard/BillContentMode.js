@@ -4,6 +4,7 @@ import { Plus, X } from 'lucide-react';
 import { useMemo } from 'react';
 import { roundMoney, summarizeLinePricing } from '@/lib/pricing';
 import { Button, Select, cx } from '../kit';
+import { defaultTaxRate, taxName } from '@/lib/tax';
 
 /** Shared CRM-style document chrome for product bills and invoices. */
 export const billDoc = {
@@ -44,7 +45,7 @@ export function BillSection({ title, hint, children, className, bodyClassName, a
 const field = billDoc.field;
 
 let seq = 0;
-export const blankServiceRow = (gst = 18) => ({ key: `s${++seq}`, chargeId: '', name: '', description: '', hsn: '', qty: 1, unit: 'Nos', rate: 0, gstPercent: gst });
+export const blankServiceRow = (gst = defaultTaxRate()) => ({ key: `s${++seq}`, chargeId: '', name: '', description: '', hsn: '', qty: 1, unit: 'Nos', rate: 0, gstPercent: gst });
 
 /** Service lines table + add row (used on product bills and tax invoices). */
 export function ServiceLinesEditor({ services, setServices, charges, withGst, money, className, hideHeader }) {
@@ -129,7 +130,7 @@ export function DiscountEditor({ active, setActive, discount, setDiscount, disco
             <div className="flex flex-wrap items-center gap-2">
               <input type="number" min={0} step="any" value={discount || ''} placeholder="0" onChange={(e) => setDiscount(Math.max(0, Number(e.target.value) || 0))} className={cx(field, 'w-24 text-right tabular-nums')} aria-label="Discount amount" />
               <div className="inline-flex rounded border border-slate-200 bg-white p-0.5 text-[11px] font-medium">
-                {[[false, '₹'], [true, '%']].map(([pct, label]) => (
+                {[[false, money(0).replace(/[\d.,\s]+$/, '') || 'Flat'], [true, '%']].map(([pct, label]) => (
                   <button key={label} type="button" onClick={() => setDiscountIsPercent(pct)} className={cx('rounded px-2 py-0.5 tabular-nums', discountIsPercent === pct ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50')}>{label}</button>
                 ))}
               </div>
@@ -148,7 +149,7 @@ export function DiscountEditor({ active, setActive, discount, setDiscount, disco
           </div>
         )}
         <div className="flex justify-between gap-4 border-t border-slate-100 pt-2"><dt className="text-slate-600">{withGst ? 'Taxable amount' : 'Subtotal'}{active && summary.discountAmount > 0 ? ' (after discount)' : ''}</dt><dd className="tabular-nums text-slate-900">{money(summary.subtotal)}</dd></div>
-        {withGst && summary.gstTotal > 0 && <div className="flex justify-between gap-4"><dt className="text-slate-600">Tax (GST)</dt><dd className="tabular-nums text-slate-900">{money(summary.gstTotal)}</dd></div>}
+        {withGst && summary.gstTotal > 0 && <div className="flex justify-between gap-4"><dt className="text-slate-600">Tax ({taxName()})</dt><dd className="tabular-nums text-slate-900">{money(summary.gstTotal)}</dd></div>}
         <div className="flex justify-between gap-4 border-t border-slate-200 pt-3"><dt className="text-base font-semibold text-slate-900">{totalLabel}</dt><dd className="text-base font-semibold tabular-nums text-slate-900">{money(summary.total)}</dd></div>
       </dl>
   );

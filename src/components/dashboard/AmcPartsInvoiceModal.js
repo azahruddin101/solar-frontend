@@ -12,6 +12,7 @@ import { roundMoney } from '@/lib/pricing';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { Alert, Button, FormModal, IconButton, Input, Select, Toggle, cx, showError, toast } from '../kit';
+import { taxName } from '@/lib/tax';
 
 const PRICE_TYPES = [{ id: 'retail', label: 'Retail' }, { id: 'wholesale', label: 'Wholesale' }, { id: 'base', label: 'Base' }];
 const PRICE_FIELD = { base: 'basePrice', wholesale: 'wholesalePrice', retail: 'retailPrice' };
@@ -161,10 +162,10 @@ export default function AmcPartsInvoiceModal({ visit, base, currency = 'INR', on
       <Button size="sm" icon={Plus} className="mt-3" disabled={lines.length >= 50} onClick={() => setLines((rows2) => [...rows2, blankLine()])}>Add another part</Button>
 
       <div className="mt-5 space-y-4 border-t border-slate-200 pt-4">
-        <Toggle checked={withGst} onChange={setWithGst} label="GST invoice" description="GST is added at each product’s rate. Switch off for a plain invoice." />
+        <Toggle checked={withGst} onChange={setWithGst} label={`${taxName()} invoice`} description={`${taxName()} is added at each product’s rate. Switch off for a plain invoice.`} />
         <Input maxLength={300} value={note} onValue={setNote} placeholder="Note for the activity log (optional)" />
         <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-500">Parts total{withGst ? ' before GST' : ''}</span>
+          <span className="text-slate-500">Parts total{withGst ? ` before ${taxName()}` : ''}</span>
           <span className="text-lg font-semibold text-slate-900 tabular-nums">{money(subtotal)}</span>
         </div>
         <p className="text-xs text-slate-500">Prices are taken from the batches in stock, oldest first; the invoice shows one line per batch at that batch’s price.</p>

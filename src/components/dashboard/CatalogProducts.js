@@ -16,6 +16,7 @@ import { exportPanels, importPanels } from '@/lib/excel';
 import { useResource } from '@/lib/useResource';
 import { useCatalogCan } from '@/lib/useCan';
 import { Alert, Badge, Button, Card, EmptyState, FormField, Input, LoadingBlock, Modal, Select, Table, Td, Textarea, Th, Tr, cx, showError, toast } from '../kit';
+import { defaultTaxRate, taxName } from '@/lib/tax';
 
 // first letter upper-case as it is typed (the rest is left alone, spaces included)
 const upperFirst = (v) => v.replace(/^\s+/, '').replace(/^./, (c) => c.toUpperCase());
@@ -27,7 +28,7 @@ const BLANK = (units) => ({
   sku: '',
   hsnCode: '',
   unit: normalizeProductUnit('', units),
-  gstPercent: 18,
+  gstPercent: defaultTaxRate(),
   warrantyMonths: '',
   reorderLevel: 0,
   isSerialized: false,
@@ -190,7 +191,7 @@ export function ProductForm({ product, category, categories, brands, units, onCl
               {unitOptions.map((u) => <option key={u} value={u}>{u}</option>)}
             </Select>
           </FormField>
-          <FormField label="GST %" error={v.error('gstPercent')} hint=""><Input type="number" min={0} max={100} step="any" value={form.gstPercent ?? 18} onValue={(x) => set({ gstPercent: num(x) })} /></FormField>
+          <FormField label={`${taxName()} %`} error={v.error('gstPercent')} hint=""><Input type="number" min={0} max={100} step="any" value={form.gstPercent ?? defaultTaxRate()} onValue={(x) => set({ gstPercent: num(x) })} /></FormField>
           <FormField label="Reorder level" error={v.error('reorderLevel')}><Input type="number" min={0} step="any" value={form.reorderLevel ?? 0} onValue={(x) => set({ reorderLevel: num(x) })} /></FormField>
         </div>
         <label className={cx('flex items-start gap-2.5 rounded-lg border border-slate-200 px-3 py-2.5', trackingLocked && 'opacity-70')}>

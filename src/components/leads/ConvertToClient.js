@@ -6,11 +6,11 @@ import { api } from '@/lib/api';
 import { toast } from '../kit';
 import ClientForm from '../dashboard/ClientForm';
 
-/** The lead's details as a new client (phone as the 10-digit mobile the client form expects). */
+/** The lead's details as a new client (the phone as given: the client form keeps an Indian mobile as 10 digits and any other number with its country code). */
 export function clientFromLead({ name, phone, address, email, source }) {
   return {
     name: name || '',
-    phone: String(phone || '').replace(/\D/g, '').slice(-10),
+    phone: String(phone || '').trim(),
     address: address || '',
     email: email || '',
     source: source === 'meta' ? 'Social Media' : source === 'google' ? 'Advertisement' : 'Other',

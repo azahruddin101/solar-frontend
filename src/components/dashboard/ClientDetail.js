@@ -14,6 +14,7 @@ import ClientCredentials from './ClientCredentials';
 import ClientRelated, { AREA_TONE, ClientMoneyCard, SideHeading, useClientOverview } from './ClientRelated';
 import { DESIGN_STATUSES, GRID_TYPE_LABEL, NewDesignModal, PROJECT_TYPE_LABEL, ROOF_TYPE_LABEL, designHref } from './shared';
 import { useBreadcrumb } from '@/lib/breadcrumbs';
+import { taxIdName } from '@/lib/tax';
 
 function formatFileSize(bytes) {
   if (!bytes) return '0 B';
@@ -195,7 +196,7 @@ export default function ClientDetail({ id, basePath = '/dashboard/clients', bill
 
               {client.projectType !== 'residential' && (
                 <div>
-                  <span className="text-xs text-slate-400">GST Number</span>
+                  <span className="text-xs text-slate-400">{taxIdName()}</span>
                   <p className="mt-0.5 text-sm font-mono font-medium text-slate-900">{client.gstNumber || '—'}</p>
                 </div>
               )}

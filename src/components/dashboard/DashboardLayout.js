@@ -13,13 +13,12 @@ const NAV_BASE = [
       { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true },
       { href: '/dashboard/leads', label: 'Leads', icon: Megaphone }, // the sources are tabs inside the page (LeadSourceTabs)
       { href: '/dashboard/clients', label: 'Clients', icon: Users },
+      { href: '/dashboard/designs', label: 'Proposals', icon: PenTool },
+      { href: '/dashboard/billing', label: 'Billing & Invoices', icon: Receipt },
       { href: '/dashboard/loans', label: 'Loans', icon: Landmark },
       { href: '/dashboard/subsidies', label: 'Subsidies', icon: BadgeIndianRupee },
-      { href: '/dashboard/designs', label: 'Proposals', icon: PenTool },
       { href: '/dashboard/estimation', label: 'Estimation', icon: Calculator },
-      { href: '/dashboard/billing', label: 'Billing & Invoices', icon: Receipt },
       { href: '/dashboard/expenses', label: 'Expenses', icon: WalletCards },
-      { href: '/dashboard/packages', label: 'Packages', icon: Boxes },
       { href: '/dashboard/installations', label: 'Task Management', icon: HardHat },
       { href: '/dashboard/amc', label: 'AMC tracker', icon: CalendarClock },
       { href: '/dashboard/client-support', label: 'Client support', icon: Headset },
@@ -30,6 +29,7 @@ const NAV_BASE = [
     items: [
       { href: '/dashboard/team', label: 'Staff Management', icon: UserCog },
       { href: '/dashboard/catalog', label: 'Inventory', icon: PanelsTopLeft },
+      { href: '/dashboard/packages', label: 'Packages', icon: Boxes },
       { href: '/dashboard/suppliers', label: 'Suppliers', icon: Truck },
       { href: '/dashboard/masters', label: 'Manage Masters', icon: SlidersHorizontal, branchOnly: true },
       { href: '/dashboard/settings', label: 'Settings', icon: Settings },

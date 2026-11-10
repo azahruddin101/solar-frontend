@@ -18,12 +18,15 @@ import { formatMoney, formatNumber } from './energy.js';
 import { pricingFromQuote } from './pricing.js';
 import { compassLabel } from './geo.js';
 import { rectPoly } from './geometry.js';
-import { ridgeSegment } from './model.js';
+import { PATH_COLORS, ridgeSegment, roofShapeLabel } from './model.js';
 import { drawRichText, richTextIsEmpty } from './pdfRichText.js';
-import { drawSld, sldSchedule } from './pdfSld.js';
+import { drawSldSheet, sldSchedule, sldSheets } from './pdfSld.js'; // sldSchedule: the quote PDF's schedule
+import { STATUS_TEXT } from './sld/validate.js';
 import { appendShadowReport } from './shadowReport/shadowReportPdf.js';
 import { MONTHS } from './sun.js';
 import { netAfterSubsidy, subsidyOf } from './subsidy';
+import { proposalBomRows } from './proposalBom.js';
+import { taxLines, taxOf } from './tax.js';
 
 // A4 portrait, millimetres
 const W = 210;
@@ -222,7 +225,8 @@ function drawLayout(doc, r, design, x, y, w, h, colorStrings) {
   doc.rect(x, y, w, h, 'FD');
   const pts = [...design.sections.flatMap((s) => s.poly), ...design.tables.flatMap((t) => t.poly)];
   const bb = { minX: Math.min(...pts.map((p) => p.x)), maxX: Math.max(...pts.map((p) => p.x)), minY: Math.min(...pts.map((p) => p.y)), maxY: Math.max(...pts.map((p) => p.y)) };
-  const { map, scale } = fit(bb, x + 6, y + 14, w - 12, h - 28);
+  const legendRoom = design.tables.some((t) => t.valid && t.pathways?.length) ? 5 : 0; // a legend line for the pathways
+  const { map, scale } = fit(bb, x + 6, y + 14 + legendRoom, w - 12, h - 28 - legendRoom);
   const { stringOf, strings } = design.electrical;
 
   for (const s of design.sections) {
@@ -290,6 +294,53 @@ function drawLayout(doc, r, design, x, y, w, h, colorStrings) {
     }
   }
 
+  // pathways left for cleaning: a light tint of their colour (amber between rows, blue between
+  // columns); on the array layout each base's first pathway of each direction gets its width
+  const tint = (c, k) => hex(c).map((v) => Math.round(v + (255 - v) * k));
+  const pathTables = design.tables.filter((t) => t.valid && t.pathways?.length);
+  for (const t of pathTables) {
+    for (const p of t.pathways) {
+      doc.setFillColor(...tint(PATH_COLORS[p.axis], 0.45));
+      doc.setDrawColor(...hex(PATH_COLORS[p.axis]));
+      doc.setLineWidth(0.15);
+      poly(doc, p.poly.map(map), 'FD');
+    }
+    if (colorStrings) continue;
+    for (const axis of ['row', 'col']) {
+      const p = t.pathways.find((q) => q.axis === axis);
+      if (!p) continue;
+      const [a, b] = p.dim.map(map);
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len < 0.4) continue; // too small at this scale to mark
+      const n = { x: (-(b.y - a.y) / len) * 0.9, y: ((b.x - a.x) / len) * 0.9 };
+      doc.setDrawColor(...INK);
+      doc.setLineWidth(0.2);
+      doc.line(a.x, a.y, b.x, b.y);
+      for (const q of [a, b]) doc.line(q.x - n.x, q.y - n.y, q.x + n.x, q.y + n.y);
+      const label = `${Math.round(p.width * 100)} cm`;
+      doc.setFontSize(5.5);
+      const tw = doc.getTextWidth(label) + 1.4;
+      const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      doc.setFillColor(...hex(PATH_COLORS[axis]));
+      doc.roundedRect(m.x - tw / 2, m.y - 1.6, tw, 3.2, 0.6, 0.6, 'F');
+      text(doc, label, m.x, m.y + 0.95, { size: 5.5, style: 'bold', color: WHITE, align: 'center' });
+    }
+  }
+  // the pathways in the legend: one entry per direction, with how many and their width(s)
+  const pathLegend = ['row', 'col'].map((axis) => {
+    const list = pathTables.flatMap((t) => t.pathways.filter((p) => p.axis === axis));
+    if (!list.length) return null;
+    const widths = [...new Set(list.map((p) => Math.round(p.width * 100)))].sort((a, c) => a - c).join(' / ');
+    return { axis, label: `Pathway between ${axis === 'row' ? 'rows' : 'columns'} (${list.length}, ${widths} cm)` };
+  }).filter(Boolean);
+  const legendPath = (lx, ly) => pathLegend.forEach((e, i) => {
+    doc.setFillColor(...tint(PATH_COLORS[e.axis], 0.45));
+    doc.setDrawColor(...hex(PATH_COLORS[e.axis]));
+    doc.setLineWidth(0.15);
+    doc.rect(lx + i * 62, ly, 3, 3, 'FD');
+    text(doc, e.label, lx + i * 62 + 4.2, ly + 2.5, { size: 7, color: BODY });
+  });
+
   // north arrow
   const nx = x + w - 9;
   doc.setFillColor(...INK);
@@ -309,10 +360,12 @@ function drawLayout(doc, r, design, x, y, w, h, colorStrings) {
       doc.rect(lx, ly, 3, 3, 'F');
       text(doc, `${s.name} (${s.count})`, lx + 4.2, ly + 2.5, { size: 7, color: BODY });
     });
+    legendPath(x + 5, y + 5 + Math.ceil(Math.min(16, strings.length) / 8) * 5);
   } else {
     doc.setFillColor(...r.brand.primary);
     doc.rect(x + 5, y + 5, 3, 3, 'F');
     text(doc, `PV module (${design.totals.count})`, x + 9.2, y + 7.5, { size: 7, color: BODY });
+    legendPath(x + 5, y + 10);
   }
 }
 
@@ -408,8 +461,58 @@ function paybackChart(doc, r, fin, y, compact) {
 
 /* ───────────── sign-off ───────────── */
 
+/**
+ * "Payment details": the company's bank account on the left, its QR code (with the caption and
+ * UPI ID) on the right. Either may be missing; nothing at all when neither is set.
+ * Returns the y below it.
+ */
+function paymentDetails(doc, r, y) {
+  const c = r.company;
+  const qr = r.brand.paymentQr; // the payment QR, not the proposal / website QR
+  const rows = [
+    ['Account name', c.bankAccountName],
+    ['Bank', c.bankName],
+    ['Account number', c.bankAccountNumber],
+    ['IFSC', c.bankIfsc],
+    ['Branch', c.bankBranch],
+    ['Account type', c.bankAccountType],
+    ...(qr ? [] : [['UPI ID', c.upiId]]), // with a QR the UPI ID goes under it
+  ].filter(([, v]) => String(v || '').trim());
+  if (!rows.length && !qr) return y;
+  const qrW = qr ? 44 : 0;
+  const boxH = Math.max(qr ? 50 : 0, 10 + rows.length * 6.2);
+  y = section(doc, r, 'Payment details', ensure(doc, r, y, boxH + 12));
+  const gap = rows.length && qr ? 6 : 0;
+  const w = CW - qrW - gap;
+  if (rows.length) {
+    doc.setDrawColor(...LINE);
+    doc.setLineWidth(0.3);
+    doc.rect(M, y, w, boxH);
+    doc.setFillColor(...r.brand.primary);
+    doc.rect(M, y, w, 0.9, 'F');
+    text(doc, 'BANK TRANSFER (NEFT / RTGS / IMPS)', M + 4, y + 7, { size: 6.5, style: 'bold', color: MUTED });
+    rows.forEach(([k, v], i) => {
+      const ry = y + 13.5 + i * 6.2;
+      text(doc, k, M + 4, ry, { size: 8, color: MUTED });
+      text(doc, clip(doc, String(v), w - 46, 9, 'bold'), M + 40, ry, { size: 9, style: 'bold', color: INK });
+    });
+  }
+  if (qr) {
+    const x = M + w + gap;
+    doc.setFillColor(...SOFT);
+    doc.rect(x, y, qrW, boxH, 'F');
+    placeImage(doc, qr, x + 5, y + 3, qrW - 10, 32, 'center');
+    const lines = [...wrap(doc, c.paymentQrLabel || '', qrW - 6, 7, 'bold').slice(0, 2)];
+    text(doc, lines, x + qrW / 2, y + 39, { size: 7, style: 'bold', color: INK, align: 'center', lineHeight: 1.2 });
+    if (c.upiId) text(doc, clip(doc, `UPI: ${c.upiId}`, qrW - 4, 6.5), x + qrW / 2, y + boxH - 2.5, { size: 6.5, color: BODY, align: 'center' });
+  }
+  return y + boxH + 8;
+}
+
 function signOff(doc, r, y) {
   const b = r.brand;
+  // where to pay: bank account and payment QR
+  if (r.showBank !== false) y = paymentDetails(doc, r, y);
   // rich text from the editor: headings, lists, bold/italic/underline, links, alignment
   if (!richTextIsEmpty(r.company.pdfTerms)) {
     y = section(doc, r, 'Terms & conditions', ensure(doc, r, y, 24));
@@ -437,6 +540,7 @@ function signOff(doc, r, y) {
   };
   block(M, `For ${r.company.name}`, r.company.signatoryName || r.company.name, [r.company.signatoryTitle, `Date: ${r.date}`].filter(Boolean).join('   |   '), b.signature);
   block(M + w + gap, 'Accepted by client', r.client.name, 'Signature, name & date', null);
+  // the company's own QR (website / proposal / contact), as before, next to the signatures
   if (b.qr) {
     const x = M + (w + gap) * 2;
     doc.setFillColor(...SOFT);
@@ -453,13 +557,16 @@ function signOff(doc, r, y) {
  * `company` is the signed-in company (profile, theme, logo, e-signature, QR, terms) and `client`
  * the person the design was made for — together they personalise every page.
  */
-export async function generatePdf({ design, project, place, finance, snapshot, company = {}, client = {}, designId = '', shadow = null, validUntil = null, cover, subsidy = null, save = true }) {
+export async function generatePdf({ design, project, place, finance, snapshot, company = {}, client = {}, designId = '', shadow = null, validUntil = null, cover, subsidy = null, save = true, pages = null }) {
+  // `pages`: the parts to build (ids from lib/pdfPages); null builds the whole proposal
+  const want = (id) => !pages || pages.includes(id);
   company = { name: project.preparedBy || 'Solar proposal', ...company };
   client = { name: project.customer || '', ...(client || {}) };
   const brand = await loadBranding(company);
   const share = await shareForPdf(designId); // the proposal's public link and its QR code (null if unavailable)
   const now = new Date();
   const r = {
+    showBank: want('bank'), // bank details & payment QR (picked at download)
     title: project.name || 'Rooftop Solar Plan',
     address: place?.address || `${design.origin.lat.toFixed(5)}, ${design.origin.lng.toFixed(5)}`,
     date: now.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
@@ -493,10 +600,13 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
   const table = () => tableStyle(doc, r);
 
   // 1 — cover, in the style picked at download
-  await drawCoverStyle(doc, r, design, finance, snapshot, cover);
+  // (without a front page, page 1 stays blank while building and is dropped at the end)
+  if (want('cover')) await drawCoverStyle(doc, r, design, finance, snapshot, cover);
+  let y = 0;
 
   // 2 — summary
-  let y = newPage(doc, r, 'Proposal summary');
+  if (want('summary')) {
+  y = newPage(doc, r, 'Proposal summary');
   text(doc, client.name ? `Dear ${client.name},` : 'Dear Customer,', M, y + 2, { size: 11, style: 'bold', color: INK });
   const letter = `Thank you for the opportunity to propose a rooftop solar power system for ${r.address}. After analysing your roof, its orientation and the shading around it, we recommend a ${totals.kwp.toFixed(2)} kWp system built with ${totals.count} ${moduleName} modules of ${spec.watts} W. It is expected to generate about ${formatNumber(totals.acKwh)} kWh of clean electricity every year, saving approximately ${money(fin.firstYearSavings)} in the first year${fin.payback ? ` and paying for itself in about ${fin.payback.toFixed(1)} years` : ''}. The pages that follow describe the design, the equipment, the expected energy and the price in detail.`;
   const letterLines = wrap(doc, letter, CW, 9.5);
@@ -515,6 +625,7 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
     ['Shading loss', `${totals.shadeLossPct.toFixed(1)} %`, 'hour-by-hour analysis'],
   ], y) + 10;
 
+
   y = section(doc, r, 'Your system at a glance', y);
   y = specGrid(doc, [
     ['Solar module', `${moduleName} ${spec.watts} W`],
@@ -524,7 +635,7 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
     ...(campus ? [['Buildings', String(cost.buildings.length)]] : []),
     ['Inverter', campus ? `${el.inverterCount} inverters, sized per building` : `${el.inverterCount || 0} x ${el.inverter?.kw ?? '-'} kW`],
     ['Strings', String(el.strings.length)],
-    ['Mounting structure', design.structure.columns ? design.pillar?.name || '-' : 'Flush on roof hooks'],
+    ['Mounting structure', design.structure.columns ? design.poleNames || design.pillar?.name || '-' : 'Flush on roof hooks'],
     ['Roof area', `${roofArea.toFixed(0)} m²`],
   ], y) + 10;
 
@@ -536,25 +647,27 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
     ['Clean energy', `${formatNumber(fin.lifetimeEnergy / 1000)} MWh`, `over ${years} years`],
   ], y, { cols: 3 });
   text(doc, 'Estimated with a grid emission factor of 0.7 kg CO2 per kWh and 21 kg CO2 absorbed per tree per year.', M, y + 21 + 5, { size: 7, color: MUTED });
+  }
 
   // 3 — system details
+  if (want('details')) {
   y = newPage(doc, r, 'System details');
   if (campus) {
     y = section(doc, r, 'Buildings on this site', y);
     autoTable(doc, { ...table(), startY: y, head: [['Building', 'Modules', 'Capacity', 'Energy per year', 'Shading loss', 'Inverter']], body: totals.buildings.map((b) => [b.name, b.count, `${b.kwp.toFixed(2)} kWp`, `${formatNumber(b.acKwh)} kWh`, `${b.shadeLossPct.toFixed(1)} %`, inverterOf(b.id)]), foot: [['All buildings', totals.count, `${totals.kwp.toFixed(2)} kWp`, `${formatNumber(totals.acKwh)} kWh`, `${totals.shadeLossPct.toFixed(1)} %`, `${el.inverterCount} inverters`]], footStyles: { fillColor: SOFT, textColor: INK, fontStyle: 'bold' }, columnStyles: { 0: { fontStyle: 'bold', textColor: INK } } });
     y = doc.lastAutoTable.finalY + 10;
   }
-  y = section(doc, r, 'Solar module', y);
-  autoTable(doc, { ...table(), startY: y, head: [['Brand', 'Model', 'Power', 'Size', 'Mfg. year', 'Warranty', 'Qty']], body: [[spec.brand || '-', spec.model || '-', `${spec.watts} W`, `${spec.length} x ${spec.width} m`, spec.manufactureYear || '-', spec.warrantyYears != null ? `${spec.warrantyYears} years` : '-', totals.count]] });
-  y = section(doc, r, 'Roof', doc.lastAutoTable.finalY + 10);
-  autoTable(doc, { ...table(), startY: y, head: [['Roof section', 'Shape', 'Plan area', 'Wall height', 'Parapet (h x t)']], body: design.sections.map((s) => [campus ? `${buildingName(s.building)} - ${s.name}` : s.name, s.frame ? (s.roofType === 'gable' ? `Two slopes (gable), ${Math.round(s.pitch)}°${Math.abs(s.frame.pitch2 - s.pitch) > 0.5 ? ` and ${Math.round(s.frame.pitch2)}°` : ''} pitch` : `Single slope, ${Math.round(s.pitch)}° pitch`) : 'Flat', `${(Math.abs(s.poly.reduce((a, p, i) => a + p.x * s.poly[(i + 1) % s.poly.length].y - s.poly[(i + 1) % s.poly.length].x * p.y, 0)) / 2).toFixed(1)} m²`, `${s.height} m`, s.frame ? 'none (pitched roof)' : `${s.parapetH} m x ${s.parapetT} m`]) });
+  y = section(doc, r, 'Roof', y);
+  autoTable(doc, { ...table(), startY: y, head: [['Roof section', 'Shape', 'Plan area', 'Wall height', 'Parapet (h x t)']], body: design.sections.map((s) => [campus ? `${buildingName(s.building)} - ${s.name}` : s.name, roofShapeLabel(s), `${(Math.abs(s.poly.reduce((a, p, i) => a + p.x * s.poly[(i + 1) % s.poly.length].y - s.poly[(i + 1) % s.poly.length].x * p.y, 0)) / 2).toFixed(1)} m²`, `${s.height} m`, s.frame ? 'none (pitched roof)' : `${s.parapetH} m x ${s.parapetT} m`]) });
   y = section(doc, r, 'Array orientation', ensure(doc, r, doc.lastAutoTable.finalY + 10, 30));
   autoTable(doc, { ...table(), startY: y, head: [['Modules', 'Tilt', 'Facing', 'Energy per year', 'Share']], body: totals.groups.map((g) => [g.count, `${g.tilt}°`, `${g.azimuth}° ${compassLabel(g.azimuth)}`, `${formatNumber((g.dc * finance.efficiency) / 100)} kWh`, `${totals.count ? ((g.count / totals.count) * 100).toFixed(0) : 0} %`]) });
   y = section(doc, r, 'Mounting structure schedule', ensure(doc, r, doc.lastAutoTable.finalY + 10, 30));
-  autoTable(doc, { ...table(), startY: y, head: [['Table', ...(campus ? ['Building'] : []), 'Type', 'Modules', 'Tilt', 'Front leg', 'Back leg', 'Legs / hooks']], body: design.tables.filter((t) => t.valid).map((t, i) => [`T${i + 1}`, ...(campus ? [buildingName(t.building)] : []), t.flush ? 'Flush on roof' : t.kind === 'elevated' ? 'Elevated' : 'Standard', `${t.rows} x ${t.cols}`, `${Math.round(t.tilt * 10) / 10}°`, t.flush ? '-' : `${t.frontLeg.toFixed(2)} m`, t.flush ? '-' : `${t.backLeg.toFixed(2)} m`, t.flush ? `${t.legs.length} hooks` : t.legs.length]) });
+  autoTable(doc, { ...table(), startY: y, head: [['Table', ...(campus ? ['Building'] : []), 'Type', 'Modules', 'Tilt', 'Front leg', 'Back leg', 'Legs / hooks']], body: design.tables.filter((t) => t.valid).map((t, i) => [`T${i + 1}`, ...(campus ? [buildingName(t.building)] : []), t.flush ? 'Flush on roof' : t.kind === 'elevated' ? 'Elevated' : 'Standard', `${t.rows} x ${t.cols}`, `${Math.round(t.tilt * 10) / 10}°`, t.flush ? '-' : `${t.frontLeg.toFixed(2)} m`, t.flush ? '-' : `${t.backLeg.toFixed(2)} m`, t.flush ? `${t.legs.length} hooks` : t.legs.length + (t.midLegs?.length || 0)]) });
+
+  }
 
   // 4, 5 — drawings
-  for (const [sheet, title, colored] of [['E-01', 'PV array layout', false], ['E-02', 'String layout', true]]) {
+  for (const [sheet, title, colored] of want('layout') ? [['E-01', 'PV array layout', false], ['E-02', 'String layout', true]] : []) {
     y = newPage(doc, r, title);
     y = section(doc, r, title, y);
     const drawingH = BOTTOM - y - 19 - 4;
@@ -565,90 +678,53 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
   // 6 — single line diagram
   // a campus has one diagram per building: each building has its own inverters and strings
   const systems = campus ? el.buildings.map((b, i) => ({ el: b, sheet: `E-03.${i + 1}`, name: b.name, count: b.strings.reduce((n, st) => n + st.count, 0) })) : [{ el, sheet: 'E-03', name: '', count: totals.count }];
-  for (const sys of systems) {
+  for (const sys of want('sld') ? systems : []) {
     const title = sys.name ? `Single line diagram - ${sys.name}` : 'Single line diagram';
     y = newPage(doc, r, 'Single line diagram');
     y = section(doc, r, title, y);
     const sldH = BOTTOM - y - 19 - 4;
-    drawSld(doc, sys.el, spec, M, y, CW, sldH);
-    titleBlock(doc, r, sys.sheet, sys.name ? `SLD - ${sys.name}` : title, y + sldH + 4);
+    // a big system is drawn over several sheets (DC sheets, then the AC sheet)
+    const sheets = sldSheets(sys.el, CW, sldH);
+    sheets.forEach((sh, k) => {
+      if (k) {
+        y = newPage(doc, r, 'Single line diagram');
+        y = section(doc, r, `${title} (sheet ${k + 1} of ${sheets.length})`, y);
+      }
+      drawSldSheet(doc, sh, M, y);
+      const no = sheets.length > 1 ? `${sys.sheet}/${k + 1}` : sys.sheet;
+      titleBlock(doc, r, no, sys.name ? `SLD - ${sys.name}` : title, y + sldH + 4);
+    });
   }
+
+  // 6b — one single line diagram per string: that string alone, through its DCDB and inverter to
+  // the grid, so each string can be checked and wired on its own
+  const stringSheet = (i) => `E-03.S${i + 1}`;
+  const placeOf = (st) => [...new Set((st.modules || []).map((id) => design.tables.find((t) => id.startsWith(`${t.id}:`))?.name).filter(Boolean))].join(', ');
+  (want('stringSld') ? el.strings : []).forEach((st, i) => {
+    const own = campus ? el.buildings.find((b) => b.id === st.building) : el;
+    y = newPage(doc, r, 'Single line diagram');
+    y = section(doc, r, `Single line diagram - string ${st.name}`, y);
+    const sldH = BOTTOM - y - 19 - 4 - 7;
+    // that string alone: its own path through the topology (a campus string is in its building's diagram)
+    const [sheet] = sldSheets(own || el, CW, sldH, { stringId: st.id });
+    drawSldSheet(doc, sheet, M, y);
+    const where = placeOf(st);
+    text(doc, `${st.name}: ${st.count} modules in series, ${st.kwp.toFixed(2)} kWp, Voc ${st.voc.toFixed(0)} V (STC) / ${st.vocCold.toFixed(0)} V (cold), Isc ${st.isc} A - ${st.manual ? 'string set by hand' : 'automatic string'}${where ? ` - on ${where}` : ''}${st.buildingName ? ` - ${st.buildingName}` : ''}`, M, y + sldH + 4.5, { size: 7, color: MUTED });
+    titleBlock(doc, r, stringSheet(i), `SLD - string ${st.name}`, y + sldH + 7);
+  });
 
   // 7 — electrical
+  if (want('electrical')) {
   y = newPage(doc, r, 'Electrical design');
-  for (const sys of el.strings.length ? systems : []) {
-    y = section(doc, r, sys.name ? `Equipment schedule - ${sys.name} (sheet ${sys.sheet})` : 'Equipment schedule (sheet E-03)', ensure(doc, r, y, 40));
-    autoTable(doc, { ...table(), startY: y, styles: { ...table().styles, fontSize: 8.5, cellPadding: { top: 1.6, bottom: 1.6, left: 2.5, right: 2.5 } }, head: [['Tag', 'Item', 'Specification', 'Qty']], body: sldSchedule(sys.el, spec, moduleName, sys.count), ...numeric(3), columnStyles: { 0: { cellWidth: 20, fontStyle: 'bold', textColor: INK }, 1: { cellWidth: 42 }, 3: { halign: 'right', cellWidth: 20 } } });
-    y = ensure(doc, r, doc.lastAutoTable.finalY + 4, 12);
-    text(doc, wrap(doc, 'Protection ratings are sized from the design currents (string fuse 1.56 x Isc, DC isolator 1.25 x Isc per MPPT, AC breakers 1.25 x inverter output current); cable sizes assume copper conductors derated for rooftop runs. Final selection to be verified against equipment datasheets, IS / IEC 60364-7-712 and DISCOM net-metering requirements.', CW, 7), M, y, { size: 7, color: MUTED, lineHeight: 1.35 });
-    y += 13;
-  }
   y = section(doc, r, 'Inverter & strings', ensure(doc, r, y, 40));
   y = specGrid(doc, [['Inverter', campus ? `${el.inverterCount} inverters, sized per building` : `${el.inverterCount || 0} x ${el.inverter?.kw ?? '-'} kW ${el.inverter?.kw <= 6 ? 'single-phase' : 'three-phase'}`], ['DC / AC ratio', el.dcAc ? el.dcAc.toFixed(2) : '-'], ['AC capacity', `${el.acKw ?? '-'} kW`], ['Modules per string', [...new Set(el.strings.map((st) => st.count))].sort((a, c) => a - c).join(' / ') || '-'], ['Allowed string length', `${el.minLen ?? '-'} to ${el.maxLen ?? '-'} modules`]], y) + 6;
-  autoTable(doc, { ...table(), startY: y, head: [['String', ...(campus ? ['Building'] : []), 'Modules', 'Power', 'Voc STC', 'Voc cold', 'Isc', 'Inverter']], body: el.strings.map((s) => [s.name, ...(campus ? [s.buildingName] : []), s.count, `${s.kwp.toFixed(2)} kWp`, `${s.voc.toFixed(0)} V`, `${s.vocCold.toFixed(0)} V`, `${s.isc} A`, `INV-${s.inverter}`]) });
+  autoTable(doc, { ...table(), startY: y, head: [['String', ...(campus ? ['Building'] : []), 'Modules', 'Power', 'Voc STC', 'Voc cold', 'Isc', 'Inverter', 'MPPT', 'Set', 'Sheet']], body: el.strings.map((s, i) => [s.name, ...(campus ? [s.buildingName] : []), s.count, `${s.kwp.toFixed(2)} kWp`, `${s.voc.toFixed(0)} V`, `${s.vocCold.toFixed(0)} V`, `${s.isc} A`, `INV-${s.inverter}`, s.mppt ?? '-', s.manual ? 'By hand' : 'Auto', stringSheet(i)]) });
+  y = electricalFindings(doc, r, el, doc.lastAutoTable.finalY + 6);
 
-  // 8 — bill of materials
-  y = newPage(doc, r, 'Bill of materials');
-  y = section(doc, r, 'Bill of materials', y);
-
-  // every row carries its parent category (`group`), which the table is printed in
-  let bomRows = [];
-  if (cost.isPackage) {
-    if (cost.package?.items?.length) {
-      bomRows = cost.package.items.map((it) => {
-        const specParts = [
-          it.brand && `Brand: ${it.brand}`,
-          it.model && `Model: ${it.model}`,
-          it.spec,
-        ].filter(Boolean).join(' · ');
-        return { group: it.parentName, order: it.parentOrder, cells: [it.name, specParts || '-', it.qty || 1, capFirst(it.unit) || 'Nos'] };
-      });
-    }
-  } else {
-    // Custom mode: only include the items selected and configured during design creation:
-    // 1. Solar modules
-    bomRows.push({ group: spec.parentName, order: spec.parentOrder, cells: [
-      'Solar modules',
-      [spec.brand, spec.model, `${spec.watts} W`, `(${spec.length} x ${spec.width} m)`].filter(Boolean).join(' '),
-      totals.count,
-      'nos',
-    ] });
-
-    // 2. Mounting structure / poles (if elevated/poles used)
-    if (design.structure.columns > 0) {
-      bomRows.push({ group: design.pillar?.parentName, order: design.pillar?.parentOrder, cells: [
-        `Pillars / Mounting structure (${design.pillar?.name || 'Poles'})`,
-        `${Math.ceil(cost.pillarFt)} ft total length (${design.pillar?.shape || 'iron column'})`,
-        design.structure.columns,
-        'nos',
-      ] });
-    } else if (design.structure.hooks > 0) {
-      // no product of its own: it goes with the modules it carries
-      bomRows.push({ group: spec.parentName, order: spec.parentOrder, cells: [
-        'Mounting structure (Roof hooks / rails)',
-        'Flush-mounted roof rails & hooks',
-        design.structure.hooks,
-        'nos',
-      ] });
-    }
-
-    // 3. Category materials actually chosen by the user
-    if (cost.categoryMaterials?.length) {
-      for (const m of cost.categoryMaterials) {
-        bomRows.push({ group: m.parentName, order: m.parentOrder, cells: [
-          m.categoryName,
-          m.productName,
-          m.qty,
-          m.unit || 'nos',
-        ] });
-      }
-    }
   }
 
-  autoTable(doc, { ...table(), startY: y, head: [['#', 'Item', 'Specification', 'Qty', 'Unit']], body: groupedBom(bomRows, brand), ...numeric(3), columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 2: { cellWidth: 78 }, 3: { halign: 'right', cellWidth: 16 }, 4: { cellWidth: 18 } } });
-
-
   // 9 — energy & financials
+  if (want('energy')) {
   y = newPage(doc, r, 'Energy & financials');
   y = section(doc, r, 'Monthly energy production (kWh)', y);
   y = monthlyChart(doc, r, totals.monthly, y + 3) + 4;
@@ -659,82 +735,26 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
   y = ensure(doc, r, doc.lastAutoTable.finalY + 6, 12);
   text(doc, wrap(doc, `Assumptions: performance ratio ${finance.efficiency}%, module degradation ${finance.degradation}% per year, electricity tariff held at the current rate of ${money(design.catalog.tariff, 2)} per kWh. Yield ${design.yieldModel.source === 'google' ? 'calibrated with Google Solar API sunshine data' : 'from a clear-sky model with a regional cloudiness factor'}; shading from parapets, raised roofs, obstructions, trees and adjacent tables computed hourly for 12 representative days. Figures are indicative and should be verified on site.`, CW, 7.5), M, y, { size: 7.5, color: MUTED, lineHeight: 1.35 });
 
-  monthlyOutlookPages(doc, r, { monthly: totals.monthly, fin, tariff: design.catalog.tariff, years, finance, money });
-
-  // 10 — price & acceptance
-  y = newPage(doc, r, 'Price & acceptance');
-  y = section(doc, r, `Price summary (${finance.currency})`, y);
-
-  let priceRows = [];
-  if (cost.isPackage) {
-    // Package mode: list all bundled equipment with product name and [-] against price
-    const pkg = cost.package;
-    const items = pkg?.items?.length ? pkg.items : [];
-
-    priceRows = items.map((it) => {
-      const details = [
-        it.brand && `Brand: ${it.brand}`,
-        it.model && `Model: ${it.model}`,
-        it.spec,
-        it.qty && `Qty: ${it.qty} ${it.unit || ''}`.trim(),
-      ].filter(Boolean).join(' · ');
-      return [
-        it.name,
-        details || it.description || 'Included in package',
-        '-',
-      ];
-    });
-
-    // Add Package base line
-    priceRows.push([
-      `Package: ${pkg?.name || 'All-Inclusive Solar Package'}`,
-      pkg?.description || `${totals.kwp.toFixed(2)} kW complete turnkey rooftop package (all equipment above included)`,
-      money(cost.packagePrice),
-    ]);
-
-    // Floor placement surcharge if applicable
-    if (Number(cost.floorCost) > 0) {
-      priceRows.push([
-        'Floor placement',
-        cost.floorPlacement === 0 ? 'Ground level (₹0)' : `Floor ${cost.floorPlacement} rooftop installation surcharge`,
-        money(cost.floorCost),
-      ]);
-    }
-  } else {
-    // Custom mode: calculate prices on the basis of chosen materials (panels, poles, and company categories)
-    priceRows = [
-      ['Solar modules', `${totals.count} x ${moduleName} ${spec.watts} W`, money(cost.panels)],
-      ['Mounting structure', design.structure.columns ? `${design.pillar?.name || 'Poles'} - ${formatNumber(cost.pillarFt)} ft` : `Flush mount: ${design.structure.hooks} roof hooks and rails`, money(cost.pillars)],
-    ];
-
-    if (cost.hasChosenMaterials) {
-      for (const m of (cost.categoryMaterials || [])) {
-        priceRows.push([m.categoryName, `${m.productName} (Qty: ${m.qty} ${m.unit})`, money(m.total)]);
-      }
-    } else {
-      priceRows.push(['Balance of system', 'Inverter, cabling, protection devices, installation and commissioning', money(cost.other)]);
-    }
-
-    if (Number(cost.floorCost) > 0) {
-      priceRows.push([
-        'Floor placement',
-        cost.floorPlacement === 0 ? 'Ground level (₹0)' : `Floor ${cost.floorPlacement} installation surcharge`,
-        money(cost.floorCost),
-      ]);
-    }
   }
 
+  if (want('monthly')) monthlyOutlookPages(doc, r, { monthly: totals.monthly, fin, tariff: design.catalog.tariff, years, finance, money });
 
+  // 10 — price & acceptance
+  if (want('price')) {
+  y = newPage(doc, r, 'Price & acceptance');
+  y = section(doc, r, `Bill of materials (${finance.currency})`, y);
 
-  for (const c of cost.installationCharges || []) priceRows.push([c.name, 'Installation charge', money(c.price)]);
+  // every product once: item, specification, quantity and its price, in the catalog's categories
+  // (the former bill of materials and price summary were the same list twice)
+  const rows = proposalBomRows(design).map((x) => ({ group: x.group, order: x.order, cells: [x.item, x.spec, x.qty, x.unit, x.amount == null ? 'Included' : money(x.amount)] }));
 
   autoTable(doc, {
     ...table(),
     startY: y,
-    head: [['Item', 'Description', 'Amount']],
-    body: priceRows,
-    ...numeric(2),
-    columnStyles: { 0: { cellWidth: 48, fontStyle: 'bold', textColor: INK }, 2: { halign: 'right', cellWidth: 38 } },
+    head: [['#', 'Item', 'Specification', 'Qty', 'Unit', 'Amount']],
+    body: groupedBom(rows, brand, 6),
+    ...numeric(3, 5),
+    columnStyles: { 0: { cellWidth: 11, halign: 'center', cellPadding: { top: 2.3, bottom: 2.3, left: 1, right: 1 } }, 1: { cellWidth: 40, fontStyle: 'bold', textColor: INK }, 2: { cellWidth: 66 }, 3: { halign: 'right', cellWidth: 14 }, 4: { cellWidth: 14 }, 5: { halign: 'right', cellWidth: 33 } },
   });
   y = doc.lastAutoTable.finalY + 3;
 
@@ -749,11 +769,8 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
     autoTable(doc, {
       ...table(),
       startY: y,
-      body: [
-        ['Taxable value', money(subtotal)],
-        ['SGST', money(cost.sgst)],
-        ['CGST', money(cost.cgst)],
-      ],
+      // GST: CGST + SGST; any other tax (VAT…): one line
+      body: [['Taxable value', money(subtotal)], ...taxLines(taxOf(company), { gst: cost.gstAmount ?? cost.gstTotal, cgst: cost.cgst, sgst: cost.sgst }).map(([k, v]) => [k, money(v)])],
       theme: 'plain',
       styles: { fontSize: 9.5, textColor: BODY },
       columnStyles: { 0: { cellWidth: CW - 42 }, 1: { halign: 'right', cellWidth: 42 } },
@@ -763,7 +780,7 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
 
   doc.setFillColor(...brand.primary);
   doc.rect(M, y, CW, 13, 'F');
-  text(doc, gstExtra ? 'GRAND TOTAL (INCL. GST)' : 'TOTAL INVESTMENT', M + 4, y + 8.2, { size: 8.5, style: 'bold', color: brand.primaryFg });
+  text(doc, gstExtra ? `GRAND TOTAL (INCL. ${taxOf(company).label.toUpperCase()})` : 'TOTAL INVESTMENT', M + 4, y + 8.2, { size: 8.5, style: 'bold', color: brand.primaryFg });
   text(doc, `${totals.kwp.toFixed(2)} kWp system`, M + 68, y + 8.2, { size: 8.5, color: brand.primaryFg });
   text(doc, money(cost.total), W - M - 4, y + 8.8, { size: 13, style: 'bold', color: brand.primaryFg, align: 'right' });
   y += 13;
@@ -788,10 +805,19 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
     y += 10;
   }
   signOff(doc, r, onlineBlock(doc, r, y) + 4);
+  }
+  // bank details picked without the price page: on a page of their own (when the company has any)
+  if (want('bank') && !want('price') && (r.brand.paymentQr || ['bankAccountName', 'bankName', 'bankAccountNumber', 'bankIfsc', 'upiId'].some((k) => String(r.company[k] || '').trim()))) {
+    y = newPage(doc, r, 'Payment details');
+    paymentDetails(doc, r, y);
+  }
 
+  // no front page: drop the blank first page (when anything else was built)
+  const noCover = !want('cover') && doc.getNumberOfPages() > 1;
+  if (noCover) doc.deletePage(1);
   const proposalEnd = doc.getNumberOfPages();
   if (shadow) await appendShadowReport(doc, shadow);
-  footers(doc, r, proposalEnd);
+  footers(doc, r, proposalEnd, noCover ? 1 : 2);
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const filename = `${[slug(client.name), slug(r.title)].filter(Boolean).join('_') || 'solar-proposal'}${shadow ? '_with-shadow-analysis' : ''}.pdf`;
   if (save) doc.save(filename); // save:false builds the PDF only (archiving a version)
@@ -799,11 +825,27 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
 }
 
 /**
+ * The electrical checks of the design: the status (never "approved") and every error and warning, so the
+ * proposal says plainly what was verified and what is still missing.
+ */
+function electricalFindings(doc, r, el, y) {
+  const v = el.validation;
+  if (!v) return y;
+  const findings = v.items.filter((i) => i.level !== 'info');
+  y = section(doc, r, 'Electrical checks', ensure(doc, r, y, 30));
+  text(doc, wrap(doc, STATUS_TEXT[v.status] || '', CW, 8.5), M, y, { size: 8.5, style: 'bold', color: v.status === 'invalid' ? [185, 28, 28] : INK, lineHeight: 1.35 });
+  y += 6;
+  if (!findings.length) return y;
+  autoTable(doc, { ...tableStyle(doc, r), startY: y, styles: { ...tableStyle(doc, r).styles, fontSize: 8, cellPadding: { top: 1.4, bottom: 1.4, left: 2.5, right: 2.5 } }, head: [['Level', 'Finding']], body: findings.map((i) => [i.level === 'error' ? 'Error' : 'Check', i.message]), columnStyles: { 0: { cellWidth: 18, fontStyle: 'bold' } }, didParseCell: (d) => { if (d.section === 'body' && d.column.index === 0 && d.cell.raw === 'Error') d.cell.styles.textColor = [185, 28, 28]; } });
+  return doc.lastAutoTable.finalY + 4;
+}
+
+/**
  * The bill of materials in its parent categories ("Structures", "Electricals", …): a heading row, then the
  * items under it, numbered through. Items without a parent category come last under "Other items"; when
  * nothing has a parent category the table is a plain list.
  */
-export function groupedBom(rows, brand) {
+export function groupedBom(rows, brand, cols = 5) {
   const groups = new Map();
   for (const row of rows) {
     const name = String(row.group || '').trim();
@@ -815,7 +857,7 @@ export function groupedBom(rows, brand) {
   const body = [];
   let n = 0;
   for (const g of ordered) {
-    if (grouped) body.push([{ content: `${(g.name || 'Other items').toUpperCase()}  (${g.rows.length})`, colSpan: 5, styles: { fontStyle: 'bold', fontSize: 8.5, textColor: brand.primary, fillColor: brand.primary.map((c) => Math.round(c + (255 - c) * 0.88)), halign: 'left', cellPadding: { top: 2.4, bottom: 2.4, left: 3, right: 3 } } }]);
+    if (grouped) body.push([{ content: `${(g.name || 'Other items').toUpperCase()}  (${g.rows.length})`, colSpan: cols, styles: { fontStyle: 'bold', fontSize: 8.5, textColor: brand.primary, fillColor: brand.primary.map((c) => Math.round(c + (255 - c) * 0.88)), halign: 'left', cellPadding: { top: 2.4, bottom: 2.4, left: 3, right: 3 } } }]);
     for (const cells of g.rows) body.push([++n, ...cells]);
   }
   return body;
@@ -834,7 +876,6 @@ function outlookSummary(doc, r, y, fin, years, money) {
   ], y);
 }
 
-/** Monthly financial outlook: one row per month for the chosen number of years (own pages, header repeated). */
 function monthlyOutlookPages(doc, r, { monthly, fin, tariff, years, finance, money }) {
   let y = newPage(doc, r, 'Monthly financial outlook');
   y = section(doc, r, `Month-by-month outlook, ${years} years / ${years * 12} months`, y);
@@ -855,6 +896,9 @@ function monthlyOutlookPages(doc, r, { monthly, fin, tariff, years, finance, mon
     },
   });
 }
+
+
+/** Monthly financial outlook: one row per month for the chosen number of years (own pages, header repeated). */
 
 /**
  * Proposal without a 3D design. Same look as the full proposal — cover, summary, system details, single line
@@ -931,6 +975,7 @@ export async function generateQuotePdf({ quote, name = '', company = {}, client 
     ['Performance ratio', `${finance.efficiency} %`, 'system efficiency'],
   ], y) + 10;
 
+
   y = section(doc, r, 'Your system at a glance', y);
   y = specGrid(doc, [
     ['Solar module', `${moduleName} ${spec.watts} W`],
@@ -958,18 +1003,26 @@ export async function generateQuotePdf({ quote, name = '', company = {}, client 
   autoTable(doc, { ...table(), startY: y, head: [['Brand', 'Model', 'Power', 'Size', 'Mfg. year', 'Warranty', 'Qty']], body: [[spec.brand || '-', spec.model || '-', `${spec.watts} W`, `${spec.length} x ${spec.width} m`, spec.manufactureYear || '-', spec.warrantyYears != null ? `${spec.warrantyYears} years` : '-', totals.count]] });
   y = section(doc, r, 'Inverter & strings', doc.lastAutoTable.finalY + 8);
   y = specGrid(doc, [['Inverter', `${el.inverterCount || 0} x ${el.inverter?.kw ?? '-'} kW ${el.inverter?.kw <= 6 ? 'single-phase' : 'three-phase'}`], ['DC / AC ratio', el.dcAc ? el.dcAc.toFixed(2) : '-'], ['AC capacity', `${el.acKw ?? '-'} kW`], ['Modules per string', [...new Set(el.strings.map((st) => st.count))].sort((a, c) => a - c).join(' / ') || '-'], ['Allowed string length', `${el.minLen ?? '-'} to ${el.maxLen ?? '-'} modules`], ['Array orientation', `${sys.tilt}° tilt, facing ${compassLabel(Number(sys.azimuth))}`]], y) + 5;
-  autoTable(doc, { ...table(), startY: y, head: [['String', 'Modules', 'Power', 'Voc STC', 'Voc cold', 'Isc', 'Inverter']], body: el.strings.map((st) => [st.name, st.count, `${st.kwp.toFixed(2)} kWp`, `${st.voc.toFixed(0)} V`, `${st.vocCold.toFixed(0)} V`, `${st.isc} A`, `INV-${st.inverter}`]) });
+  autoTable(doc, { ...table(), startY: y, head: [['String', 'Modules', 'Power', 'Voc STC', 'Voc cold', 'Isc', 'Inverter', 'MPPT']], body: el.strings.map((st) => [st.name, st.count, `${st.kwp.toFixed(2)} kWp`, `${st.voc.toFixed(0)} V`, `${st.vocCold.toFixed(0)} V`, `${st.isc} A`, `INV-${st.inverter}`, st.mppt ?? '-']) });
   y = section(doc, r, 'Equipment schedule (sheet E-01)', ensure(doc, r, doc.lastAutoTable.finalY + 8, 40));
   autoTable(doc, { ...table(), startY: y, styles: { ...table().styles, fontSize: 9, cellPadding: { top: 1.7, bottom: 1.7, left: 2.5, right: 2.5 } }, head: [['Tag', 'Item', 'Specification', 'Qty']], body: sldSchedule(el, spec, moduleName, totals.count), ...numeric(3), columnStyles: { 0: { cellWidth: 20, fontStyle: 'bold', textColor: INK }, 1: { cellWidth: 42 }, 3: { halign: 'right', cellWidth: 20 } } });
   y = ensure(doc, r, doc.lastAutoTable.finalY + 4, 12);
-  text(doc, wrap(doc, 'Protection ratings are sized from the design currents (string fuse 1.56 x Isc, DC isolator 1.25 x Isc per MPPT, AC breakers 1.25 x inverter output current); cable sizes assume copper conductors derated for rooftop runs. Final selection to be verified against equipment datasheets, IS / IEC 60364-7-712 and DISCOM net-metering requirements.', CW, 7.5), M, y, { size: 7.5, color: MUTED, lineHeight: 1.35 });
+  text(doc, wrap(doc, 'Protection ratings follow general design factors (string fuse 1.5 to 2.4 x Isc where fuses are needed, DC isolator 1.25 x Isc per MPPT, AC breakers 1.25 x inverter output current); cable sizes are indicative. Final selection to be verified against the equipment datasheets, the standards in force and the DISCOM approval.', CW, 7.5), M, y, { size: 7.5, color: MUTED, lineHeight: 1.35 });
+  y = electricalFindings(doc, r, el, y + 12);
 
   // 4 — single line diagram
   y = newPage(doc, r, 'Single line diagram');
   y = section(doc, r, 'Single line diagram', y);
   const sldH = BOTTOM - y - 19 - 4;
-  drawSld(doc, el, spec, M, y, CW, sldH);
-  titleBlock(doc, r, 'E-01', 'Single line diagram', y + sldH + 4);
+  const sheets = sldSheets(el, CW, sldH);
+  sheets.forEach((sh, k) => {
+    if (k) {
+      y = newPage(doc, r, 'Single line diagram');
+      y = section(doc, r, `Single line diagram (sheet ${k + 1} of ${sheets.length})`, y);
+    }
+    drawSldSheet(doc, sh, M, y);
+    titleBlock(doc, r, sheets.length > 1 ? `E-01/${k + 1}` : 'E-01', 'Single line diagram', y + sldH + 4);
+  });
 
   // 5 — energy & financials
   y = newPage(doc, r, 'Energy & financials');
@@ -982,9 +1035,10 @@ export async function generateQuotePdf({ quote, name = '', company = {}, client 
   y = ensure(doc, r, doc.lastAutoTable.finalY + 6, 12);
   text(doc, wrap(doc, `Assumptions: performance ratio ${finance.efficiency}%, module degradation ${finance.degradation}% per year, electricity tariff held at the current rate of ${money(tariff, 2)} per kWh. Yield from a clear-sky model for latitude ${Number(sys.lat).toFixed(1)}° with a regional cloudiness factor; no site-specific shading analysis was made. Figures are indicative and should be verified on site.`, CW, 7.5), M, y, { size: 7.5, color: MUTED, lineHeight: 1.35 });
 
-  monthlyOutlookPages(doc, r, { monthly: totals.monthly, fin, tariff, years, finance, money });
 
   // 6 — price & acceptance (its table already lists every product, so there is no separate bill of materials)
+  monthlyOutlookPages(doc, r, { monthly: totals.monthly, fin, tariff, years, finance, money });
+
   y = newPage(doc, r, 'Price & acceptance');
   y = section(doc, r, `Price summary (${currency})`, y);
   const body = [];
@@ -1019,11 +1073,8 @@ export async function generateQuotePdf({ quote, name = '', company = {}, client 
     autoTable(doc, {
       ...table(),
       startY: y,
-      body: [
-        ['Taxable value', money(pricing.taxableTotal)],
-        ['SGST', money(pricing.sgst)],
-        ['CGST', money(pricing.cgst)],
-      ],
+      // GST: CGST + SGST; any other tax (VAT…): one line
+      body: [['Taxable value', money(pricing.taxableTotal)], ...taxLines(taxOf(company), { gst: pricing.gstAmount ?? pricing.gstTotal, cgst: pricing.cgst, sgst: pricing.sgst }).map(([k, v]) => [k, money(v)])],
       theme: 'plain',
       styles: { fontSize: 9.5, textColor: BODY },
       columnStyles: { 0: { cellWidth: CW - 42 }, 1: { halign: 'right', cellWidth: 42 } },
@@ -1033,7 +1084,7 @@ export async function generateQuotePdf({ quote, name = '', company = {}, client 
   y = ensure(doc, r, y, 26);
   doc.setFillColor(...brand.primary);
   doc.rect(M, y, CW, 13, 'F');
-  text(doc, gstExtra ? 'GRAND TOTAL (INCL. GST)' : 'TOTAL INVESTMENT', M + 4, y + 8.2, { size: 8.5, style: 'bold', color: brand.primaryFg });
+  text(doc, gstExtra ? `GRAND TOTAL (INCL. ${taxOf(company).label.toUpperCase()})` : 'TOTAL INVESTMENT', M + 4, y + 8.2, { size: 8.5, style: 'bold', color: brand.primaryFg });
   text(doc, `${totals.kwp.toFixed(2)} kWp system`, M + 68, y + 8.2, { size: 8.5, color: brand.primaryFg });
   text(doc, money(pricing.total), W - M - 4, y + 8.8, { size: 13, style: 'bold', color: brand.primaryFg, align: 'right' });
   y += 13;

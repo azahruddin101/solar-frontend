@@ -38,6 +38,12 @@
 @keyframes fade {
   from { opacity: 0; }
 }
+@keyframes step-in {
+  from { opacity: 0; transform: translateX(14px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [style*='step-in'] { animation: none !important; }
+}
 @keyframes slide-in {
   from { opacity: 0; transform: translateX(16px); }
 }

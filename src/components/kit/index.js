@@ -354,14 +354,20 @@ export function NumField({ value, onValue, min, max, ...props }) {
   );
 }
 
+/**
+ * As a phone is typed: digits, spaces and dashes, and a "+" in front for a country code (any country).
+ * A pasted Indian "+91 98765 43210" becomes the 10-digit mobile, as before.
+ */
 export function cleanPhoneInput(v) {
-  let d = String(v).replace(/\D/g, '');
-  if (d.length === 12 && d.startsWith('91')) d = d.slice(2); // pasted +91 98765 43210
-  else if (d.length === 11 && d.startsWith('0')) d = d.slice(1);
-  return d.slice(0, 10);
+  const raw = String(v);
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91') && /^[6-9]/.test(digits.slice(2)) && /^\s*\+?91/.test(raw)) return digits.slice(2);
+  const plus = raw.trimStart().startsWith('+');
+  const body = raw.replace(/[^\d\s-]/g, '').replace(/\s{2,}/g, ' ').replace(/^[\s-]+/, '');
+  return (plus ? `+${body}` : body).slice(0, 20);
 }
 export function PhoneInput({ onValue, ...props }) {
-  return <Input type="tel" inputMode="numeric" autoComplete="tel" placeholder="10-digit mobile" onValue={(v) => onValue?.(cleanPhoneInput(v))} {...props} />;
+  return <Input type="tel" inputMode="tel" autoComplete="tel" placeholder="Mobile, e.g. 98765 43210 or +971 50 123 4567" onValue={(v) => onValue?.(cleanPhoneInput(v))} {...props} />;
 }
 
 /** Names: `person` allows letters, spaces . ' - ; `business` also digits and & , ( ) / + . Anything else is dropped as it is typed. */

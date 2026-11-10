@@ -9,10 +9,11 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { formatMoney } from '@/lib/energy';
-import { DEFAULT_ESTIMATE_GST, estimateTotals, newLine } from '@/lib/estimation';
+import { estimateTotals, newLine } from '@/lib/estimation';
 import { useSession } from '@/lib/session';
 import { useResource } from '@/lib/useResource';
 import { Alert, Button, Card, CardHeader, FormField, Input, LoadingBlock, NumField, PageHeader, Select, Textarea, Toggle, cx, toast } from '../kit';
+import { defaultTaxRate, taxName } from '@/lib/tax';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const TABS = [
@@ -79,8 +80,8 @@ function Editor({ initial }) {
 
   const fieldsFor = {
     packages: (p) => ({ name: p.name, detail: [p.kw ? `${p.kw} kW` : '', p.description, (p.items || []).length && `Includes: ${(p.items || []).map((i) => `${i.qty} × ${productName.get(String(i.productId?.id || i.productId)) || 'item'}`).join(', ')}`].filter(Boolean).join(' · '), unit: 'Set', rate: Number(p.price) || 0 }),
-    products: (p) => ({ name: p.name, detail: [p.brand, p.model].filter(Boolean).join(' '), hsn: p.hsnCode || '', unit: p.unit || 'Nos', rate: Number(p.price) || 0, gstPercent: p.gstPercent ?? DEFAULT_ESTIMATE_GST }),
-    services: (s) => ({ name: s.name, detail: s.description || '', hsn: s.sac || '', unit: 'Job', rate: Number(s.defaultPrice) || 0, gstPercent: s.gstPercent ?? DEFAULT_ESTIMATE_GST }),
+    products: (p) => ({ name: p.name, detail: [p.brand, p.model].filter(Boolean).join(' '), hsn: p.hsnCode || '', unit: p.unit || 'Nos', rate: Number(p.price) || 0, gstPercent: p.gstPercent ?? defaultTaxRate() }),
+    services: (s) => ({ name: s.name, detail: s.description || '', hsn: s.sac || '', unit: 'Job', rate: Number(s.defaultPrice) || 0, gstPercent: s.gstPercent ?? defaultTaxRate() }),
   };
 
   const canDownload = Boolean(client.name?.trim()) && lines.length > 0;
@@ -158,7 +159,7 @@ function Editor({ initial }) {
             action={<Button variant="secondary" size="sm" icon={Plus} onClick={() => setLines((l) => [...l, newLine('custom')])}>Custom line</Button>}
           />
           <div className="space-y-4 p-4 sm:p-6">
-            <Toggle checked={withGst} onChange={setWithGst} label="Add GST" description={withGst ? 'Each line has its own GST rate that you can change. Prices are before GST.' : 'Shown without GST.'} />
+            <Toggle checked={withGst} onChange={setWithGst} label={`Add ${taxName()}`} description={withGst ? `Each line has its own ${taxName()} rate that you can change. Prices are before ${taxName()}.` : 'Shown without GST.'} />
 
             {!lines.length ? (
               <div className="grid place-items-center rounded-xl border border-dashed border-slate-300 px-4 py-12 text-center">
@@ -170,7 +171,7 @@ function Editor({ initial }) {
               <div className="overflow-hidden rounded-xl border border-slate-200">
                 <div className={cx('hidden gap-2 bg-slate-50 px-3 py-2 text-[11px] font-semibold tracking-wide text-slate-500 uppercase md:grid', withGst ? 'md:grid-cols-[minmax(0,1fr)_4.5rem_6.5rem_4.5rem_6.5rem_2rem]' : 'md:grid-cols-[minmax(0,1fr)_4.5rem_6.5rem_6.5rem_2rem]')}>
                   <span>Item</span><span className="text-right">Qty</span><span className="text-right">Rate</span>
-                  {withGst && <span className="text-right">GST %</span>}
+                  {withGst && <span className="text-right">{taxName()} %</span>}
                   <span className="text-right">Amount</span><span />
                 </div>
                 <ul className="divide-y divide-slate-100">
@@ -185,7 +186,7 @@ function Editor({ initial }) {
                         <div className="grid grid-cols-3 gap-2 md:contents">
                           <Field label={`Qty${l.unit ? ` (${l.unit})` : ''}`}><NumField min={0} step="any" value={l.qty} onValue={(v) => setLine(l.key, { qty: v })} className={cx(cell, 'text-right')} /></Field>
                           <Field label="Rate"><NumField min={0} step="any" value={l.rate} onValue={(v) => setLine(l.key, { rate: v })} className={cx(cell, 'text-right')} /></Field>
-                          {withGst && <Field label="GST %"><NumField min={0} max={100} step="any" value={l.gstPercent} onValue={(v) => setLine(l.key, { gstPercent: v })} className={cx(cell, 'text-right')} /></Field>}
+                          {withGst && <Field label={`${taxName()} %`}><NumField min={0} max={100} step="any" value={l.gstPercent} onValue={(v) => setLine(l.key, { gstPercent: v })} className={cx(cell, 'text-right')} /></Field>}
                         </div>
                         <div className="flex items-center justify-between md:contents">
                           <span className="text-xs font-medium text-slate-500 md:hidden">Amount</span>
@@ -202,7 +203,7 @@ function Editor({ initial }) {
             <dl className="ml-auto max-w-xs space-y-1.5 text-sm">
               <div className="flex justify-between"><dt className="text-slate-500">Subtotal</dt><dd className="tabular-nums">{money(totals.subtotal)}</dd></div>
               {withGst && totals.gstGroups.map((g) => (
-                <div key={g.rate} className="flex justify-between"><dt className="text-slate-500">GST @ {g.rate}%</dt><dd className="tabular-nums">{money(g.gst)}</dd></div>
+                <div key={g.rate} className="flex justify-between"><dt className="text-slate-500">{taxName()} @ {g.rate}%</dt><dd className="tabular-nums">{money(g.gst)}</dd></div>
               ))}
               <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-semibold text-slate-900"><dt>Total</dt><dd className="tabular-nums">{money(totals.total)}</dd></div>
             </dl>
@@ -295,7 +296,7 @@ function Catalog({ sources, categories, fieldsFor, lines, onAdd, onStep }) {
             ))}
           </div>
         )}
-        {tab === 'services' && <ManualService onAdd={(name, rate) => onAdd('service', '', { name, unit: 'Job', rate, gstPercent: DEFAULT_ESTIMATE_GST })} />}
+        {tab === 'services' && <ManualService onAdd={(name, rate) => onAdd('service', '', { name, unit: 'Job', rate, gstPercent: defaultTaxRate() })} />}
         <div className="max-h-[32rem] overflow-y-auto rounded-xl ring-1 ring-slate-200">
           {source.loading ? <p className="p-5 text-sm text-slate-500">Loading…</p> : source.error ? <p className="p-5 text-sm text-red-600">{source.error}</p> : !rows.length ? (
             <p className="p-5 text-sm text-slate-500">{q || cat ? 'Nothing matches your search or category.' : `No ${tab} yet.`}</p>

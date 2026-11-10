@@ -4,14 +4,15 @@
 
 import { Building2, Cylinder, DoorOpen, Package, Plus, Trash2, TreePine } from 'lucide-react';
 import { buildingIdOf, buildingList, mainSection, sectionsOf } from '@/lib/buildings';
-import { compassLabel, normalizeAzimuth } from '@/lib/geo';
-import { edges } from '@/lib/geometry';
-import { buildingAzimuth, normSection, ROOF_TYPES } from '@/lib/model';
+import { compassLabel, normalizeAzimuth, toLatLng } from '@/lib/geo';
+import { edges, polygonCentroid } from '@/lib/geometry';
+import { buildingAzimuth, normSection } from '@/lib/model';
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import Editor2D from '../editor/Editor2D';
 import { cx } from '../ui';
 import RoofPreview from './RoofPreview';
+import { DetectRoofPanel } from './RoofDetect';
 
 const FT = 3.281;
 const ITEMS = [
@@ -21,8 +22,16 @@ const ITEMS = [
   { key: 'tree', icon: TreePine, label: 'Tree near roof', tool: 'add-tree' },
   { key: 'other', icon: Package, label: 'AC / dish / other', tool: 'add-block', preset: { name: 'Other', w: 1, d: 1, h: 1 } },
 ];
-// side views of the three roof shapes
-const SHAPE_ICON = { flat: 'M6 12H42V27H6Z', shed: 'M6 27V16L42 6V27Z', gable: 'M6 27V16L24 4L42 16V27Z' };
+// the roof shapes on offer, with a side view of each. Kerala style is a hip roof with a small upright
+// triangle at the top of each end, a steep pitch and wide eaves.
+const ROOF_CHOICES = [
+  { id: 'flat', label: 'Flat', icon: 'M6 12H42V27H6Z' },
+  { id: 'shed', label: 'Single slope', icon: 'M6 27V16L42 6V27Z' },
+  { id: 'gable', label: 'Two slopes', icon: 'M6 27V16L24 4L42 16V27Z' },
+  { id: 'hip', label: 'Four slopes', icon: 'M4 27V19L15 8H33L44 19V27Z' },
+  { id: 'kerala', label: 'Kerala style', icon: 'M1 20L15 9H20L24 4L28 9H33L47 20H40V28H8V20Z' },
+];
+const choiceOf = (sec) => (sec?.roofType === 'hip' ? (sec.ends === 'kerala' ? 'kerala' : 'hip') : sec?.roofType || 'flat');
 const key = (k) => window.dispatchEvent(new KeyboardEvent('keydown', { key: k }));
 
 /** Metres box that tolerates half-typed numbers ("1.") and only commits valid ones. */
@@ -56,11 +65,50 @@ function Heights({ value, options, onChange }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {options.map(([v, l]) => (
-        <button key={l} type="button" onClick={() => onChange(v)} className={cx('rounded-full border px-3 py-1 text-xs font-medium', Math.abs(value - v) < 0.01 ? 'border-brand bg-brand-soft text-brand-ink' : 'border-slate-200 text-slate-600 hover:bg-slate-50')}>
+        <button key={`${v}-${l}`} type="button" onClick={() => onChange(v)} className={cx('rounded-full border px-3 py-1 text-xs font-medium', Math.abs(value - v) < 0.01 ? 'border-brand bg-brand-soft text-brand-ink' : 'border-slate-200 text-slate-600 hover:bg-slate-50')}>
           {l}
         </button>
       ))}
     </div>
+  );
+}
+
+/** Steepness, overhang and ends of a hip / Kerala roof: a few taps, nothing to draw. */
+function HipControls({ main, frame, update }) {
+  const kerala = main.ends === 'kerala';
+  const pitch = Math.round(main.pitch);
+  return (
+    <>
+      {frame.approx && (
+        <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+          This outline has a slanted inner corner, so panels can&apos;t be placed on it automatically. Square corners work best — drag the corners on the picture to straighten them.
+        </p>
+      )}
+      <div className="mt-3 flex items-baseline justify-between gap-2">
+        <label htmlFor="hip-pitch" className="shrink-0 text-sm font-semibold">How steep?</label>
+        <span className="text-right text-sm"><b className="text-base tabular-nums">{pitch}°</b> <span className="text-xs text-slate-500">· top is {frame.rise.toFixed(1)} m ({(frame.rise * FT).toFixed(0)} ft) above the walls</span></span>
+      </div>
+      <input id="hip-pitch" type="range" min={10} max={50} step={1} value={pitch} onChange={(e) => update({ pitch: Number(e.target.value) })} className="mt-1.5 h-2 w-full cursor-pointer accent-brand" />
+      <div className="mt-1.5 flex gap-1.5">
+        {[[20, 'Gentle'], [28, 'Normal'], [35, 'Steep']].map(([v, l]) => (
+          <button key={l} type="button" onClick={() => update({ pitch: v })} className={cx('flex-1 rounded-full border px-2 py-1 text-xs font-medium', pitch === v ? 'border-brand bg-brand-soft text-brand-ink' : 'border-slate-200 text-slate-600 hover:bg-slate-50')}>{l} · {v}°</button>
+        ))}
+      </div>
+
+      <div className="mb-2 mt-4 text-sm font-semibold">Roof sticks out past the walls</div>
+      <Heights value={main.overhang ?? 0} onChange={(overhang) => update({ overhang })} options={[[0, 'No'], [0.3, '1 ft'], [0.6, '2 ft'], [0.9, '3 ft']]} />
+
+      {!kerala && (
+        <>
+          <div className="mb-2 mt-4 text-sm font-semibold">Ends of the roof</div>
+          <Heights value={main.ends === 'gable' ? 1 : 0} onChange={(v) => update({ ends: v ? 'gable' : 'hip' })} options={[[0, 'Sloped'], [1, 'Triangle wall']]} />
+        </>
+      )}
+      <p className="mt-3 text-xs text-slate-500">
+        {kerala ? 'Kerala style: steep tiled slopes with a small wooden triangle at the top of each end. ' : ''}
+        L, T or U shaped house? Just mark its outline — the slopes, ridges and valleys are worked out for you.
+      </p>
+    </>
   );
 }
 
@@ -76,15 +124,29 @@ export default function StepSimpleObstacles({ design }) {
   const addingBuilding = tool === 'draw-section' && s.pendingKey === 'building';
   const sloped = main && main.roofType && main.roofType !== 'flat';
   // a slope can face any side of the building: offer the outward direction of each long wall
+  // one choice per compass direction (walls a few degrees apart both read "SE"): the longest such wall
   const facings = main
-    ? [...new Set(edges(normSection({ ...main, roofType: 'flat' }).poly).filter((e) => e.length >= 1.5).map((e) => Math.round(normalizeAzimuth((Math.atan2(e.outward.x, e.outward.y) * 180) / Math.PI))))].sort((a, b) => a - b)
+    ? Object.values(
+        edges(normSection({ ...main, roofType: 'flat' }).poly)
+          .filter((e) => e.length >= 1.5)
+          .map((e) => ({ az: Math.round(normalizeAzimuth((Math.atan2(e.outward.x, e.outward.y) * 180) / Math.PI)), len: e.length }))
+          .reduce((by, f) => {
+            const label = compassLabel(f.az);
+            if (!by[label] || f.len > by[label].len) by[label] = f;
+            return by;
+          }, {}),
+      ).map((f) => f.az).sort((a, b) => a - b)
     : [];
   const setRoofType = (roofType) => {
+    // four slopes keeps its own ends and steepness; Kerala style starts from the usual Kerala roof
+    if (roofType === 'hip') return s.updateSection(main.id, { roofType, ends: main.ends === 'gable' ? 'gable' : 'hip', pitch: main.roofType === 'hip' ? main.pitch : 25, overhang: main.overhang ?? 0.6 });
+    if (roofType === 'kerala') return s.updateSection(main.id, { roofType: 'hip', ends: 'kerala', pitch: 35, overhang: 0.9 });
     if (roofType === 'flat') return s.updateSection(main.id, { roofType, parapetH: main.parapetH || 1 });
     // first time: 20° pitch, facing the sunny side of the building
     s.updateSection(main.id, { roofType, pitch: main.pitch || 20, slopeAz: main.slopeAz ?? buildingAzimuth([normSection({ ...main, roofType: 'flat' })], design.lat) });
   };
   const frame = sloped ? normSection(main).frame : null;
+  const hip = Boolean(frame?.hip);
   const rise = frame ? frame.rise : 0;
   const depth = frame ? frame.dMax - frame.dMin : 0;
   const gable = sloped && main.roofType === 'gable';
@@ -115,6 +177,7 @@ export default function StepSimpleObstacles({ design }) {
   const hint = addingBuilding ? 'Click each corner of the next building\'s roof on the picture, then press Finish'
     : armedItem
     ? armed === 'floor' ? 'Click each corner of the upper roof on the picture, then press Finish · corners can be dragged afterwards' : `Press and drag across the ${armedItem.label.toLowerCase()} on the picture to select its area`
+    : hip ? 'Roof ready · press Continue to place the panels'
     : sloped ? `Click the LOW edge of the roof${main.roofType === 'gable' ? ' · drag the white dot to move the ridge' : ''}`
     : things.length ? 'Drag an object to move it · pull a white dot to resize' : 'Nothing on the roof? Just press Continue';
 
@@ -135,6 +198,7 @@ export default function StepSimpleObstacles({ design }) {
       <aside className="absolute inset-y-0 right-0 flex w-[400px] flex-col overflow-y-auto border-l border-slate-200 bg-white px-6 py-5">
         <h2 className="text-[22px] font-bold leading-tight">{campus ? `${buildings.length} buildings marked` : 'Roof marked'}</h2>
         <p className="mt-1 text-sm font-medium text-brand-ink">Press Continue to see the solar plan.</p>
+        {main && s.origin && <DetectRoofPanel point={toLatLng(polygonCentroid(main.points), s.origin)} buildingId={building?.id} outline={main.points.map((p) => toLatLng(p, s.origin))} />}
 
         <div className="mt-4 rounded-lg border border-slate-200 p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
@@ -164,12 +228,12 @@ export default function StepSimpleObstacles({ design }) {
           <div className="mt-5 rounded-lg border border-slate-200 p-3">
             <div className="mb-2 text-sm font-semibold">What does the roof look like?</div>
             <div role="radiogroup" aria-label="Roof shape" className="grid grid-cols-3 gap-2">
-              {ROOF_TYPES.map((t) => {
-                const on = (main.roofType || 'flat') === t.id;
+              {ROOF_CHOICES.map((t) => {
+                const on = choiceOf(main) === t.id;
                 return (
                   <button key={t.id} type="button" role="radio" aria-checked={on} onClick={() => setRoofType(t.id)} className={cx('flex flex-col items-center gap-1 rounded-lg border-2 px-1 pt-2 pb-1.5 text-xs font-semibold leading-tight transition', on ? 'border-brand bg-brand-soft text-brand-ink' : 'border-slate-200 text-slate-600 hover:border-slate-300')}>
                     <svg viewBox="0 0 48 30" className="h-8 w-12" aria-hidden>
-                      <path d={SHAPE_ICON[t.id]} fill={on ? 'var(--brand)' : '#cbd5e1'} fillOpacity={on ? 0.25 : 0.6} stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+                      <path d={t.icon} fill={on ? 'var(--brand)' : '#cbd5e1'} fillOpacity={on ? 0.25 : 0.6} stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
                     </svg>
                     {t.label}
                   </button>
@@ -179,7 +243,9 @@ export default function StepSimpleObstacles({ design }) {
 
             <div className="mt-3"><RoofPreview section={main} /></div>
 
-            {sloped ? (
+            {hip ? (
+              <HipControls main={main} frame={frame} update={(patch) => s.updateSection(main.id, patch)} />
+            ) : sloped ? (
               <>
                 <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
                   <b>On the picture:</b> click the edge where the roof is <b>lowest</b>{main.roofType === 'gable' ? ', and drag the white dot to move the ridge' : ''}. The orange line marks the low edge.

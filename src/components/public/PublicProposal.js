@@ -11,6 +11,7 @@ import { invoiceTax } from '@/lib/pricing';
 import { applyTheme, clearTheme } from '@/lib/theme';
 import { Alert, Badge, Card, FullPageLoader, LogoChip, Table, Td, Th, Tr, buttonClass } from '../kit';
 import { netAfterSubsidy, subsidyOf } from '@/lib/subsidy';
+import { taxLines, taxOf } from '@/lib/tax';
 
 const STATUS = { draft: ['Draft', 'slate'], proposed: ['Proposal', 'blue'], reproposed: ['Revised proposal', 'blue'], negotiation: ['Proposal', 'blue'], won: ['Accepted', 'green'], lost: ['Closed', 'slate'] };
 const date = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -106,10 +107,10 @@ export default function PublicProposal({ token }) {
                     <Td className="text-right tabular-nums">{money(l.amount)}</Td>
                   </Tr>
                 ))}
-                {tax?.rate > 0 && [['Taxable value', tax.taxable], [`CGST @ ${tax.rate / 2}%`, tax.cgst], [`SGST @ ${tax.rate / 2}%`, tax.sgst]].map(([k, v]) => (
+                {tax?.rate > 0 && [['Taxable value', tax.taxable], ...taxLines(taxOf(company), { gst: tax.gst, cgst: tax.cgst, sgst: tax.sgst }, tax.rate)].map(([k, v]) => (
                   <Tr key={k}><Td className="text-slate-700" colSpan={2}>{k}</Td><Td className="text-right tabular-nums">{money(v)}</Td></Tr>
                 ))}
-                <Tr><Td className="font-semibold" colSpan={2}>Total{pricing.withGst !== false && tax?.gst ? ' (incl. GST)' : ''}</Td><Td className="text-right font-semibold tabular-nums">{money(p.total)}</Td></Tr>
+                <Tr><Td className="font-semibold" colSpan={2}>Total{pricing.withGst !== false && tax?.gst ? ` (incl. ${taxOf(company).label})` : ''}</Td><Td className="text-right font-semibold tabular-nums">{money(p.total)}</Td></Tr>
                 {subsidyOf(p.subsidy).on && (
                   <>
                     {subsidyOf(p.subsidy).central > 0 && <Tr><Td className="text-slate-700" colSpan={2}>Central government subsidy</Td><Td className="text-right tabular-nums">− {money(subsidyOf(p.subsidy).central)}</Td></Tr>}

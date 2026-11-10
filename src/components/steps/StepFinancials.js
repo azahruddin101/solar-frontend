@@ -52,7 +52,7 @@ export default function StepFinancials({ design }) {
           <>
             <div className="flex justify-between py-1"><span className="text-slate-600">{design.totals.count} × {design.spec.name} @ {money(design.spec.price)}</span><b>{money(design.cost.panels)}</b></div>
             {design.structure.columns > 0 && (
-              <div className="flex justify-between py-1"><span className="text-slate-600">Pillars ({design.pillar.name}) {Math.round(design.cost.pillarFt)} ft</span><b>{money(design.cost.pillars)}</b></div>
+              <div className="flex justify-between py-1"><span className="text-slate-600">Structure ({design.pillar.name}) {Math.round(design.cost.pillarFt)} ft</span><b>{money(design.cost.pillars)}</b></div>
             )}
             {design.cost.hasChosenMaterials ? (
               <>

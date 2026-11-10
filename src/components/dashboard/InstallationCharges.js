@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { api } from '@/lib/api';
 import { useResource } from '@/lib/useResource';
 import { Alert, Button, Card, ConfirmDialog, EmptyState, FormField, FormModal, Input, LoadingBlock, PageHeader, Table, Td, Th, Tr, toast, RowMenu } from '../kit';
+import { defaultTaxRate, taxName } from '@/lib/tax';
 
 function ChargeForm({ charge, onClose, onSaved }) {
   const editing = Boolean(charge?.id);
@@ -14,7 +15,7 @@ function ChargeForm({ charge, onClose, onSaved }) {
     name: charge?.name || '',
     description: charge?.description || '',
     defaultPrice: charge?.defaultPrice ? String(charge.defaultPrice) : '',
-    gstPercent: charge?.gstPercent != null && charge?.gstPercent !== '' ? String(charge.gstPercent) : '18',
+    gstPercent: charge?.gstPercent != null && charge?.gstPercent !== '' ? String(charge.gstPercent) : String(defaultTaxRate()),
     sac: charge?.sac || '',
   });
   const [busy, setBusy] = useState(false);
@@ -29,7 +30,7 @@ function ChargeForm({ charge, onClose, onSaved }) {
         name: form.name.trim(),
         description: form.description.trim(),
         defaultPrice: Number(form.defaultPrice) || 0,
-        gstPercent: Math.max(0, Math.min(100, Number(form.gstPercent) || 18)),
+        gstPercent: Math.max(0, Math.min(100, form.gstPercent === '' ? defaultTaxRate() : Number(form.gstPercent) || 0)),
         sac: form.sac.replace(/\D/g, ''),
       };
       onSaved(await api(editing ? `/api/installation-charges/${charge.id}` : '/api/installation-charges', { method: editing ? 'PUT' : 'POST', body }), editing);
@@ -45,7 +46,7 @@ function ChargeForm({ charge, onClose, onSaved }) {
       <FormField label="Description" optional><Input maxLength={300} value={form.description} onValue={(v) => setForm({ ...form, description: v })} /></FormField>
       <FormField label="Usual price" optional hint="Only pre-fills the price on a proposal — you can change it there every time."><Input type="number" min={0} step="any" value={form.defaultPrice} onValue={(v) => setForm({ ...form, defaultPrice: v })} /></FormField>
       <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="GST %" hint="Applied to this charge on proposals (ex-GST price + this %)."><Input type="number" min={0} max={100} step="0.1" value={form.gstPercent} onValue={(v) => setForm({ ...form, gstPercent: v })} /></FormField>
+        <FormField label={`${taxName()} %`} hint={`Applied to this charge on proposals (price before ${taxName()} + this %).`}><Input type="number" min={0} max={100} step="0.1" value={form.gstPercent} onValue={(v) => setForm({ ...form, gstPercent: v })} /></FormField>
         <FormField label="SAC code" optional hint="Services Accounting Code, 6 digits, printed in the HSN/SAC column. Leave blank to print none."><Input inputMode="numeric" maxLength={8} value={form.sac} onValue={(v) => setForm({ ...form, sac: v.replace(/\D/g, '') })} placeholder="e.g. 998736" className="font-mono" /></FormField>
       </div>
     </FormModal>
@@ -91,7 +92,7 @@ export default function InstallationCharges() {
           </EmptyState>
         ) : (
           <Table>
-            <thead><tr><Th>Charge</Th><Th>Description</Th><Th>SAC</Th><Th className="text-right">GST</Th><Th className="text-right">Usual price</Th><Th className="text-right">Actions</Th></tr></thead>
+            <thead><tr><Th>Charge</Th><Th>Description</Th><Th>SAC</Th><Th className="text-right">{taxName()}</Th><Th className="text-right">Usual price</Th><Th className="text-right">Actions</Th></tr></thead>
             <tbody>
               {data.map((c) => (
                 <Tr key={c.id}>

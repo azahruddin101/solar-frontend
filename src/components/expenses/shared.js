@@ -3,7 +3,7 @@
 // Pieces shared by the expenses screens: the Projects / Profit & loss switch, the budget meter and short money labels.
 import { AlertTriangle, CheckCircle2, CircleAlert } from 'lucide-react';
 import Link from 'next/link';
-import { CURRENCIES } from '@/lib/energy';
+import { currencyInfo } from '@/lib/energy';
 import { cx } from '../kit';
 
 // status colours (good / warning / critical); they always travel with an icon and a word, never alone
@@ -11,7 +11,7 @@ export const STATUS = { good: '#0ca30c', warning: '#fab219', critical: '#d03b3b'
 
 /** "₹1.2L", "$34K": money for chart axes and tight labels. */
 export function compactMoney(value, code) {
-  const c = CURRENCIES[code] || CURRENCIES.USD;
+  const c = currencyInfo(code);
   const n = Number(value || 0);
   return `${n < 0 ? '−' : ''}${c.symbol}${Math.abs(n).toLocaleString(c.locale, { notation: 'compact', maximumFractionDigits: 1 })}`;
 }
