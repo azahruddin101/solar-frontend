@@ -18,7 +18,8 @@ const csp = [
   "font-src 'self' data: https://fonts.gstatic.com",
   `connect-src 'self' ${apiOrigin} https://*.googleapis.com https://*.google.com https://*.gstatic.com https://onesignal.com https://*.onesignal.com blob: data:`,
   "worker-src 'self' blob: https://cdn.onesignal.com",
-  `frame-src 'self' ${apiOrigin} https://onesignal.com https://*.onesignal.com https://*.google.com`,
+  // blob: — the in-app PDF viewer shows generated and stored PDFs (bills, challans, receipts, invoices) in an iframe from a blob URL
+  `frame-src 'self' blob: ${apiOrigin} https://onesignal.com https://*.onesignal.com https://*.google.com`,
   "media-src 'self' blob: data:",
   "object-src 'none'",
   "base-uri 'self'",

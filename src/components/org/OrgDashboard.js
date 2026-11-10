@@ -431,7 +431,7 @@ function attentionItems(c, ins, { where, detail, openInBranch, currency }) {
     }),
     item('billingQueue', (c.billingQueue ?? 0) > 0, {
       icon: HandCoins, path: '/dashboard/billing',
-      label: `${n(c.billingQueue)} billing item${c.billingQueue === 1 ? '' : 's'} waiting`, detail: detail('billingQueue', 'Open bills not yet invoiced'),
+      label: `${n(c.billingQueue)} client${c.billingQueue === 1 ? '' : 's'} with money due`, detail: detail('billingQueue', 'Billed and not fully paid yet'),
     }),
     item('clientSupportOpen', (c.clientSupportOpen ?? 0) > 0, {
       icon: Headset, path: '/dashboard/client-support',

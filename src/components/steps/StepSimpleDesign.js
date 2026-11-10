@@ -2,7 +2,7 @@
 
 // One friendly screen for home owners: see the roof in 3D, pick how many panels, done.
 
-import { AlertCircle, Box, Boxes, Building2, CalendarDays, Check, ChevronDown, Cylinder, DoorOpen, Eraser, Fence, FileText, Grid2x2Plus, Grid2x2X, Landmark, Loader2, Minus, Move, Package, Plus, ReceiptText, Sparkles, SquareDashed, Trash2, TreePine, Undo2, Wrench } from 'lucide-react';
+import { AlertCircle, Box, Boxes, Building2, CalendarDays, Check, ChevronDown, Cylinder, DoorOpen, Eraser, Fence, FileText, Grid2x2Plus, Grid2x2X, Keyboard, Landmark, Loader2, Minus, Move, Package, Plus, ReceiptText, Sparkles, SquareDashed, Trash2, TreePine, Undo2, Wrench } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -13,16 +13,17 @@ import { formatMoney } from '@/lib/energy';
 import { buildingList, mainSection, sectionsOf } from '@/lib/buildings';
 import { compassLabel, normalizeAzimuth } from '@/lib/geo';
 import { edges } from '@/lib/geometry';
-import { baseFit, buildDesign, MAX_SUPPORTS, normSection, zonesForSection } from '@/lib/model';
+import { baseFit, baseFor, buildDesign, MAX_SUPPORTS, normSection, zonesForSection } from '@/lib/model';
 import { sceneApi } from '../scene/Scene3D';
 import { floorsOf, restyleRoof, ROOF_STYLES, roofStyleOf, setFloors } from '@/lib/solarModel';
 import { SIMPLE_SLUGS, useStore } from '@/lib/store';
+import { packagePanelSpec } from '@/lib/useDesign';
 import Editor2D from '../editor/Editor2D';
 import { cx } from '../ui';
 import { Adjust, Stepper, SupportIcon } from './DesignPanel';
 import GroupList from './GroupList';
 import StringList from './StringList';
-import { activeStringPath, allStringColors, finishString, undoLastPanel } from '@/lib/strings';
+import { activeStringPath, allStringColors, dropEmptyStrings, finishString, undoLastPanel } from '@/lib/strings';
 import ShadowReportModal from './ShadowReportModal';
 import BuildingBreakdown from './BuildingBreakdown';
 import { catalogMaterialLineTotal } from '@/lib/pricing';
@@ -89,19 +90,44 @@ function PillarIcon({ shape }) {
 /** Collapsible sidebar section: a bold heading, and its current setting shown as a colored chip. */
 const Big = ({ children }) => <h2 className="text-[25px] font-bold leading-tight">{children}</h2>;
 // one product of the "my own choice" list: name, the pick, quantity and its price on one line
+const TOOLS = ['add-base', 'add-panel', 'remove-panel'];
+
+/** The mouse and keyboard shortcuts that apply on a step, for the shortcuts button: [section, [keys, what]…]. */
+function shortcutsFor(stage, view) {
+  const list = [
+    ['Moving the view', view === '3d'
+      ? [['Drag', 'turn the view'], ['Scroll', 'closer / further'], ['Right-drag', 'slide the view'], ['Double-click a spot', 'turn around that spot']]
+      : [['Drag', 'slide the plan'], ['Scroll', 'closer / further']]],
+  ];
+  if (stage === 'building') {
+    list.push(['Roof and things on it (Plan view)', [['Click a roof edge', 'make it the low edge'], ['Drag the ridge', 'move it'], ['Drag a thing', 'move it'], ['Drag its corner', 'resize it'], ['Delete', 'remove the selected thing']]]);
+    list.push(['Drawing another building', [['Click', 'add a corner'], ['Enter', 'finish'], ['Backspace', 'undo the last corner'], ['Right-click a corner', 'delete it'], ['Esc', 'cancel']]]);
+  }
+  if (stage === 'panels') {
+    list.push(['Tools', [['B', 'add a base'], ['P', 'add a panel'], ['R', 'take a panel off'], ['F', 'fill empty bases / clear all'], ['Esc', 'put the tool away']]]);
+    list.push(['The selected block', [['Arrow keys', 'nudge (Shift: 1 m)'], ['[  ]', 'turn 5°'], ['Delete', 'remove it'], ['Alt while dragging', 'no snapping'], ['Shift while turning', '15° steps'], ['Ctrl/⌘ + C, V, D', 'copy, paste, duplicate']]]);
+  }
+  if (stage === 'strings') list.push(['Your own strings', [['Tap / drag across panels', 'add them in order'], ['Enter or Esc', 'close the string'], ['Backspace', 'take the last panel off']]]);
+  list.push(['Always', [['Ctrl/⌘ + Z', 'undo'], ['Ctrl/⌘ + Shift + Z', 'redo']]]);
+  return list;
+}
 const PICK = 'h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900';
-const ProductRow = ({ label, children, qty, total }) => (
-  <div className="grid grid-cols-[150px_minmax(0,1fr)_auto_96px] items-center gap-3 px-4 py-3">
-    <span className="text-sm font-semibold text-slate-800">{label}</span>
-    {children}
-    <span className="text-sm text-slate-600">{qty}</span>
-    <span className="text-right text-sm font-semibold text-slate-900 tabular-nums">{total}</span>
+const ProductRow = ({ label, children, qty, total, note }) => (
+  <div className="px-4 py-3">
+    <div className="grid grid-cols-[150px_minmax(0,1fr)_auto_96px] items-center gap-3">
+      <span className="text-sm font-semibold text-slate-800">{label}</span>
+      {children}
+      <span className="text-sm text-slate-600">{qty}</span>
+      <span className="text-right text-sm font-semibold text-slate-900 tabular-nums">{total}</span>
+    </div>
+    {note}
   </div>
 );
 
 // a fold-out section: closed by default, so a step shows only its main things; `open` turning
 // true (e.g. a base was tapped in 3D) opens it
-function Fold({ title, hint, children, open = false }) {
+// `tight`: a fold inside another fold keeps less padding, so its content has the room it had before
+function Fold({ title, hint, children, open = false, tight = false }) {
   const [isOpen, setOpen] = useState(open);
   const [was, setWas] = useState(open);
   if (open !== was) {
@@ -109,19 +135,26 @@ function Fold({ title, hint, children, open = false }) {
     if (open) setOpen(true);
   }
   return (
-    <details open={isOpen} onToggle={(e) => setOpen(e.currentTarget.open)} className="group rounded-xl border border-slate-200 bg-white shadow-sm">
+    <details open={isOpen} onToggle={(e) => setOpen(e.currentTarget.open)} className="group/fold rounded-xl border border-slate-200 bg-white shadow-sm">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-5 py-3.5 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
         <span>
           <span className="block text-base font-semibold text-slate-900">{title}</span>
           {hint && <span className="block text-sm text-slate-500">{hint}</span>}
         </span>
-        <ChevronDown className="h-5 w-5 shrink-0 text-slate-400 transition group-open:rotate-180" />
+        <ChevronDown className="h-5 w-5 shrink-0 text-slate-400 transition [[open]>summary>&]:rotate-180" />
       </summary>
-      <div className="border-t border-slate-100 px-5 py-4">{children}</div>
+      <div className={cx('border-t border-slate-100', tight ? 'px-2 py-3' : 'px-5 py-4')}>{children}</div>
     </details>
   );
 }
 const Sub = ({ children }) => <p className="mt-1 text-base text-slate-700">{children}</p>;
+// what the app has already done on this step, said first: the user only changes it if they want to
+const Done = ({ children }) => (
+  <p className="flex gap-2.5 rounded-xl bg-emerald-50 px-4 py-3 text-base text-emerald-900">
+    <Check className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" strokeWidth={3} aria-hidden />
+    <span>{children}</span>
+  </p>
+);
 
 const Q = ({ n, children }) => (
   <div className="mb-2 flex items-center gap-2 text-[17px] font-semibold">
@@ -149,8 +182,10 @@ function StringBar({ design }) {
   const autoLeft = (el.strings || []).filter((x) => !x.manual).reduce((a, x) => a + (x.count || 0), 0);
   const stop = (e) => e.stopPropagation();
   if (!ps) {
+    // every string automatic: nothing to pick until the user asks to make their own
+    if (!picked.length) return null;
     return (
-      <div onPointerDown={stop} className="hidden absolute bottom-24 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-full bg-white px-5 py-3 text-base text-slate-700 shadow-xl">
+      <div onPointerDown={stop} className="absolute bottom-24 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-full bg-white px-5 py-3 text-base text-slate-700 shadow-xl">
         👆 Tap a panel to start string <b>{picked.length + 1}</b>
         {autoLeft > 0 && <span className="text-sm text-slate-500">· {autoLeft} panels left on automatic</span>}
       </div>
@@ -185,7 +220,8 @@ function StringBar({ design }) {
   );
 }
 
-function RoofShape({ section }) {
+// `part`: 'main' = shape, floors (and the low side of a single slope); 'slope' = the slope slider alone
+function RoofShape({ section, part = 'main' }) {
   const style = roofStyleOf(section);
   const floors = Math.min(5, floorsOf(section));
   const [pitch, setPitch] = useState(section.pitch || section.auto?.pitch || 25);
@@ -208,9 +244,19 @@ function RoofShape({ section }) {
     const { sections, set } = useStore.getState();
     set({ sections: sections.map((sec) => (sec.id === section.id ? { ...sec, slopeAz } : sec)), layoutKey: '' });
   };
+  if (part === 'slope') {
+    if (style === 'flat') return null;
+    return (
+      <label className="block text-sm font-medium text-slate-700">
+        Roof slope · <b className="text-slate-900">{pitch}°</b>
+        <input type="range" min={10} max={45} step={1} value={pitch} onChange={(e) => setPitch(Number(e.target.value))} onPointerUp={() => apply(style, pitch)} onKeyUp={() => apply(style, pitch)} className="mt-2 w-full accent-brand" />
+        <span className="mt-1 flex justify-between text-xs text-slate-500"><span>Gentle</span><span>Steep</span></span>
+      </label>
+    );
+  }
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-600">Made from the satellite measurements. If it does not match the house, pick the right shape.</p>
+      <p className="text-sm text-slate-600">If it does not match the house, pick the right shape.</p>
       <div role="radiogroup" aria-label="Roof shape" className="grid grid-cols-2 gap-2">
         {ROOF_STYLES.map((r) => (
           <button
@@ -254,23 +300,6 @@ function RoofShape({ section }) {
           <p className="mt-1.5 text-xs text-slate-500">The roof falls towards this wall. On the plan view, the low edge is marked in orange and can be clicked too.</p>
         </div>
       )}
-      {style !== 'flat' && (
-        <label className="block text-sm font-medium text-slate-700">
-          Roof slope · <b className="text-slate-900">{pitch}°</b>
-          <input
-            type="range"
-            min={10}
-            max={45}
-            step={1}
-            value={pitch}
-            onChange={(e) => setPitch(Number(e.target.value))}
-            onPointerUp={() => apply(style, pitch)}
-            onKeyUp={() => apply(style, pitch)}
-            className="mt-2 w-full accent-brand"
-          />
-          <span className="mt-1 flex justify-between text-xs text-slate-500"><span>Gentle</span><span>Steep</span></span>
-        </label>
-      )}
     </div>
   );
 }
@@ -283,20 +312,19 @@ const ROOF_THINGS = [
   { key: 'tree', icon: TreePine, label: 'Tree near the roof' },
 ];
 
-/** Obstacles on or near the roof: pick one, then drag over it on the plan view. Panels keep clear. */
-function RoofObstacles({ onArm }) {
+/** Obstacles on or near the roof: pick one, then tap where it is (3D or plan). Panels keep clear. */
+function RoofObstacles() {
   const s = useStore();
   const armed = s.tool === 'mark-area' ? s.pendingKey : null;
   const things = s.objects.filter((o) => o.type === 'block' || o.type === 'tree');
   const pick = (it) => {
     if (armed === it.key) return s.set({ tool: 'select', pendingKey: null, pendingBlock: null });
     s.set({ tool: 'mark-area', pendingKey: it.key, pendingBlock: it.preset || null, selectedId: null });
-    onArm();
   };
   const heights = (o) => (o.type === 'tree' ? [[4, '13 ft'], [6, '20 ft'], [9, '30 ft'], [12, '40 ft']] : [[1, '3 ft'], [1.8, '6 ft'], [2.7, '9 ft · one floor'], [5.4, '18 ft · two floors']]);
   return (
     <div className="space-y-3">
-      <p className="text-sm text-slate-600">Anything on the roof the satellite missed? Pick it, then press and drag over it on the picture. Panels are kept away from it.</p>
+      <p className="text-sm text-slate-600">{armed ? <b className="text-brand-ink">Now tap the spot on the roof where it is.</b> : 'Anything on the roof the satellite missed? Pick it, then tap where it is.'} A standard-size one appears and panels are kept away from it. Wrong size? On the Plan view, drag its corner.</p>
       <div className="grid grid-cols-2 gap-2">
         {ROOF_THINGS.map((it) => (
           <button key={it.key} type="button" onClick={() => pick(it)} className={cx('flex items-center gap-2 rounded-lg border-2 px-3 py-2.5 text-left text-sm font-semibold', armed === it.key ? 'border-brand bg-brand-soft text-brand-ink' : 'border-slate-200 text-slate-700 hover:border-slate-300')}>
@@ -335,6 +363,7 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
   const s = useStore();
   const { config, objects, sections, finance } = s;
   const [chosenView, setView] = useState('3d');
+  const [help, setHelp] = useState(false);
   const [page, setPage] = useState(0);
   // a campus has several buildings (Google found more than one house in the marked area, or the user
   // added one by drawing its outline): the building step edits one at a time
@@ -386,6 +415,9 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
     const st = useStore.getState();
     const tool = stage === 'strings' && !st.readOnly ? 'string' : 'select';
     if (st.tool !== tool || st.activeStringId) st.set({ tool, pendingKey: null, pendingBlock: null, activeStringId: null });
+    // a string started and left without a panel does not stay behind
+    if (!st.readOnly) dropEmptyStrings(design.electrical);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the step changes
   }, [stage]);
   useEffect(() => {
     // keyboard: Esc puts a tool away; on the Panels step B / P / R arm the tools, F fills the
@@ -448,33 +480,52 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
   // "Maximum panels": the most panels the roof physically takes (see maxRoofLayout); worked out on
   // the Panels step only, and again only when the roof, obstacles, panel or pole heights change
   const maxPlan = useMemo(() => {
-    if (stage !== 'panels' || !design.sections.length) return null;
+    if ((stage !== 'panels' && stage !== 'system') || !design.sections.length) return null; // Package step too: a package's panels may need the roof edge to edge
     return maxRoofLayout({ sections: design.sections, buildings: designBuildings, objects: JSON.parse(obstacleKey), config, lat: design.lat, spec: design.spec, azimuthFor });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- config/azimuthFor change on every edit; only these settings move the layout
   }, [stage, design.sections, designBuildings, obstacleKey, design.lat, design.spec, config.tilt, config.frontLeg, config.azimuthMode, config.azimuth]);
   const maxRoof = maxPlan?.count || 0;
   // panels go on the designed bases only (when the user drew them), otherwise anywhere on the roof
+  // ONE limit for the whole step: panels may go up to the roof edge, so the roof holds what the
+  // edge-to-edge layout holds (never less than the usual layout with its edge gap)
+  const roofMax = Math.max(roofFit, maxRoof);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- baseKey stands for the bases (a new array each render)
-  const maxFit = useMemo(() => (designed ? basesCapacity(bases, design.spec) : roofFit), [designed, roofFit, design.spec, baseKey]);
+  const maxFit = useMemo(() => (designed ? basesCapacity(bases, design.spec) : roofMax), [designed, roofMax, design.spec, baseKey]);
+  // `v` panels on the roof (0 = as many as it holds): the usual layout while that has room, the
+  // edge-to-edge one beyond it. Drawn bases are planted on instead (autoGroups does that).
+  const layTo = (v, opts = {}) => {
+    if (!designed && maxPlan?.count >= roofFit && maxPlan.count > 0 && (v <= 0 || v > roofFit)) return applyMaxLayout(maxPlan, v);
+    autoGroups(design, v, opts);
+  };
+  // a fresh layout of `n` panels (0 = fill) for design `d`, whatever bases are there now; pricing untouched.
+  // Edge to edge when the usual layout has no room for them (only when `d` has the panel maxPlan was made for).
+  const layFresh = (d, n) => {
+    const samePanel = d.spec.length === design.spec.length && d.spec.width === design.spec.width;
+    if (samePanel && maxPlan?.count > roofFit && (n <= 0 || n > roofFit)) return applyMaxLayout(maxPlan, n);
+    autoGroups(d, n > 0 ? Math.min(n, Math.max(1, roofFit)) : 0, { atLeast: n > 0, keepPricing: true, fresh: true });
+  };
+  const pkgCap = packageCap();
+  const inPackage = config.pricingMode === 'package';
+  const full = totals.count >= Math.min(Math.max(maxFit, 1), pkgCap ?? Infinity);
   const count = totals.count;
   const setCount = (n) => {
     // with a package: − / + move within the package's panels and the price stays the package's
     const cap = packageCap();
-    if (cap && Math.round(n) > cap) return toast.error(`This package has ${cap} panels. Switch to Custom in Products for more.`);
+    if (cap && Math.round(n) > cap) return toast.error(`This package has ${cap} panels. For more, switch to Custom on the Package step.`);
     const v = Math.max(1, Math.min(Math.max(maxFit, 1), cap ?? Infinity, Math.round(n)));
     const kw = ((v * spec.watts) / 1000).toFixed(2);
     s.patch('config', {
-      ...(cap ? {} : { pricingMode: 'custom' }),
+      ...(cap ? {} : { pricingMode: 'custom', sizeMode: v >= maxFit ? 'fill' : 'kw' }),
       sizeBy: 'kw',
       sizeKw: kw,
       sizeBill: String(Math.floor(v * perPanelMonth * tariff)),
     });
-    autoGroups(design, v >= maxFit && !cap ? 0 : v, { keepPricing: Boolean(cap) });
+    layTo(v >= maxFit && !cap ? 0 : v, { keepPricing: Boolean(cap) });
   };
   // the most panels the roof takes: a fresh layout over the whole roof (also when bases were drawn)
   const fillMax = () => {
     if (!maxPlan?.count) return;
-    s.patch('config', { pricingMode: 'custom', sizeBy: 'kw', sizeValue: undefined, sizeKw: ((maxRoof * spec.watts) / 1000).toFixed(2), sizeBill: String(Math.floor(maxRoof * perPanelMonth * tariff)) });
+    s.patch('config', { pricingMode: 'custom', sizeMode: 'fill', sizeBy: 'kw', sizeValue: undefined, sizeKw: ((maxRoof * spec.watts) / 1000).toFixed(2), sizeBill: String(Math.floor(maxRoof * perPanelMonth * tariff)) });
     applyMaxLayout(maxPlan);
   };
   const applyAll = (patch) => s.set({ config: { ...config, ...patch }, objects: objects.map((o) => (o.type === 'zone' || o.type === 'array' ? { ...o, ...patch } : o)) });
@@ -493,9 +544,12 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
   const panelsFor = (mode, v) => {
     const n = Number(v) || 0;
     if (n <= 0) return 0;
-    return mode === 'kw' ? Math.ceil((n * 1000) / spec.watts - 1e-9) : Math.ceil(n / tariff / perPanelMonth);
+    // kW is typed and stored to two decimals (17 × 575 W shows as 9.78): that rounding is not one more panel
+    return mode === 'kw' ? Math.ceil((n * 1000) / spec.watts - 0.01) : Math.ceil(n / tariff / perPanelMonth);
   };
   const needPanels = panelsFor(sizeBy, sizeValue);
+  // the one question on the Panels step: fill the roof, match the bill, or a typed size
+  const sizeMode = ['fill', 'bill', 'kw'].includes(config.sizeMode) ? config.sizeMode : amount > 0 && !(count >= maxFit && !designed) ? sizeBy : 'fill';
 
   // place panels automatically the first time (and whenever the roof changes)
   useEffect(() => {
@@ -523,10 +577,10 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
   const settle = useRef(0);
   const sizeFor = (mode, v) => {
     const other = equivalent(mode, v);
-    s.patch('config', { sizeBy: mode, sizeValue: undefined, sizeBill: mode === 'bill' ? v : other, sizeKw: mode === 'kw' ? v : other, pricingMode: 'custom' });
+    s.patch('config', { sizeBy: mode, sizeMode: mode, sizeValue: undefined, sizeBill: mode === 'bill' ? v : other, sizeKw: mode === 'kw' ? v : other, pricingMode: 'custom' });
     const n = panelsFor(mode, v);
     settle.current = 2;
-    autoGroups(design, n > 0 ? Math.min(maxFit, Math.max(1, n)) : 0, { atLeast: true });
+    layTo(n > 0 && n < maxFit ? Math.max(1, n) : 0, { atLeast: true });
   };
 
   // Selecting a package: place the exact number of panels defined in the package.
@@ -572,12 +626,23 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
     // the package never moves the user's panels: only an empty roof is laid out for it; with more panels than the
     // package has, the extra ones come off (the last placed first); with fewer, the user places the rest
     const placedNow = plantedTotal(useStore.getState().objects, design.spec);
+    // the panel the roof was laid out with until now: the previous package's, or the one chosen in Custom
+    const custom = design.catalog.panels.find((p) => p.id === config.specId) || design.catalog.panels[0];
+    const before = config.packageLaidOut ? packagePanelSpec(design.catalog, (design.catalog.packages || []).find((p) => p.id === config.packageLaidOut), custom) : custom;
+    const now = packagePanelSpec(design.catalog, pkg, custom);
+    const resized = Boolean(before && now) && (before.length !== now.length || before.width !== now.width);
     const size = (k) => ({ sizeBy: 'kw', sizeValue: undefined, sizeKw: pkgKw > 0 ? String(pkgKw) : ((k * panelWatts) / 1000).toFixed(2), sizeBill: String(Math.floor(k * perPanelMonth * tariff)) });
     s.patch('config', { packageId: pkgId, packageLaidOut: pkgId, ...(n > 0 ? size(n) : {}) });
     if (!(n > 0)) return;
     if (placedNow === 0) {
       settle.current = 2;
-      autoGroups(design, Math.min(n, Math.max(1, roofFit)), { atLeast: true, keepPricing: true, fresh: true });
+      layFresh({ ...design, spec: now }, n);
+    } else if (resized) {
+      // a panel of another size: the old layout was made for the other panel, so the package's panels are
+      // laid out again
+      settle.current = 2;
+      // (`design` here may still carry the previous panel: the new one is passed explicitly)
+      layFresh({ ...design, spec: now }, n);
     } else if (placedNow > n) trimPanelsTo(n, design.spec);
     else if (placedNow < n) restorePanels(n, design.spec); // panels a smaller package took off come back
   };
@@ -591,7 +656,12 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
   useEffect(() => {
     if (config.pricingMode !== 'package') {
       pkgApplied.current = ''; // reset when leaving package mode
-      if (config.packageLaidOut) s.patch('config', { packageLaidOut: '' }); // coming back re-sizes to the package
+      if (config.packageLaidOut) {
+        // back to Custom from a package with a panel of another size: lay out again for the Custom panel
+        const was = packagePanelSpec(design.catalog, (design.catalog.packages || []).find((p) => p.id === config.packageLaidOut), spec);
+        if (was.length !== spec.length || was.width !== spec.width) setTimeout(() => document.getElementById('rearrange')?.click(), 50);
+        s.patch('config', { packageLaidOut: '' }); // coming back re-sizes to the package
+      }
       return;
     }
     const pkgId = config.packageId || design.catalog.packages?.[0]?.id || '';
@@ -606,11 +676,46 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.pricingMode, config.packageId, pkgsAvailable]);
 
+  // The layout always fits the panel in use. Every base is a whole number of panel slots, so its
+  // footprint equals that of its rows × columns of panels; when it does not, the panel changed (another
+  // package, Package ⇄ Custom, or a design saved with the other panel) and the old bases hold too few
+  // panels or none. The roof is then laid out again for this panel, and the user is told (Undo restores).
+  const specKey = `${spec.length}x${spec.width}`;
+  const healed = useRef('');
+  useEffect(() => {
+    if (!catalogReady || s.readOnly || !design.sections.length) return;
+    const stale = useStore.getState().objects.some((o) => {
+      if (o.type !== 'array' || !(o.w > 0) || !(o.len > 0)) return false;
+      // the slots this panel gives on the base must fill it exactly (2 cm of play)
+      const fit = baseFit(o, spec);
+      if (!fit.rows || !fit.cols) return true;
+      const size = baseFor(fit.rows, fit.cols, o, spec);
+      return Math.abs(size.w - o.w) > 0.02 || Math.abs(size.len - o.len) > 0.02;
+    });
+    if (!stale || healed.current === specKey) return; // once per panel size: never a loop
+    healed.current = specKey;
+    const cap = packageCap();
+    const want = cap || (needPanels > 0 ? needPanels : 0);
+    settle.current = 0;
+    layFresh(design, want);
+    toast.success(`Panels laid out again for the ${spec.watts} W panel. Undo brings the old layout back.`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [specKey, catalogReady, objects, config.pricingMode]);
+
   const switchTo = (mode) => {
     if (mode === sizeBy) return;
     const current = sizeBy === 'kw' ? { sizeKw: sizeValue } : { sizeBill: sizeValue };
     const shown = (mode === 'kw' ? config.sizeKw : config.sizeBill) || equivalent(sizeBy, sizeValue);
     s.patch('config', { sizeBy: mode, sizeValue: undefined, ...current, [mode === 'kw' ? 'sizeKw' : 'sizeBill']: shown });
+  };
+  const pickSizeMode = (mode) => {
+    if (mode === 'fill') {
+      if (maxPlan?.count) return fillMax(); // a fresh layout, edge to edge
+      s.patch('config', { sizeMode: 'fill' });
+      return layTo(0);
+    }
+    s.patch('config', { sizeMode: mode });
+    switchTo(mode);
   };
   // The yield per panel is re-estimated once the new layout is known (shading changes with it), which
   // can raise the number of panels the bill needs. Top up after a sizing change — never on manual edits.
@@ -619,7 +724,7 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
     const target = Math.min(maxFit, needPanels);
     if (needPanels > 0 && target > count) {
       settle.current -= 1;
-      autoGroups(design, target, { atLeast: true, keepPricing: true });
+      layTo(target >= maxFit ? 0 : target, { atLeast: true, keepPricing: true });
     } else settle.current = 0;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needPanels, count, maxFit]);
@@ -1017,13 +1122,13 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
                     {(design.cost.categoryMaterials || []).map((m) => (
                       <div key={m.categoryId} className="flex justify-between py-0.5 text-sm text-slate-600">
                         <span>{m.categoryName}: {m.productName} (×{m.qty} {m.unit})</span>
-                        <b>{money(m.total)}</b>
+                        <b>{money(m.baseTotal ?? m.total)}</b>
                       </div>
                     ))}
                   </>
                 ) : (
                   <div className="flex justify-between py-0.5">
-                    <span>Inverter, wiring, installation (BOS)</span>
+                    <span>Standard inverter, wiring &amp; installation</span>
                     <b>{money(design.cost.other)}</b>
                   </div>
                 )}
@@ -1120,14 +1225,30 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
               </button>
             ))}
           </div>
+          {/* everything a mouse or keyboard can also do here, in one place */}
+          <div className="relative">
+            <button type="button" title="Mouse and keyboard shortcuts" aria-label="Mouse and keyboard shortcuts" aria-expanded={help} onClick={() => setHelp((v) => !v)} className={cx('grid h-10 w-10 place-items-center rounded-full shadow-lg', help ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:text-slate-900')}><Keyboard className="h-5 w-5" /></button>
+            {help && (
+              <div className="absolute left-0 top-12 z-30 w-[340px] rounded-xl bg-white p-4 text-sm text-slate-700 shadow-2xl ring-1 ring-slate-900/10">
+                {shortcutsFor(stage, view).map(([title, rows]) => (
+                  <div key={title} className="mb-3 last:mb-0">
+                    <div className="mb-1 text-xs font-semibold tracking-wide text-slate-500 uppercase">{title}</div>
+                    {rows.map(([keys, what]) => (
+                      <div key={keys} className="flex justify-between gap-3 py-0.5"><span className="font-semibold text-slate-900">{keys}</span><span className="text-right text-slate-600">{what}</span></div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
         {view === '2d' && (
           <div className="pointer-events-none absolute left-1/2 top-5 -translate-x-1/2 rounded-full bg-slate-900/85 px-5 py-2 text-base text-white shadow-lg">
             {s.tool === 'draw-section'
               ? 'Click each corner of the new building’s roof on the picture, then press Finish'
               : s.tool === 'mark-area'
-              ? `Press and drag across the ${s.pendingKey === 'tree' ? 'tree' : (s.pendingBlock?.name || 'object').toLowerCase()} on the picture`
-              : s.tool === 'string' ? 'Tap panels in wiring order, or press and drag across them · drag on empty roof to move the plan'
+              ? `Tap where the ${s.pendingKey === 'tree' ? 'tree' : (s.pendingBlock?.name || 'object').toLowerCase()} is, or press and drag across it`
+              : s.tool === 'string' ? ((s.electrical.strings || []).length ? 'Tap panels in wiring order, or press and drag across them · drag on empty roof to move the plan' : 'The colours show which panels are wired together')
               : s.tool === 'add-panel' ? 'Tap a slot on a base to put a panel there (tap the button again to stop)' : s.tool === 'remove-panel' ? 'Tap a panel to take it off (tap the button again to stop)' : s.tool === 'add-base' ? 'Press and drag on the roof to draw the base · then plant panels on it' : s.tool === 'add-array' ? 'Tap on the roof where you want panels' : stage === 'building' ? 'Drag an obstacle to move it · pull its corner to resize' : 'Drag panels to move · pull the ⤡ corner to add or remove panels · orange dot turns them'}
           </div>
         )}
@@ -1149,9 +1270,11 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
             <div className="space-y-6 px-5 py-5">
               <div>
                 <Big>{buildingsHere.length > 1 ? 'Your buildings' : 'Your building'}</Big>
-                <Sub>Check the shape and height the satellite found, and add anything on the roof it missed.</Sub>
+                {roofSec
+                  ? <div className="mt-3"><Done>Found from the satellite: <b>{floorsOf(roofSec)} floor{floorsOf(roofSec) === 1 ? '' : 's'}</b>, <b>{(ROOF_STYLES.find((r) => r.id === roofStyleOf(roofSec))?.label || 'roof').toLowerCase()}</b> roof{count > 0 ? <>, with a first layout of <b>{count} panels</b></> : ''}. If it looks like the house, press Continue.</Done></div>
+                  : <Sub>Check the shape and height the satellite found, and add anything on the roof it missed.</Sub>}
               </div>
-              {building && (
+              {building && (buildingsHere.length > 1 || addingBuilding) && (
                 <div className="rounded-xl border border-slate-200 p-4">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 text-[17px] font-bold text-slate-900"><Building2 className="h-5 w-5 text-slate-500" aria-hidden /> {buildingsHere.length > 1 ? `${buildingsHere.length} buildings` : 'Buildings'}</div>
@@ -1192,10 +1315,22 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
               ) : (
                 <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">This roof was drawn by hand: its shape and height stay as drawn.</p>
               )}
-              <div className="rounded-xl border border-slate-200 p-4">
-                <div className="mb-3 text-[17px] font-bold text-slate-900">Obstacles on the roof</div>
-                <RoofObstacles onArm={() => setView('2d')} />
-              </div>
+              <Fold title="More options" hint={`${roofSec && roofStyleOf(roofSec) !== 'flat' ? 'Roof slope, things' : 'Things'} on the roof${buildingsHere.length > 1 ? '' : ', another building'}`} open={addingBuilding || s.tool === 'mark-area' || objects.some((o) => o.type === 'tree' || o.type === 'block')}>
+                <div className="space-y-6">
+                  {roofSec && roofStyleOf(roofSec) !== 'flat' && <RoofShape key={`slope:${roofSec.id}:${roofSec.pitch}:${roofSec.height}`} section={roofSec} part="slope" />}
+                  <div>
+                    <div className="mb-2 text-base font-semibold text-slate-900">Things on the roof</div>
+                    <RoofObstacles />
+                  </div>
+                  {building && buildingsHere.length <= 1 && !s.readOnly && (
+                    <div>
+                      <div className="mb-1 text-base font-semibold text-slate-900">Another building</div>
+                      <p className="text-sm text-slate-600">More than one building on the site? Add each one and mark its roof on the picture. The proposal gives one price with a breakdown per building.</p>
+                      <button type="button" onClick={toggleAddBuilding} className="mt-2 inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"><Plus className="h-4 w-4" /> Add building</button>
+                    </div>
+                  )}
+                </div>
+              </Fold>
             </div>
           )}
           {stage === 'strings' && (
@@ -1209,7 +1344,9 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
               ) : (
                 <>
                   {!s.readOnly && (
-                    <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700"><b>Tap panels</b> in wiring order, or <b>drag across</b> a row. A full string starts the next one by itself; <b>Enter</b> closes a string.</p>
+                    (s.electrical.strings || []).length
+                      ? <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700"><b>Tap panels</b> in wiring order, or <b>drag across</b> a row. A full string starts the next one by itself; <b>Enter</b> closes a string.</p>
+                      : <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><b>Done automatically.</b> Nothing to do here. To choose the panels of each string yourself, press <b>Make my own strings</b> below.</p>
                   )}
                   <StringList design={design} />
                 </>
@@ -1218,38 +1355,52 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
           )}
           {stage === 'panels' && (
             <div className="space-y-4 px-5 py-4">
+              {count > 0 && totals.invalid === 0 && <Done><b>{count} panels</b> are placed for you ({totals.kwp.toFixed(1)} kW). Press Continue, or change the number below.</Done>}
           {/* 1 — the only question: size by bill or by kW */}
+          {inPackage && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-[19px] font-bold text-slate-900">Sized by the package</div>
+              <p className="mt-1 text-base text-slate-600"><b className="text-slate-900">{design.cost.package?.name || 'The package'}</b>{pkgCap ? <> has <b className="text-slate-900">{pkgCap} panels</b></> : ''}. Place them where you like; the price stays the package&apos;s.</p>
+              {!s.readOnly && (
+                <button type="button" onClick={() => s.patch('config', { pricingMode: 'custom' })} className="mt-3 text-base font-semibold text-brand-ink underline hover:no-underline">Use my own size instead (switches to Custom)</button>
+              )}
+            </div>
+          )}
+          {!inPackage && (
           <div>
-            <div className="text-[19px] font-bold text-slate-900">Size the system by</div>
-            <div role="radiogroup" aria-label="Size the system by" className="mt-2.5 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
-              {[['bill', 'Monthly bill'], ['kw', 'Kilowatt (kW)']].map(([k, label]) => (
-                <button key={k} type="button" role="radio" aria-checked={sizeBy === k} onClick={() => switchTo(k)} className={cx('h-10 rounded-md text-[17px] font-semibold whitespace-nowrap transition', sizeBy === k ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-700 hover:text-slate-900')}>{label}</button>
-              ))}
-            </div>
-            <label htmlFor="size" className="mt-3.5 block text-base font-semibold text-slate-600">{sizeBy === 'bill' ? `Monthly electricity bill (${finance.currency})` : 'System size required (kW)'}</label>
-            <div className="relative mt-1.5">
-              <input id="size" inputMode="decimal" value={sizeValue} onChange={(e) => sizeFor(sizeBy, e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1'))} placeholder={sizeBy === 'bill' ? 'e.g. 3500' : 'e.g. 5'} className="h-12 w-full rounded-md border border-slate-300 pr-14 pl-3 text-2xl font-bold outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
-              <span className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-lg font-semibold text-slate-600">{sizeBy === 'bill' ? finance.currency : 'kW'}</span>
-            </div>
-            <p className="mt-2 text-base text-slate-600">
-              {needPanels > 0
-                ? <>
-                    {sizeBy === 'bill' ? <>About <b className="text-slate-900">{Math.round(needUnits)} units</b>/month → </> : <><b className="text-slate-900">{amount} kW</b> → </>}
-                    <b className="text-slate-900">{needPanels} panels</b> of {spec.watts} W needed
-                    {needPanels > maxFit ? `; ${designed ? 'your bases hold' : 'the roof fits'} ${maxFit} (${sizeBy === 'bill' ? `${Math.round((maxFit / needPanels) * 100)}% of the bill` : `${((maxFit * spec.watts) / 1000).toFixed(1)} kW`})` : ''}.
-                  </>
-                : 'Leave empty to fill the whole roof.'}
-            </p>
-            {!s.readOnly && maxRoof > 0 && (
-              <button type="button" onClick={fillMax} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border-2 border-brand bg-brand-soft px-4 py-2.5 text-base font-semibold text-brand-ink hover:bg-brand-soft/70">
-                <Sparkles className="h-5 w-5" /> Maximum panels · {maxRoof} panels ({((maxRoof * spec.watts) / 1000).toFixed(1)} kW)
+            <div className="text-[19px] font-bold text-slate-900">How many panels?</div>
+            {/* one button; a different number is set with − / + just below */}
+            {!s.readOnly && (
+              <button type="button" onClick={() => pickSizeMode('fill')} className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-lg border-2 border-brand bg-brand-soft px-4 py-2.5 text-base font-semibold text-brand-ink hover:bg-brand-soft/70">
+                <Sparkles className="h-5 w-5" /> Fill the roof
               </button>
             )}
+            <p className="mt-2 text-base text-slate-600">
+              {designed ? 'Your bases hold' : 'The roof holds'} <b className="text-slate-900">{maxFit} panels</b> ({((maxFit * spec.watts) / 1000).toFixed(1)} kW){count < maxFit ? <>; {count} {count === 1 ? 'is' : 'are'} placed.</> : '.'} For another number, use − and + below.
+            </p>
           </div>
+          )}
 
-          {totals.invalid > 0 && <p className="rounded-md bg-red-50 px-3 py-2 text-base text-red-700">{totals.invalid} red group{totals.invalid > 1 ? 's are' : ' is'} overlapping something and not counted. Drag it to a free place.</p>}
-              {/* what to do: four big picture buttons, each with a one-line hint of what it does */}
+          {totals.invalid > 0 && <p className="rounded-md bg-red-50 px-3 py-2 text-base text-red-700">{totals.invalid} red base{totals.invalid > 1 ? 's are' : ' is'} overlapping something and not counted. Drag it to a free place.</p>}
+              {/* the answer, and the one handle on it: how many panels */}
               <div className="rounded-xl border border-slate-200 p-4">
+                <div className="flex items-center gap-3">
+                  <button type="button" aria-label="One panel less" onClick={() => setCount(count - 1)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Minus className="h-4 w-4" /></button>
+                  <div className="flex-1 text-center text-base"><b className="text-xl">{count}</b> panels</div>
+                  <button type="button" aria-label="One panel more" title={full ? 'No room for another panel' : undefined} disabled={full} onClick={() => setCount(count + 1)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50 disabled:opacity-40"><Plus className="h-4 w-4" /></button>
+                </div>
+                <p className="mt-2.5 text-center text-sm text-slate-600">
+                  {count === 0 ? 'No panels on the roof yet.' : <><b>{count}</b> of {Math.max(maxFit, count)} panels{full && !emptyBases.length ? (pkgCap && count >= pkgCap ? ' · all the package’s panels are placed' : designed ? ' · your bases are full' : ' · the roof is full') : ''}</>}
+                  {emptyBases.length > 0 && <> · <b className="text-amber-700">{emptyBases.length} empty base{emptyBases.length > 1 ? 's' : ''}</b></>}
+                </p>
+                {count === 0 && !s.readOnly && !inPackage && maxRoof > 0 && (
+                  <button type="button" onClick={fillMax} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-base font-semibold text-brand-fg hover:bg-brand-600"><Sparkles className="h-5 w-5" /> Fill the roof</button>
+                )}
+              </div>
+              {/* everything by hand sits one level down: single panels, own bases, poles, each base's settings */}
+              <Fold title="More options" hint="Add or take off single panels, draw your own base, poles, pathways" open={TOOLS.includes(s.tool) || emptyBases.length > 0 || bases.some((o) => o.id === s.selectedId)}>
+                <div className="-mx-2 space-y-4">
+                  <div>
                 <div className="grid grid-cols-4 gap-1.5">
                   {[
                     ['add-base', SquareDashed, 'Add base', 'Tap the roof in 3D, or drag on the plan, to place a base (B)', 'B'],
@@ -1264,22 +1415,16 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
                     {emptyBases.length ? <Sparkles className="h-6 w-6" /> : <Eraser className="h-6 w-6" />} {emptyBases.length ? 'Fill bases' : 'Clear all'}
                   </button>
                 </div>
-                <p className="mt-2.5 min-h-[20px] text-sm text-slate-600">
-                  {s.tool === 'add-base' ? (view === '3d' ? '👆 Tap the roof where the base goes (or switch to the plan to drag one out). Esc to cancel.' : '✏️ Press and drag on the roof to draw the base. Esc to cancel.')
-                    : s.tool === 'add-panel' ? '👆 Tap an empty slot on a base, in 3D or on the plan. Tap the button again to stop.'
-                    : s.tool === 'remove-panel' ? '👆 Tap a panel to take it off. Tap the button again to stop.'
-                    : bases.length === 0 ? 'Type a bill or kW above, or draw a base yourself.'
-                    : <><b>{bases.length}</b> base{bases.length > 1 ? 's' : ''} · <b>{count}</b> of {maxFit} panels{emptyBases.length ? <> · <b className="text-amber-700">{emptyBases.length} empty</b></> : ''}</>}
-                </p>
-                <div className="mt-3 flex items-center gap-3">
-                  <button type="button" aria-label="One panel less" onClick={() => setCount(count - 1)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Minus className="h-4 w-4" /></button>
-                  <div className="flex-1 text-center text-base"><b className="text-xl">{count}</b> panels</div>
-                  <button type="button" aria-label="One panel more" onClick={() => setCount(count + 1)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 hover:bg-slate-50"><Plus className="h-4 w-4" /></button>
-                </div>
-              </div>
+                    <p className="mt-2.5 min-h-[20px] text-sm text-slate-600">
+                      {s.tool === 'add-base' ? (view === '3d' ? '👆 Tap the roof where the base goes (or switch to the plan to drag one out). Esc to cancel.' : '✏️ Press and drag on the roof to draw the base. Esc to cancel.')
+                        : s.tool === 'add-panel' ? '👆 Tap an empty slot on a base, in 3D or on the plan. Tap the button again to stop.'
+                        : s.tool === 'remove-panel' ? '👆 Tap a panel to take it off. Tap the button again to stop.'
+                        : 'A base is the frame a block of panels sits on. Pick a tool, then tap the roof.'}
+                    </p>
+                  </div>
               {/* the poles under every base: two heights (they give the tilt) and the supports in between */}
               {poleTables.length > 0 && (
-                <Fold title="Pole heights & supports" hint={<>Tilt {tiltShown.toFixed(1)}° (best {opt}°) · {structure.columns} poles</>}>
+                <Fold tight title="Pole heights & supports" hint={<>Tilt {tiltShown.toFixed(1)}° (best {opt}°) · {structure.columns} poles</>}>
                   <div className="space-y-3">
                     <div className="text-[13px] font-semibold text-slate-800">Pole heights</div>
                     <Adjust label={<><span className="rounded bg-slate-800 px-1 text-[10px] font-bold text-white">F</span> Front pole · {(config.frontLeg * FT).toFixed(1)} ft</>} value={config.frontLeg} min={0.2} max={4} step={0.05} suffix="m" onChange={(frontLeg) => setHeights(frontLeg, backShown)} />
@@ -1293,8 +1438,10 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
                   </div>
                 </Fold>
               )}
-              <Fold title="Bases" open={bases.some((o) => o.id === s.selectedId)} hint={`${bases.length} base${bases.length === 1 ? '' : 's'} · size, rows, pathways`}>
+              <Fold tight title="Bases" open={bases.some((o) => o.id === s.selectedId)} hint={`${bases.length} base${bases.length === 1 ? '' : 's'} · size, rows, pathways`}>
                 <GroupList design={design} />
+              </Fold>
+                </div>
               </Fold>
             </div>
           )}
@@ -1380,7 +1527,7 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
             <div className="space-y-5 px-5 py-4">
               <div>
                 <Big>Products</Big>
-                <Sub>The other materials, services and the price.</Sub>
+                <Sub>What goes into the proposal, and the price. Change a row only if this customer needs something different.</Sub>
               </div>
 
               {/* what was chosen on the Package step (changed there: it decides the layout) */}
@@ -1423,8 +1570,23 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
                     const entry = config.customMaterials?.[cat.id] || {};
                     const line = (design.cost.categoryMaterials || []).find((m) => m.categoryId === cat.id);
                     const setEntry = (patch) => s.patch('config', { customMaterials: { ...(config.customMaterials || {}), [cat.id]: { ...entry, ...patch } } });
+                    // the inverter against the design: how many the strings need, and whether it is big enough
+                    const el = design.electrical || {};
+                    const isInv = /inverter/i.test(cat.name) && line && count > 0;
+                    const needInv = isInv ? el.inverterCount || 0 : 0;
+                    const invNote = !isInv ? null
+                      : needInv > line.qty ? (
+                        <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                          The design uses <b>{needInv}</b> of this inverter{designBuildings.length > 1 ? ' (each building has its own)' : ''}, but <b>{line.qty}</b> is in the price.
+                          {!s.readOnly && <button type="button" onClick={() => setEntry({ qty: needInv })} className="ml-2 font-semibold underline">Price {needInv}</button>}
+                        </p>
+                      ) : el.dcAc > 1.5 && el.acKw > 0 ? (
+                        <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                          This looks too small: <b>{Number(el.acKw.toFixed(1))} kW</b> of inverter for <b>{totals.kwp.toFixed(1)} kW</b> of panels. Pick a bigger one or raise the quantity.
+                        </p>
+                      ) : null;
                     return (
-                      <ProductRow key={cat.id} label={cat.name} total={line ? money(line.baseTotal ?? line.total) : '—'}
+                      <ProductRow key={cat.id} label={cat.name} note={invNote} total={line ? money(line.baseTotal ?? line.total) : '—'}
                         qty={entry.productId ? <NumField min={1} title="Quantity" disabled={s.readOnly} className="h-10 w-16 rounded-lg border border-slate-300 bg-white px-1 text-center text-sm" value={entry.qty ?? 1} onValue={(v) => setEntry({ qty: v })} /> : null}>
                         <select disabled={s.readOnly} className={PICK} value={entry.productId || ''} onChange={(e) => {
                           const p = cat.products.find((x) => x.id === e.target.value);
@@ -1436,10 +1598,16 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
                       </ProductRow>
                     );
                   })}
+                  {/* the standard amount charged while no product is picked: shown, never hidden */}
+                  {!design.cost.hasChosenMaterials && design.cost.other > 0 && (
+                    <ProductRow label="Standard wiring & installation" total={money(design.cost.other)} qty={`${totals.kwp.toFixed(1)} kW`}>
+                      <span className="text-sm text-slate-600">Inverter, wiring and fitting at the company&rsquo;s usual rate per kW. Used while every item above is &ldquo;Not included&rdquo;; picking any item replaces it with the items you pick.</span>
+                    </ProductRow>
+                  )}
                 </div>
               )}
 
-              {!isPkg && <p className="-mt-3 text-xs text-slate-500">* Before {taxName()}. Pick &ldquo;Not included&rdquo; for anything this proposal does not need.</p>}
+              {!isPkg && <p className="-mt-3 text-xs text-slate-500">* Before {taxName()}. {design.cost.hasChosenMaterials ? <>Only the items you picked are in the price: anything left on &ldquo;Not included&rdquo; is not charged.</> : <>Pick &ldquo;Not included&rdquo; for anything this proposal does not need.</>}</p>}
               {want > count && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                   The package has <b>{want} panels</b>; <b>{count}</b> are placed. Place the other <b>{want - count}</b> yourself on the Panels step (Add base, then Add panel) — the price stays the package&rsquo;s.
@@ -1447,14 +1615,7 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
                 </div>
               )}
 
-              {/* services: where it goes up and what the installation adds */}
-              <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 text-[15px] text-slate-700">
-                <div className="text-base font-semibold text-slate-900">Services</div>
-                {floorBlock}
-                {chargesBlock}
-              </div>
-              {subsidyCard}
-              {/* the answer, at the end: what the client pays */}
+              {/* the answer: what the client pays */}
               <div className="rounded-2xl bg-slate-900 px-5 py-5 text-white">
                 <div className="text-sm font-semibold text-slate-300">Total price{design.cost.withGst !== false && design.cost.gstAmount > 0 ? ` (incl. ${taxName()})` : ''}</div>
                 <div className="text-4xl font-extrabold">{money(design.cost.total)}</div>
@@ -1468,8 +1629,16 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
               <Fold title={`Discount, ${taxName()} & price breakdown`} open>
                 <div className="text-[15px] text-slate-700">{costBody}</div>
               </Fold>
-              <Fold title="Proposal terms" hint="Valid until, electricity rate, years of savings shown">
-                <div className="space-y-4 text-[15px] text-slate-700">{termsBlock}</div>
+              <Fold title="More options" hint="Floor cost, installation charges, subsidy, proposal terms" open={Number(config.floorCost) > 0 || (config.installationCharges || []).length > 0}>
+                <div className="space-y-5">
+                            <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 text-[15px] text-slate-700">
+                <div className="text-base font-semibold text-slate-900">Services</div>
+                {floorBlock}
+                {chargesBlock}
+              </div>
+              {subsidyCard}
+                  <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 text-[15px] text-slate-700">{termsBlock}</div>
+                </div>
               </Fold>
             </div>
           )}
@@ -1489,7 +1658,7 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
                 <Big>Proposal</Big>
                 <Sub>Download the branded proposal for your client, or share it.</Sub>
               </div>
-              {totals.invalid > 0 && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{totals.invalid} red group{totals.invalid > 1 ? 's are' : ' is'} not counted. Fix it on the Panels step first.</p>}
+              {totals.invalid > 0 && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{totals.invalid} red base{totals.invalid > 1 ? 's are' : ' is'} not counted. Fix it on the Panels step first.</p>}
               <div className="space-y-2">
                 {/* the PDF first: it is what this step is for */}
                 {[...actions].sort((a, b) => (b.key === 'pdf') - (a.key === 'pdf')).map(({ key, icon: Icon, label, hint, disabled, onClick }) => (

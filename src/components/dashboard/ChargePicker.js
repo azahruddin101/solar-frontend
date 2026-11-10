@@ -45,7 +45,7 @@ export default function ChargePicker({ value = [], onChange, currency = 'INR', e
         <div className="mb-1.5 flex items-center justify-between gap-2">
           <div>
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-700">Installation charges</span>
-            <p className="text-[10px] text-slate-400">Price before {taxName()}; {DEFAULT_GST()}% {taxName()} applied by default</p>
+            <p className="text-[10px] text-slate-400">Price before {taxName()}. Each charge gets {DEFAULT_GST()}% {taxName()} added (products carry their own rate)</p>
           </div>
           <button type="button" onClick={() => onChange([...rows, emptyRow()])} className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-brand hover:underline"><Plus className="h-3.5 w-3.5" />Add</button>
         </div>

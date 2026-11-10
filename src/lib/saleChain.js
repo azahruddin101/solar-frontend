@@ -1,10 +1,10 @@
-// The sale chain (bill → invoice; older invoices are read-only) as the billing screens show it: who a document is for, and how each
-// status reads.
+// Billing as the screens show it: bills (with their delivery challan) and receipts; older invoices are read-only.
+// Who a document is for, and how each status reads.
 export const partyQuery = (party) => (party?.design ? `design=${party.design}` : party?.client ? `client=${party.client}` : '');
 
 export const EWAY_STATUS = {
-  open: { label: 'Open', tone: 'amber', hint: 'Goods are out; not on an invoice yet' },
-  billed: { label: 'Invoiced', tone: 'green', hint: 'Paid on an invoice' },
+  open: { label: 'Issued', tone: 'green', hint: 'The bill stands; it can still be cancelled or partly returned (bills made since 2026-11-10 show Paid)' },
+  billed: { label: 'Invoiced', tone: 'green', hint: 'Paid on an older invoice' },
   cancelled: { label: 'Cancelled', tone: 'slate', hint: 'Goods went back into stock' },
   superseded: { label: 'Revised', tone: 'slate', hint: 'Replaced by a newer bill — view only' },
 };

@@ -26,6 +26,7 @@ import { ProposalGstModeToggle } from '../proposal/ProposalGstControls';
 import { DESIGN_STATUSES } from './shared';
 import { netAfterSubsidy, subsidyOf } from '@/lib/subsidy';
 import { defaultTaxRate, taxName } from '@/lib/tax';
+import { buildItems } from '@/lib/estimateToQuote';
 
 // a new quote starts at the company's usual tax rate
 const emptyQuote = () => ({ pricingMode: 'package', packageId: '', packagePrice: 0, packageGstPercent: defaultTaxRate(), bundle: [], materials: {}, extraItems: [], system: { ...DEFAULT_SYSTEM }, items: [], withGst: true, gstPercent: defaultTaxRate(), discount: 0, discountIsPercent: false, floorPlacement: 0, floorCost: 0, outlookYears: 10, installationCharges: [] });
@@ -33,17 +34,6 @@ const FLOORS = ['Ground floor', '1st floor', '2nd floor', '3rd floor', '4th floo
 const num = (v) => Math.max(0, Number(v) || 0);
 const selectCls = 'h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs';
 const inputCls = 'mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs';
-
-/** The priced lines of a proposal: the chosen package, or one product per category. The PDF and totals read these. */
-function buildItems(q, packages) {
-  if (q.pricingMode === 'package') {
-    const pkg = (packages || []).find((p) => p.id === q.packageId);
-    if (!q.packageId) return [];
-    const price = pkg ? num(pkg.price) : num(q.packagePrice);
-    return [{ kind: 'package', refId: q.packageId, name: pkg?.name || 'Solar package', detail: [pkg?.kw ? `${pkg.kw} kW` : '', pkg?.description].filter(Boolean).join(' · '), unit: 'Set', qty: 1, kw: Number(pkg?.kw) || 0, price, gstPercent: num(q.packageGstPercent) || num(q.gstPercent) || 18, bundle: q.bundle || [] }];
-  }
-  return Object.values(q.materials || {}).filter((m) => m.productId).map((m) => ({ kind: 'product', refId: m.productId, name: m.name, detail: m.detail, category: m.category, panel: m.panel, unit: m.unit, qty: num(m.qty), price: num(m.price), hsn: m.hsn, gstPercent: num(m.gstPercent) || num(q.gstPercent) || 18 }));
-}
 
 function Editor({ designId }) {
   const company = useSession((s) => s.company);

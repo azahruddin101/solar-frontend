@@ -252,10 +252,10 @@ function MoneyTab({ d, t, money }) {
             </>
           ) : <p className="text-sm text-slate-500">No payments in the last 12 months.</p>}
         </Panel>
-        <ListCard title="Latest payments" sub="Most recent invoices paid" href="/dashboard/billing" empty="No payments recorded yet.">
+        <ListCard title="Latest payments" sub="Most recent receipts" href="/dashboard/billing" empty="No payments recorded yet.">
           {(d.recentPayments || []).map((p) => <Row key={p.id} href={p.designId ? `/dashboard/billing/${p.designId}` : '/dashboard/billing'} title={p.client || p.design} sub={`${formatDate(p.receivedOn)} · ${PAYMENT_MODES[p.mode] || p.mode}`} right={money(p.amount)} />)}
         </ListCard>
-        <ListCard title="Invoice not made yet" sub="Booked jobs without an invoice" href="/dashboard/billing?show=no_invoice" empty="Every booked job has an invoice.">
+        <ListCard title="Bill not made yet" sub="Booked jobs without a bill" href="/dashboard/billing?show=no_invoice" empty="Every booked job has a bill.">
           {d.attention.invoice.map((w) => <Row key={w.id} href={`/dashboard/billing/${w.id}`} title={w.client || w.name} sub={w.name} right={money(w.total)} rightSub="booked" />)}
         </ListCard>
       </div>

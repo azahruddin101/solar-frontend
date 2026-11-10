@@ -258,7 +258,7 @@ export default function App({ designId, slug }) {
   }
 
   const blocker =
-    Screen === StepLocation ? !ready[0] && 'Confirm the location to continue'
+    Screen === StepLocation ? !ready[0] && !state.markedDraft && 'Mark the roof on the map to continue'
     : Screen === StepManualEdit ? !design.totals.count && 'Place at least one panel'
     : null;
 
@@ -360,6 +360,8 @@ export default function App({ designId, slug }) {
                     {done ? <Check className="h-3 w-3" /> : i + 1}
                   </span>
                   {name}
+                  {/* worked out automatically: nothing is waiting for the user there */}
+                  {slugs[i] === 'strings' && <span className="text-[11px] font-normal text-slate-400">optional</span>}
                 </button>
               </li>
             );
@@ -368,6 +370,12 @@ export default function App({ designId, slug }) {
         {blocker && (
           <span className="shrink-0 text-xs text-slate-500" role="status">
             {blocker}
+          </span>
+        )}
+        {/* the system so far, next to the way forward */}
+        {step > 0 && design.totals.count > 0 && (
+          <span className="shrink-0 text-[13px] text-slate-600" aria-label="System size">
+            <b className="text-slate-900">{design.totals.kwp.toFixed(1)} kW</b> · {design.totals.count} panels
           </span>
         )}
         {!last && (

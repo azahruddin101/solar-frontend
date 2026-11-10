@@ -99,8 +99,9 @@ export function pickedStringColors(el) {
 }
 
 // ── the Strings step: tap or drag across panels ─────────────────────────────────────────────
-// On the Strings step the string tool is always out. A tap with no string open starts a new one
-// with that panel (or opens the string the panel is already in); with a string open, a tap adds
+// On the Strings step the string tool is always out. While every string is automatic a tap does
+// nothing; once the user makes their own, a tap with no string open starts a new one with that
+// panel (or opens the string the panel is already in); with a string open, a tap adds
 // the panel or, if it is already in it, takes it out. Pressing and dragging keeps doing the same
 // thing (adding, or taking out) over every panel passed. A string that is full (`maxLen`) is
 // closed and the next panel starts a new string, so one drag along a long row splits it up.
@@ -131,6 +132,9 @@ export function stringStroke(moduleId, maxLen) {
     toggleModuleInString(moduleId, active.id);
     return 'remove';
   }
+  // nothing picked by hand yet: the wiring is automatic, and a tap while looking around leaves it
+  // alone. "Make my own strings" (newString) or a string's pencil starts the picking.
+  if (!active && !strings.length) return 'none';
   if (!active) {
     const mine = owner(strings, moduleId);
     if (mine) {
@@ -147,6 +151,7 @@ export function stringStroke(moduleId, maxLen) {
 export function stringPaint(moduleId, mode, maxLen) {
   const s = useStore.getState();
   const active = list().find((st) => st.id === s.activeStringId);
+  if (mode === 'none') return;
   if (mode === 'remove') {
     if (active && (active.modules || []).includes(moduleId)) toggleModuleInString(moduleId, active.id);
     return;
@@ -168,6 +173,18 @@ export function finishString() {
   const active = list().find((st) => st.id === s.activeStringId);
   if (active && !(active.modules || []).length) save(list().filter((st) => st.id !== active.id), { activeStringId: null });
   else s.set({ activeStringId: null });
+}
+
+/**
+ * Picked strings left without a panel are dropped (on entering / leaving the Strings step). `el` is the
+ * design's electrical result: a string whose panels were all taken off the roof since counts as empty too.
+ */
+export function dropEmptyStrings(el) {
+  const s = useStore.getState();
+  if (!(el?.strings || []).length) return; // no panels placed (or not worked out yet): nothing to judge by
+  const live = new Map(el.strings.filter((st) => st.manual).map((st) => [st.id, st.count || 0]));
+  const kept = list().filter((st) => st.id === s.activeStringId || live.get(st.id) > 0);
+  if (kept.length !== list().length) save(kept);
 }
 
 /** Module id → colour for every string, the automatic ones too (the Strings step colours the roof). */

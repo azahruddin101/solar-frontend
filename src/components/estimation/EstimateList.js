@@ -1,7 +1,7 @@
 'use client';
 
-// Saved estimates: search, open, delete, or start a new one.
-import { Calculator, Download, Eye, Plus, Search, Trash2 } from 'lucide-react';
+// Saved estimates: search, open, convert to a 2D proposal, delete, or start a new one.
+import { Calculator, Download, Eye, FileOutput, Plus, Search, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { api } from '@/lib/api';
@@ -12,6 +12,7 @@ import { fmtPdfDate } from '@/lib/billingPdfShared';
 import { useSession } from '@/lib/session';
 import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, Input, LoadingBlock, PageHeader, closePdfViewer, openPdfViewer, openPdfViewerLoading, toast } from '../kit';
 import { taxName } from '@/lib/tax';
+import ConvertEstimateDialog from './ConvertEstimateDialog';
 
 export default function EstimateList() {
   const may = useCan();
@@ -21,6 +22,7 @@ export default function EstimateList() {
   const { data, loading, error, setData } = useResource('/api/estimates');
   const [q, setQ] = useState('');
   const [removing, setRemoving] = useState(null);
+  const [converting, setConverting] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const rows = useMemo(() => {
@@ -89,12 +91,14 @@ export default function EstimateList() {
                     <div className="truncate text-sm font-semibold text-slate-900">{e.client?.name || 'Client'}</div>
                     <div className="truncate text-xs text-slate-500">{fmtPdfDate(e.date || e.createdAt)}{e.createdByName ? ` · ${e.createdByName}` : ''}{e.client?.phone ? ` · ${e.client.phone}` : ''}</div>
                   </Link>
+                  {e.design?.id && <Link href={`/proposal/${e.design.id}`} title={`Open the proposal made from this estimate${e.design.name ? `: ${e.design.name}` : ''}`}><Badge tone="green">Proposal made</Badge></Link>}
                   <Badge tone={e.withGst ? 'blue' : 'slate'}>{e.withGst ? `With ${taxName()}` : `No ${taxName()}`}</Badge>
                   <div className="w-28 text-right text-sm font-semibold tabular-nums text-slate-900">{formatMoney(e.total, currency, { decimals: 2 })}</div>
                   <div className="flex shrink-0 items-center">
                     <IconButton icon={Eye} label={`View PDF for ${e.client?.name}`} title="View PDF" loading={pdfBusy === e.id} disabled={Boolean(pdfBusy)} onClick={() => makePdf(e, true)} className="h-9 w-9" />
                     <IconButton icon={Download} label={`Download PDF for ${e.client?.name}`} title="Download PDF" loading={pdfBusy === e.id} disabled={Boolean(pdfBusy)} onClick={() => makePdf(e, false)} className="h-9 w-9" />
                   </div>
+                  {may('proposals', 'create') && <IconButton icon={FileOutput} label={`Convert the estimate for ${e.client?.name} to a proposal`} title="Convert to proposal" onClick={() => setConverting(e)} className="h-9 w-9" />}
                   {may('proposals', 'delete') && (
                     <button type="button" aria-label={`Delete estimate for ${e.client?.name}`} onClick={() => setRemoving(e)} className="grid h-9 w-9 place-items-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
                   )}
@@ -104,6 +108,7 @@ export default function EstimateList() {
           )}
         </Card>
       )}
+      {converting && <ConvertEstimateDialog estimate={converting} onClose={() => setConverting(null)} />}
       <ConfirmDialog open={Boolean(removing)} title="Delete this estimate?" confirmLabel="Delete" busy={busy} onConfirm={remove} onClose={() => setRemoving(null)}>
         The estimate for {removing?.client?.name || 'this client'} will be removed for good.
       </ConfirmDialog>

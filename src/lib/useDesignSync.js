@@ -26,7 +26,7 @@ export function useDesignSync(designId, summary) {
   const ready = load.status === 'ready' && loadedId === designId;
 
   const summaryRef = useRef(summary);
-  const sync = useRef({ timer: null, dirty: false, markDirty: () => {} });
+  const sync = useRef({ timer: null, dirty: false, quiet: false, lastData: null, markDirty: () => {} });
   useEffect(() => {
     summaryRef.current = summary;
   });
@@ -55,6 +55,9 @@ export function useDesignSync(designId, summary) {
   useEffect(() => {
     if (!ready) return undefined;
     const s = sync.current;
+    // what the server has: the design as it was loaded. "Saving…" is shown only when the design
+    // itself differs from this, not when the store merely replaced a value with an equal one.
+    s.lastData = JSON.stringify(serializeDesign(useStore.getState()));
 
     const flush = async ({ keepalive = false } = {}) => {
       clearTimeout(s.timer);
@@ -66,19 +69,33 @@ export function useDesignSync(designId, summary) {
       const st = useStore.getState();
       if (st.designId !== designId) return;
       s.dirty = false;
-      setSave('saving');
+      const quiet = s.quiet;
+      s.quiet = false;
+      const data = serializeDesign(st);
+      if (!quiet) setSave('saving');
+      // what is on its way counts as "what the server has" from now: a change made while it travels is
+      // compared with this, not with the older copy
+      const before = s.lastData;
+      s.lastData = JSON.stringify(data);
       try {
-        await api(`/api/designs/${designId}`, { method: 'PUT', keepalive, body: { data: serializeDesign(st), summary: summaryRef.current } });
-        setSave(s.dirty ? 'dirty' : 'saved');
+        await api(`/api/designs/${designId}`, { method: 'PUT', keepalive, body: { data, summary: summaryRef.current } });
+        setSave(s.dirty && !s.quiet ? 'dirty' : 'saved');
       } catch {
+        s.lastData = before;
         s.dirty = true;
         setSave('error');
       }
     };
-    s.markDirty = () => {
+    // `summaryOnly`: the list figures (kWp, price…) settled after loading; they are saved without
+    // telling the user anything changed, because nothing of theirs did
+    s.markDirty = ({ summaryOnly = false } = {}) => {
+      const same = JSON.stringify(serializeDesign(useStore.getState())) === s.lastData;
+      if (same && !summaryOnly) return; // an equal value was set again: nothing to save
+      if (same && !s.dirty) s.quiet = true;
+      else if (!same) s.quiet = false;
       s.dirty = true;
       if (readOnlyRef.current) return;
-      setSave('dirty');
+      if (!s.quiet) setSave('dirty');
       clearTimeout(s.timer);
       s.timer = setTimeout(flush, SAVE_DELAY);
     };
@@ -102,7 +119,7 @@ export function useDesignSync(designId, summary) {
   const savedSummary = useRef(null);
   useEffect(() => {
     if (!ready) return;
-    if (savedSummary.current !== null && savedSummary.current !== summaryKey) sync.current.markDirty();
+    if (savedSummary.current !== null && savedSummary.current !== summaryKey) sync.current.markDirty({ summaryOnly: true });
     savedSummary.current = summaryKey;
   }, [summaryKey, ready]);
 

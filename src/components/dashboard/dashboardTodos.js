@@ -30,7 +30,7 @@ export function todoItems(t) {
     { key: 'no-reply', n: t.proposals.noReply, icon: FileText, text: (n) => `${plural(n, 'quote')} with no reply for a week`, href: '/dashboard/designs?show=no_reply' },
     { key: 'not-started', n: t.installations.notStarted, icon: HardHat, text: (n) => `${plural(n, 'booked job')} not started yet`, href: '/dashboard/designs?show=not_started' },
     { key: 'unassigned-steps', n: t.installations.unassignedSteps, icon: HardHat, text: (n) => `${plural(n, 'installation task')} with nobody assigned`, href: '/dashboard/installations?show=unassigned' },
-    { key: 'no-invoice', n: t.proposals.noInvoice, icon: ReceiptText, text: (n) => `${plural(n, 'booked job')} without an invoice`, href: '/dashboard/billing?show=no_invoice' },
+    { key: 'no-invoice', n: t.proposals.noInvoice, icon: ReceiptText, text: (n) => `${plural(n, 'booked job')} without a bill`, href: '/dashboard/billing?show=no_invoice' },
     { key: 'subsidy', n: t.subsidies.missing, icon: BadgeIndianRupee, text: (n) => `${plural(n, 'booked job')} with a subsidy that is not started`, href: '/dashboard/designs?show=subsidy_missing' },
     { key: 'loan', n: t.loans.missing, icon: Landmark, text: (n) => `${plural(n, 'client')} need${n === 1 ? 's' : ''} a loan that is not started`, href: '/dashboard/designs?show=loan_missing' },
     { key: 'out-stock', n: t.stock.outOfStock, icon: PackageX, text: (n) => `${plural(n, 'product')} out of stock`, href: '/dashboard/catalog?show=out' },

@@ -3,7 +3,8 @@
 import { closePdfViewer, openPdfViewer, openPdfViewerLoading } from '@/components/kit';
 import { api } from './api';
 import { buildInvoicePdfBlob, downloadBlob } from './invoicePdf';
-import { buildEwayBillPdfBlob } from './ewayBillPdf';
+import { buildChallanPdfBlob, buildEwayBillPdfBlob, challanNoOf } from './ewayBillPdf';
+import { buildReceiptPdfBlob } from './receiptPdf';
 import { buildBillPdfBlob } from './billPdf';
 import { buildCreditNotePdfBlob } from './creditNotePdf';
 import { signedFileUrl } from './files';
@@ -184,5 +185,53 @@ export async function downloadCreditNoteDocument({ note, pdfName, company, clien
   const built = { note, company, client, currency };
   const { blob, filename } = await buildCreditNotePdfBlob(built);
   await uploadBillingPdf(`/api/billing/credit-notes/${note.id}/pdf`, blob, filename);
+  downloadBlob(blob, filename);
+}
+
+/** The delivery challan of a bill. It is printed from the saved bill each time (nothing extra is stored for it). */
+export async function viewChallanDocument({ ewayBill, company, client, currency }) {
+  const title = `Delivery challan ${challanNoOf(ewayBill.ewayNo)}`;
+  openPdfViewerLoading(title);
+  try {
+    const { blob, filename } = await buildChallanPdfBlob({ ewayBill, company, client, currency });
+    openPdfViewer({ title, blob, downloadName: filename });
+  } catch (e) {
+    closePdfViewer();
+    throw e;
+  }
+}
+
+export async function downloadChallanDocument({ ewayBill, company, client, currency }) {
+  const { blob, filename } = await buildChallanPdfBlob({ ewayBill, company, client, currency });
+  downloadBlob(blob, filename);
+}
+
+export async function archiveReceiptPdf(receipt, company, client, currency) {
+  if (receipt?.pdfName) return;
+  await archiveIfMissing(null, `/api/billing/receipts/${receipt.id}/pdf`, () => buildReceiptPdfBlob({ receipt, company, client, currency }));
+}
+
+export async function viewReceiptDocument({ receipt, pdfName, company, client, currency }) {
+  const title = `Receipt ${receipt.receiptNo}`;
+  openPdfViewerLoading(title);
+  try {
+    if (pdfName) {
+      const blob = await loadStoredPdfBlob(pdfName);
+      openPdfViewer({ title, blob, downloadName: pdfName });
+      return;
+    }
+    const { blob, filename } = await buildReceiptPdfBlob({ receipt, company, client, currency });
+    await uploadBillingPdf(`/api/billing/receipts/${receipt.id}/pdf`, blob, filename).catch(() => {});
+    openPdfViewer({ title, blob, downloadName: filename });
+  } catch (e) {
+    closePdfViewer();
+    throw e;
+  }
+}
+
+export async function downloadReceiptDocument({ receipt, pdfName, company, client, currency }) {
+  if (pdfName) return downloadStoredPdf(pdfName, `receipt_${receipt.receiptNo}.pdf`);
+  const { blob, filename } = await buildReceiptPdfBlob({ receipt, company, client, currency });
+  await uploadBillingPdf(`/api/billing/receipts/${receipt.id}/pdf`, blob, filename).catch(() => {});
   downloadBlob(blob, filename);
 }

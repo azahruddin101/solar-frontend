@@ -1,7 +1,9 @@
 'use client';
 
-// Generate a bill: products picked from stock (the server takes the stock and prices each line from its batch) and the
-// optional delivery details. The first step of the sale chain; the client pays on an invoice afterwards.
+// Generate a bill: materials picked from stock (the server takes the stock and prices each line from its batch),
+// services, tax and an optional discount, plus the delivery details. The delivery challan is printed from the same
+// bill, so nothing more is asked for it. A bill is paid when it is generated: the form asks only how it was paid.
+// Other money (an advance, a part payment) is recorded separately, on receipts.
 import { CircleCheck, ClipboardList, Plus, TriangleAlert, X } from 'lucide-react';
 import { Fragment, useMemo, useState } from 'react';
 import { formatMoney } from '@/lib/energy';
@@ -9,6 +11,7 @@ import { linesFromPricing, resolveProposalPricing } from '@/lib/pricing';
 import { useResource } from '@/lib/useResource';
 import { useSession } from '@/lib/session';
 import { TRANSPORT_MODE_LABEL, TRANSPORT_REASON_LABEL } from '@/lib/ewayBillPdf';
+import { PAYMENT_MODE_LABEL } from '@/lib/billingPdfShared';
 import StockPickModal from './StockPickModal';
 import { PRICE_TYPES, productDetail, stockPreview, useStockCache } from './stockLines';
 import { Alert, Button, ConfirmDialog, FormField, FormModal, Input, Select, Textarea, cx } from '../kit';
@@ -66,6 +69,8 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
   const [transport, setTransport] = useState({ mode: 'road', vehicleNo: '', transporter: '', transporterId: '', docNo: '', docDate: '', fromPlace: company?.address || '', toPlace: clientAddress || '', distanceKm: '', reason: 'supply' });
   const [issuedOn, setIssuedOn] = useState(today());
   const [note, setNote] = useState('');
+  const [payMode, setPayMode] = useState('cash');
+  const [payReference, setPayReference] = useState('');
   const [pickLine, setPickLine] = useState(null);
   const [deliveryOpen, setDeliveryOpen] = useState(true);
   const [error, setError] = useState('');
@@ -176,6 +181,7 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
       transport: { ...transport, distanceKm: transport.distanceKm === '' ? null : Number(transport.distanceKm) },
       issuedOn,
       note,
+      payment: { mode: payMode, reference: payReference.trim() },
     });
   };
 
@@ -187,7 +193,7 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
         open={open}
         onClose={onClose}
         title={`Bill · ${partyName}`}
-        description="Line items, optional discount, and delivery details. Product stock is deducted when you confirm."
+        description="Materials, services, tax and delivery details. When you confirm, the bill and its delivery challan are made, the bill is marked paid and product stock is deducted."
         submitLabel={`Confirm · ${money(summary.total)}`}
         busy={busy}
         error={error}
@@ -203,10 +209,10 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
 
         <div className={cx(proposalItems.length > 0 && 'grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start')}>
         <div className="min-w-0 space-y-5">
-        <BillSection title="Document details" hint="Bill date and the note printed on the PDF declaration">
+        <BillSection title="Document details" hint="The bill date (also the challan date) and an optional note">
           <div className={billDoc.metaStrip}>
             <FormField label="Bill date"><Input type="date" max={today()} value={issuedOn} onValue={setIssuedOn} /></FormField>
-            <FormField label="Internal note" optional hint="Shown on the PDF declaration"><Input maxLength={300} value={note} onValue={setNote} placeholder="Optional" /></FormField>
+            <FormField label="Note" optional hint="Printed on the bill and the challan"><Input maxLength={300} value={note} onValue={setNote} placeholder="Optional" /></FormField>
           </div>
         </BillSection>
 
@@ -298,7 +304,7 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
 
         <BillSection
           title="Delivery & transport"
-          hint="Optional — vehicle, transporter, and addresses on the delivery challan"
+          hint="Printed on the delivery challan that is made with this bill — fill in what you know"
           action={(
             <button type="button" onClick={() => setDeliveryOpen((o) => !o)} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
               {deliveryOpen ? 'Hide' : 'Show'}
@@ -343,6 +349,12 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
             servicesValue={servicesValue}
             totalLabel="Bill total"
           />
+          <div className="mt-4 grid gap-3 border-t border-slate-200 pt-4 sm:grid-cols-2">
+            <FormField label="Paid by" hint="The bill is marked paid when you confirm. An advance already received is taken off automatically.">
+              <Select value={payMode} onValue={setPayMode}>{Object.entries(PAYMENT_MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
+            </FormField>
+            <FormField label="Reference no." optional hint="UPI / transaction id or cheque number"><Input maxLength={80} value={payReference} onValue={setPayReference} /></FormField>
+          </div>
         </BillSection>
         </div>
 
@@ -426,7 +438,7 @@ export function CancelEwayBillDialog({ ewayBill, open, onClose, onConfirm, busy 
   const [reason, setReason] = useState('');
   return (
     <ConfirmDialog open={open} onClose={onClose} onConfirm={() => onConfirm(reason)} title={`Cancel bill ${ewayBill?.ewayNo}?`} confirmLabel="Cancel bill" busy={busy}>
-      <p>Its {ewayBill?.itemCount ?? ''} item{ewayBill?.itemCount === 1 ? '' : 's'} go back into stock and the number {ewayBill?.ewayNo} is not reused. Only a bill that is not on an invoice yet can be cancelled.</p>
+      <p>Its {ewayBill?.itemCount ?? ''} item{ewayBill?.itemCount === 1 ? '' : 's'} go back into stock and the number {ewayBill?.ewayNo} is not reused. The delivery challan is cancelled with it and its payment comes off the books.</p>
       <div className="mt-3">
         <Input maxLength={300} value={reason} onValue={setReason} placeholder="Reason (optional)" />
       </div>

@@ -44,12 +44,12 @@ export const PERMISSION_CATALOG = {
   },
   finances: {
     label: 'Finances',
-    description: 'Bills (goods out of stock) and invoices (paid, tax invoices)',
+    description: 'Bills (materials and services, with their delivery challan) and receipts (money received)',
     actions: {
       view: 'View',
       create_eway_bill: 'Create bill',
-      create_bill: 'Create invoice',
-      create_invoice: 'Create AMC parts invoice', // invoices are now issued from bills (create_bill); this one is only for AMC parts
+      create_bill: 'Create receipt', // was "Create invoice": the paid invoice took the payment, which a receipt does now
+      create_invoice: 'Create AMC parts invoice', // the only invoice still made
     },
   },
   inventory: {

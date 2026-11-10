@@ -57,6 +57,14 @@ export function distanceMeters(a, b) {
 
 const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 
+const SIDES = ['North', 'North-east', 'East', 'South-east', 'South', 'South-west', 'West', 'North-west'];
+
+/** 0..360 compass bearing -> a plain word for that side ("South", "North-east"). */
+export function sideName(azimuth) {
+  const a = ((azimuth % 360) + 360) % 360;
+  return SIDES[Math.round(a / 45) % 8];
+}
+
 /** 0..360 compass bearing -> "SSW" style label. */
 export function compassLabel(azimuth) {
   const a = ((azimuth % 360) + 360) % 360;

@@ -21,7 +21,6 @@ import { rectPoly } from './geometry.js';
 import { PATH_COLORS, ridgeSegment, roofShapeLabel } from './model.js';
 import { drawRichText, richTextIsEmpty } from './pdfRichText.js';
 import { drawSldSheet, sldSchedule, sldSheets } from './pdfSld.js'; // sldSchedule: the quote PDF's schedule
-import { STATUS_TEXT } from './sld/validate.js';
 import { appendShadowReport } from './shadowReport/shadowReportPdf.js';
 import { MONTHS } from './sun.js';
 import { netAfterSubsidy, subsidyOf } from './subsidy';
@@ -719,7 +718,6 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
   y = section(doc, r, 'Inverter & strings', ensure(doc, r, y, 40));
   y = specGrid(doc, [['Inverter', campus ? `${el.inverterCount} inverters, sized per building` : `${el.inverterCount || 0} x ${el.inverter?.kw ?? '-'} kW ${el.inverter?.kw <= 6 ? 'single-phase' : 'three-phase'}`], ['DC / AC ratio', el.dcAc ? el.dcAc.toFixed(2) : '-'], ['AC capacity', `${el.acKw ?? '-'} kW`], ['Modules per string', [...new Set(el.strings.map((st) => st.count))].sort((a, c) => a - c).join(' / ') || '-'], ['Allowed string length', `${el.minLen ?? '-'} to ${el.maxLen ?? '-'} modules`]], y) + 6;
   autoTable(doc, { ...table(), startY: y, head: [['String', ...(campus ? ['Building'] : []), 'Modules', 'Power', 'Voc STC', 'Voc cold', 'Isc', 'Inverter', 'MPPT', 'Set', 'Sheet']], body: el.strings.map((s, i) => [s.name, ...(campus ? [s.buildingName] : []), s.count, `${s.kwp.toFixed(2)} kWp`, `${s.voc.toFixed(0)} V`, `${s.vocCold.toFixed(0)} V`, `${s.isc} A`, `INV-${s.inverter}`, s.mppt ?? '-', s.manual ? 'By hand' : 'Auto', stringSheet(i)]) });
-  y = electricalFindings(doc, r, el, doc.lastAutoTable.finalY + 6);
 
   }
 
@@ -822,22 +820,6 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
   const filename = `${[slug(client.name), slug(r.title)].filter(Boolean).join('_') || 'solar-proposal'}${shadow ? '_with-shadow-analysis' : ''}.pdf`;
   if (save) doc.save(filename); // save:false builds the PDF only (archiving a version)
   return { blob: doc.output('blob'), filename };
-}
-
-/**
- * The electrical checks of the design: the status (never "approved") and every error and warning, so the
- * proposal says plainly what was verified and what is still missing.
- */
-function electricalFindings(doc, r, el, y) {
-  const v = el.validation;
-  if (!v) return y;
-  const findings = v.items.filter((i) => i.level !== 'info');
-  y = section(doc, r, 'Electrical checks', ensure(doc, r, y, 30));
-  text(doc, wrap(doc, STATUS_TEXT[v.status] || '', CW, 8.5), M, y, { size: 8.5, style: 'bold', color: v.status === 'invalid' ? [185, 28, 28] : INK, lineHeight: 1.35 });
-  y += 6;
-  if (!findings.length) return y;
-  autoTable(doc, { ...tableStyle(doc, r), startY: y, styles: { ...tableStyle(doc, r).styles, fontSize: 8, cellPadding: { top: 1.4, bottom: 1.4, left: 2.5, right: 2.5 } }, head: [['Level', 'Finding']], body: findings.map((i) => [i.level === 'error' ? 'Error' : 'Check', i.message]), columnStyles: { 0: { cellWidth: 18, fontStyle: 'bold' } }, didParseCell: (d) => { if (d.section === 'body' && d.column.index === 0 && d.cell.raw === 'Error') d.cell.styles.textColor = [185, 28, 28]; } });
-  return doc.lastAutoTable.finalY + 4;
 }
 
 /**
@@ -1008,7 +990,6 @@ export async function generateQuotePdf({ quote, name = '', company = {}, client 
   autoTable(doc, { ...table(), startY: y, styles: { ...table().styles, fontSize: 9, cellPadding: { top: 1.7, bottom: 1.7, left: 2.5, right: 2.5 } }, head: [['Tag', 'Item', 'Specification', 'Qty']], body: sldSchedule(el, spec, moduleName, totals.count), ...numeric(3), columnStyles: { 0: { cellWidth: 20, fontStyle: 'bold', textColor: INK }, 1: { cellWidth: 42 }, 3: { halign: 'right', cellWidth: 20 } } });
   y = ensure(doc, r, doc.lastAutoTable.finalY + 4, 12);
   text(doc, wrap(doc, 'Protection ratings follow general design factors (string fuse 1.5 to 2.4 x Isc where fuses are needed, DC isolator 1.25 x Isc per MPPT, AC breakers 1.25 x inverter output current); cable sizes are indicative. Final selection to be verified against the equipment datasheets, the standards in force and the DISCOM approval.', CW, 7.5), M, y, { size: 7.5, color: MUTED, lineHeight: 1.35 });
-  y = electricalFindings(doc, r, el, y + 12);
 
   // 4 — single line diagram
   y = newPage(doc, r, 'Single line diagram');

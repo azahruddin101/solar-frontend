@@ -3,8 +3,9 @@
 // Panel groups: each group is an independent block of panels with its own tilt, height, size.
 
 import { ChevronDown, Columns3, Compass, Copy, Eraser, Footprints, Grid2x2, Plus, Rows3, Sparkles, Trash2 } from 'lucide-react';
-import { useEffect, useRef } from 'react';
-import { addBaseOnRoof, clearBases, plantBases, withinPackage } from '@/lib/autofill';
+import { Fragment, useEffect, useRef } from 'react';
+import { sideName } from '@/lib/geo';
+import { addBaseOnRoof, baseLabel, clearBases, plantBases, withinPackage } from '@/lib/autofill';
 import { baseFit, baseFor, isBase, MAX_SUPPORTS, midSupports, newId, PATH_COLORS, PATH_WIDTH } from '@/lib/model';
 import { useStore } from '@/lib/store';
 import { cx } from '../ui';
@@ -27,9 +28,33 @@ export default function GroupList({ design }) {
     if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [s.selectedId]);
 
+  // the list goes roof side by roof side ("South side · 8 panels"), each base under its side; the bases
+  // keep the number of their place in the design (the Strings step names them the same way)
+  const many = design.buildings.length > 1;
+  const sideOf = (g) => {
+    const t = design.tables.find((x) => x.source === g.id);
+    const side = `${sideName(t?.azimuth ?? g.azimuth ?? 180)} side`;
+    const b = many && t ? design.buildings.find((k) => k.id === t.building)?.name : '';
+    return b ? `${b} · ${side}` : side;
+  };
+  const order = [];
+  const bySide = new Map();
+  groups.forEach((g, i) => {
+    const key = sideOf(g);
+    if (!bySide.has(key)) { bySide.set(key, []); order.push(key); }
+    bySide.get(key).push([g, i]);
+  });
+  const panelsOn = (g) => (g.planted === false ? 0 : (design.tables.find((x) => x.source === g.id)?.modules.length ?? 0));
+
   return (
     <div className="space-y-2">
-      {groups.map((g, i) => {
+      {order.map((key) => {
+        const list = bySide.get(key);
+        const n = list.reduce((a, [g]) => a + panelsOn(g), 0);
+        return (
+          <Fragment key={key}>
+            {order.length > 1 && <div className="flex items-baseline justify-between px-1 pt-2 text-sm first:pt-0"><b className="text-slate-900">{key}</b><span className="text-slate-500">{n} panel{n === 1 ? '' : 's'}</span></div>}
+            {list.map(([g, i]) => {
         const open = g.id === s.selectedId;
         const t = design.tables.find((x) => x.source === g.id);
         // with a package, more rows / columns plant only up to the package's panels
@@ -47,9 +72,9 @@ export default function GroupList({ design }) {
             <button type="button" onClick={() => s.set({ selectedId: open ? null : g.id })} className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-slate-50">
               <span className={cx('grid h-7 w-7 shrink-0 place-items-center rounded-lg text-xs font-bold text-brand-fg', t?.valid === false ? 'bg-red-500' : 'bg-brand')}>{i + 1}</span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold">{g.name || `Base ${i + 1}`}</span>
+                <span className="block truncate text-sm font-semibold">{baseLabel(g, i)}</span>
                 <span className="block text-xs text-slate-500">
-                  {empty ? <b className="text-amber-700">Empty</b> : <>{n} panels · {((n * spec.watts) / 1000).toFixed(1)} kW</>}
+                  {empty ? <b className="text-amber-700">Empty</b> : <>{n} panel{n === 1 ? '' : 's'} · {((n * spec.watts) / 1000).toFixed(1)} kW</>}
                   {' · '}{fit.rows} × {fit.cols} slots{t?.flush ? ' · on the slope' : ` · ${Math.round(t?.tilt ?? g.tilt)}° tilt`}
                 </span>
               </span>
@@ -59,7 +84,7 @@ export default function GroupList({ design }) {
               <div className="space-y-3 border-t border-slate-100 bg-slate-50/60 p-3">
                 {t?.valid === false && <p className="rounded-lg bg-red-50 px-2 py-1.5 text-xs text-red-700">{t.reason} — drag it to a free spot, or make it smaller.</p>}
                 <div className="flex gap-2">
-                  <input value={g.name || ''} placeholder={`Base ${i + 1}`} onChange={(e) => u({ name: e.target.value })} className="h-8 min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-sm outline-none focus:border-brand" />
+                  <input value={baseLabel(g, i) === g.name ? g.name : ''} placeholder={`Base ${i + 1}`} onChange={(e) => u({ name: e.target.value })} className="h-8 min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-sm outline-none focus:border-brand" />
                   {base && (empty
                     ? <button type="button" title="Put panels on this base" onClick={() => { u({ count: undefined, filled: undefined }); plantBases(design, [g.id]); }} className="flex h-8 items-center gap-1 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-800"><Sparkles className="h-3.5 w-3.5" /> Fill</button>
                     : <button type="button" title="Take every panel off this base" onClick={() => clearBases([g.id])} className="flex h-8 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium hover:bg-slate-50"><Eraser className="h-3.5 w-3.5" /> Clear</button>)}
@@ -155,7 +180,7 @@ export default function GroupList({ design }) {
                   ))}
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" title="Make a copy next to it" onClick={() => { const copy = { ...g, id: newId('g'), name: `${g.name || 'Base'} copy`, x: g.x + 2, y: g.y - 2 }; s.addObject({ ...copy, ...withinPackage(copy, {}, spec, { isNew: true }) }); }} className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white text-xs font-medium hover:bg-slate-50">
+                  <button type="button" title="Make a copy next to it" onClick={() => { const copy = { ...g, id: newId('g'), name: `${baseLabel(g, i)} copy`, x: g.x + 2, y: g.y - 2 }; s.addObject({ ...copy, ...withinPackage(copy, {}, spec, { isNew: true }) }); }} className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white text-xs font-medium hover:bg-slate-50">
                     <Copy className="h-3.5 w-3.5" /> Duplicate
                   </button>
                   <button type="button" title="Remove this base and its panels" onClick={() => s.remove(g.id)} className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-white text-xs font-medium text-red-600 hover:bg-red-50">
@@ -165,6 +190,9 @@ export default function GroupList({ design }) {
               </div>
             )}
           </div>
+        );
+            })}
+          </Fragment>
         );
       })}
       <button type="button" title="A new empty base in the middle of the roof" onClick={add} className="flex h-10 w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-slate-300 text-sm font-medium text-slate-600 hover:bg-slate-50">

@@ -24,6 +24,33 @@ function inverterPickOf(catalog, config) {
   return null;
 }
 
+/**
+ * The panel a package is built with, as a full panel spec (size, watts, electrical values). The package's
+ * panel line is matched to the catalog by its product, then by brand + model; only when the catalog no
+ * longer has it are the watts read from its text and the size taken from the catalog panel closest in watts.
+ * `fallback` (the panel chosen in Custom) is returned when the package lists no panel.
+ */
+export function packagePanelSpec(catalog, pkg, fallback) {
+  const item = pkg?.items?.find((it) => it.itemType === 'panel' || it.name?.toLowerCase().includes('panel'));
+  if (!item) return fallback;
+  const panels = catalog.panels || [];
+  const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  const exact = (item.productId && panels.find((p) => p.id === String(item.productId)))
+    || (item.model && panels.find((p) => same(p.brand, item.brand) && same(p.model, item.model)));
+  if (exact) return exact;
+  // not in the catalog any more: watts from the text (e.g. 550W, 540 W), size from the nearest panel
+  const m = `${item.model || ''} ${item.spec || ''} ${item.name || ''}`.match(/(\d{3,4})\s*w/i);
+  const watts = (m && Number(m[1])) || fallback.watts;
+  const near = panels.reduce((best, p) => (Math.abs(p.watts - watts) < Math.abs(best.watts - watts) ? p : best), fallback);
+  return {
+    ...near,
+    brand: item.brand || near.brand,
+    model: item.model || near.model,
+    watts,
+    name: [item.brand, item.model, `${watts} W`].filter(Boolean).join(' '),
+  };
+}
+
 export function useDesign() {
   const sections = useStore((s) => s.sections);
   const buildings = useStore((s) => s.buildings);
@@ -48,23 +75,10 @@ export function useDesign() {
 
   const spec = useMemo(() => {
     const defaultSpec = catalog.panels.find((p) => p.id === config.specId) || catalog.panels[0];
-    if (config.pricingMode === 'package' && selectedPackage?.items?.length) {
-      const panelItem = selectedPackage.items.find((it) => it.itemType === 'panel' || it.name?.toLowerCase().includes('panel'));
-      if (panelItem) {
-        // Extract watts if specified in model or spec (e.g. 550W, 540 W)
-        const wattsMatch = (panelItem.model + ' ' + panelItem.spec + ' ' + panelItem.name).match(/(\d{3,4})\s*w/i);
-        const parsedWatts = wattsMatch ? Number(wattsMatch[1]) : defaultSpec.watts;
-        return {
-          ...defaultSpec,
-          brand: panelItem.brand || defaultSpec.brand,
-          model: panelItem.model || defaultSpec.model,
-          watts: parsedWatts || defaultSpec.watts,
-          name: [panelItem.brand, panelItem.model, `${parsedWatts || defaultSpec.watts} W`].filter(Boolean).join(' '),
-        };
-      }
-    }
+    // a package brings its own panel: its size and watts, not those of the panel chosen in Custom
+    if (config.pricingMode === 'package' && selectedPackage?.items?.length) return packagePanelSpec(catalog, selectedPackage, defaultSpec);
     return defaultSpec;
-  }, [catalog.panels, config.specId, config.pricingMode, selectedPackage]);
+  }, [catalog, config.specId, config.pricingMode, selectedPackage]);
 
   const pillar = useMemo(() => {
     const defaultPillar = catalog.pillars.find((p) => p.id === config.pillarId) || catalog.pillars[0];

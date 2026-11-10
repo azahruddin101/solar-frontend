@@ -11,7 +11,7 @@ import { offsetPolygon, rectPoly, signedArea } from '@/lib/geometry';
 import { hipParts, hipPlaneZ, hipZ } from '@/lib/hipRoof';
 import { addBase, togglePanelAt, withinPackage } from '@/lib/autofill';
 import { activeStringPath, allStringColors, stringPaint, stringStroke } from '@/lib/strings';
-import { magnetize, PANEL_GAP, PANEL_THICKNESS, PATH_COLORS, pathCount, pathOn, resizeBase, ridgeHeight, roofHeightAt, roofPlanes, roofZ, slotAt, slotStart } from '@/lib/model';
+import { newId, magnetize, PANEL_GAP, PANEL_THICKNESS, PATH_COLORS, pathCount, pathOn, resizeBase, ridgeHeight, roofHeightAt, roofPlanes, roofZ, slotAt, slotStart } from '@/lib/model';
 import { dayFor, fmtDay, fmtHour, fmtHour24, SEASON_DAYS } from '@/lib/seasons';
 import { PANEL_MESH_TAG, SUN_LIGHT_NAME } from '@/lib/shadowReport/sceneAdapter';
 import { staticMapSize, staticMapUrl, zoomForSpan } from '@/lib/staticMap';
@@ -1454,7 +1454,6 @@ export default function Scene3D({ design }) {
               ))}
             </div>
           )}
-          <div className="pointer-events-none rounded-full bg-black/60 px-3 py-1 text-[11px] text-white/80 shadow ring-1 ring-white/10">Double-click a spot to rotate around it · right-drag to move the view</div>
         </div>
       )}
       <Compass dial={dial} />
@@ -1510,19 +1509,32 @@ function SceneContent({ design, origin, day, hour, span, maxH }) {
     }
     return { near, far };
   }, [design.buildings, design.sections, nearSize, origin]);
+  // "Things on the roof": with one picked in the sidebar, a tap puts a standard-size one right there (a tree
+  // may stand on the ground next to the house). A drag still turns the view: only a still tap places.
+  const placeThing = (e) => {
+    const st = useStore.getState();
+    if (st.tool !== 'mark-area' || st.readOnly || e.delta > 4 || !['tank', 'stair', 'other', 'tree'].includes(st.pendingKey)) return;
+    e.stopPropagation();
+    const at = { x: e.point.x, y: -e.point.z };
+    const o = st.pendingKey === 'tree'
+      ? { id: newId('t'), type: 'tree', ...at, r: 2.5, h: 7.5 }
+      : { id: newId('b'), type: 'block', name: 'Object', h: 1.8, w: 1.5, d: 1.5, ...(st.pendingBlock || {}), ...at, rot: design.defaultAzimuth };
+    st.addObject(o);
+    st.set({ tool: 'select', pendingKey: null, pendingBlock: null, selectedId: o.id });
+  };
   return (
     <>
       <Lights lat={design.lat} day={day} hour={hour} span={span} />
       <SunPath lat={design.lat} day={day} hour={hour} radius={span * 1.6 + 25} />
       <gridHelper args={[farSize * 3, 60, '#1f2937', '#111827']} position={[0, -0.06, 0]} />
       {texFar && (
-        <mesh rotation-x={-Math.PI / 2} position={[0, -0.03, 0]} receiveShadow>
+        <mesh rotation-x={-Math.PI / 2} position={[0, -0.03, 0]} receiveShadow onClick={placeThing}>
           <planeGeometry args={[farSize, farSize]} />
           <meshStandardMaterial map={texFar} roughness={1} />
         </mesh>
       )}
       {texNear && (
-        <mesh rotation-x={-Math.PI / 2} receiveShadow>
+        <mesh rotation-x={-Math.PI / 2} receiveShadow onClick={placeThing}>
           <planeGeometry args={[nearSize, nearSize]} />
           <meshStandardMaterial map={texNear} roughness={1} />
         </mesh>
@@ -1535,6 +1547,7 @@ function SceneContent({ design, origin, day, hour, span, maxH }) {
           e.stopPropagation();
           addBase(design, { x: e.point.x, y: -e.point.z }); // adding selects the base and puts the tool away
         }}
+        onClick={placeThing}
         onPointerOver={() => useStore.getState().tool === 'add-base' && (document.body.style.cursor = 'crosshair')}
         onPointerOut={() => useStore.getState().tool === 'add-base' && (document.body.style.cursor = '')}
       >

@@ -20,7 +20,7 @@ export function packageCap() {
 /** Panels planted on the roof now. */
 export const plantedTotal = (objects, spec) => objects.filter((o) => o.type === 'array').reduce((a, o) => a + plantedOn(o, spec).count, 0);
 
-const capMessage = (cap) => `This package has ${cap} panels and all of them are placed. Take one off first, or switch to Custom in Products.`;
+const capMessage = (cap) => `This package has ${cap} panels and all of them are placed. Take one off first, or switch to Custom on the Package step.`;
 
 /**
  * A change to base `o` (resize, rows / columns, a copy) kept within the package: when it would put more panels
@@ -38,6 +38,12 @@ export function withinPackage(o, patch, spec, { isNew = false } = {}) {
   toast.error(left ? `This package has ${cap} panels: only ${left} more fit on this base.` : capMessage(cap));
   return left ? { ...patch, planted: true, filled: undefined, count: left } : { ...patch, planted: false, filled: undefined, count: undefined };
 }
+
+/**
+ * The name shown for the `i`-th base: its own name when the user typed one, otherwise "Base N" by its
+ * place in the list (layouts made automatically used to be called "Group N", numbered with gaps).
+ */
+export const baseLabel = (o, i) => (o?.name && !/^(Group|Base) \d+$/.test(o.name) ? o.name : `Base ${i + 1}`);
 
 /** Every base (group with its own footprint), in the order it was added — the auto layout's too. */
 export const userBases = (objects) => objects.filter(isBase);
@@ -223,7 +229,7 @@ export function autoGroups(design, count = 0, { atLeast = false, keepPricing = f
   const layout = (limit) => {
     const temp = buildDesign({ sections: s.sections, buildings: s.buildings, objects: [...keep, ...zones], config: { ...c, maxPanels: limit }, lat: design.lat, spec: design.spec });
     // each auto group is a base the size of its panels, planted; `auto` until the user changes it
-    return temp.tables.map((t, i) => ({ id: newId('g'), type: 'array', name: `Group ${i + 1}`, x: t.x, y: t.y, rows: t.rows, cols: t.cols, tilt: t.tilt, azimuth: t.azimuth, frontLeg: t.frontLeg, orientation: t.orientation, ...baseFor(t.rows, t.cols, t, design.spec), planted: true, auto: true }));
+    return temp.tables.map((t, i) => ({ id: newId('g'), type: 'array', name: `Base ${i + 1}`, x: t.x, y: t.y, rows: t.rows, cols: t.cols, tilt: t.tilt, azimuth: t.azimuth, frontLeg: t.frontLeg, orientation: t.orientation, ...baseFor(t.rows, t.cols, t, design.spec), planted: true, auto: true }));
   };
   const placed = (groups) => groups.reduce((a, g) => a + g.rows * g.cols, 0);
 
@@ -257,7 +263,7 @@ export function maxRoofLayout({ sections, buildings, objects, config, lat, spec,
       const cfg = { ...config, rowsPerTable, orientation, setback: 0, rowGap: 0.1, maxPanels: 0 };
       const zones = sections.flatMap((sec) => zonesForSection(sec, cfg, azimuthFor(sec), lat, 'max')).map((z) => ({ ...z, phaseStep: 0.1 }));
       const laid = buildDesign({ sections, buildings, objects: [...keep, ...zones], config: cfg, lat, spec });
-      const groups = laid.tables.map((t, i) => ({ id: newId('g'), type: 'array', name: `Group ${i + 1}`, x: t.x, y: t.y, rows: t.rows, cols: t.cols, tilt: t.tilt, azimuth: t.azimuth, frontLeg: t.frontLeg, orientation: t.orientation, ...baseFor(t.rows, t.cols, t, spec), planted: true, auto: true }));
+      const groups = laid.tables.map((t, i) => ({ id: newId('g'), type: 'array', name: `Base ${i + 1}`, x: t.x, y: t.y, rows: t.rows, cols: t.cols, tilt: t.tilt, azimuth: t.azimuth, frontLeg: t.frontLeg, orientation: t.orientation, ...baseFor(t.rows, t.cols, t, spec), planted: true, auto: true }));
       const check = buildDesign({ sections, buildings, objects: [...keep, ...groups], config: cfg, lat, spec });
       const ok = new Set(check.tables.filter((t) => t.valid).map((t) => t.source));
       const kept = groups.filter((g) => ok.has(g.id));
@@ -268,9 +274,24 @@ export function maxRoofLayout({ sections, buildings, objects, config, lat, spec,
   return best || { count: 0, groups: [], rowsPerTable: config.rowsPerTable, orientation: config.orientation };
 }
 
-/** Put the maximum layout on the roof (replaces every base; trees and obstacles stay). */
-export function applyMaxLayout(plan) {
+/**
+ * Put the maximum layout on the roof (replaces every base; trees and obstacles stay). With `n`, only
+ * that many panels: the rest come off the groups laid last (a whole group, or its last panels).
+ */
+export function applyMaxLayout(plan, n = 0) {
   const s = useStore.getState();
   const keep = s.objects.filter((o) => o.type === 'tree' || o.type === 'block');
-  s.set({ objects: [...keep, ...plan.groups], selectedId: null, config: { ...s.config, rowsPerTable: plan.rowsPerTable, orientation: plan.orientation, maxPanels: 0, targetKw: 0 } });
+  let excess = n > 0 ? Math.max(0, plan.count - n) : 0;
+  const groups = [];
+  for (let i = plan.groups.length - 1; i >= 0; i--) {
+    const g = plan.groups[i];
+    const size = g.rows * g.cols;
+    if (excess >= size) {
+      excess -= size;
+      continue;
+    }
+    groups.unshift(excess > 0 ? { ...g, count: size - excess } : g);
+    excess = 0;
+  }
+  s.set({ objects: [...keep, ...groups], selectedId: null, config: { ...s.config, rowsPerTable: plan.rowsPerTable, orientation: plan.orientation, maxPanels: 0, targetKw: 0 } });
 }

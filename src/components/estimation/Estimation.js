@@ -3,7 +3,7 @@
 // Estimation: pick products, packages and services (or type your own lines), choose with or without GST, and
 // download a simple PDF. Isolated on purpose — nothing is saved, and the PDF is built here in the browser.
 // Layout: the catalog on the left (one tap adds, a stepper changes the quantity), the estimate on the right.
-import { ArrowLeft, Download, Minus, PackageOpen, Plus, Save, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, FileOutput, Minus, PackageOpen, Plus, Save, Search, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
@@ -11,9 +11,11 @@ import { api } from '@/lib/api';
 import { formatMoney } from '@/lib/energy';
 import { estimateTotals, newLine } from '@/lib/estimation';
 import { useSession } from '@/lib/session';
+import { useCan } from '@/lib/useCan';
 import { useResource } from '@/lib/useResource';
 import { Alert, Button, Card, CardHeader, FormField, Input, LoadingBlock, NumField, PageHeader, Select, Textarea, Toggle, cx, toast } from '../kit';
 import { defaultTaxRate, taxName } from '@/lib/tax';
+import ConvertEstimateDialog from './ConvertEstimateDialog';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const TABS = [
@@ -56,6 +58,8 @@ function Editor({ initial }) {
   const [notes, setNotes] = useState(initial?.notes || '');
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [converting, setConverting] = useState(false);
+  const may = useCan();
 
   const clientList = useMemo(() => clients.data?.items || [], [clients.data]);
   const client = useMemo(() => {
@@ -95,10 +99,17 @@ function Editor({ initial }) {
         setSavedId(doc.id);
         router.replace(`/dashboard/estimation/${doc.id}`);
       }
+      setSaving(false);
+      return true;
     } catch (e) {
       toast.error(e.message || 'Could not save the estimate');
     }
     setSaving(false);
+    return false;
+  };
+  /** The proposal is made from the saved estimate, so what is on screen is saved first. */
+  const convert = async () => {
+    if (await save()) setConverting(true);
   };
   const download = async () => {
     setBusy(true);
@@ -118,9 +129,12 @@ function Editor({ initial }) {
       <PageHeader title={savedId ? 'Edit estimate' : 'New estimate'} description="Pick packages, products and services, type your own, then save it or download it as a PDF.">
         <div className="flex flex-wrap gap-2 lg:justify-end">
           <Button variant="secondary" icon={Download} loading={busy} disabled={!canDownload} onClick={download}>Download PDF</Button>
+          {savedId && may('proposals', 'create') && <Button variant="secondary" icon={FileOutput} disabled={!canDownload || saving} onClick={convert}>Convert to proposal</Button>}
           <Button variant="primary" icon={Save} loading={saving} disabled={!canDownload} onClick={save}>{savedId ? 'Save changes' : 'Save estimate'}</Button>
         </div>
       </PageHeader>
+
+      {converting && <ConvertEstimateDialog estimate={{ id: savedId, client, design: initial?.design }} onClose={() => setConverting(false)} />}
 
       <Card>
         <CardHeader title="Client" description="Choose an existing client or type the details." />

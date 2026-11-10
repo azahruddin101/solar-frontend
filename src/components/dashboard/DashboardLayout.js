@@ -14,7 +14,7 @@ const NAV_BASE = [
       { href: '/dashboard/leads', label: 'Leads', icon: Megaphone }, // the sources are tabs inside the page (LeadSourceTabs)
       { href: '/dashboard/clients', label: 'Clients', icon: Users },
       { href: '/dashboard/designs', label: 'Proposals', icon: PenTool },
-      { href: '/dashboard/billing', label: 'Billing & Invoices', icon: Receipt },
+      { href: '/dashboard/billing', label: 'Billing & Receipts', icon: Receipt },
       { href: '/dashboard/loans', label: 'Loans', icon: Landmark },
       { href: '/dashboard/subsidies', label: 'Subsidies', icon: BadgeIndianRupee },
       { href: '/dashboard/estimation', label: 'Estimation', icon: Calculator },

@@ -86,7 +86,10 @@ function RoofMap({ center, areas, points, onAdd, onClose }) {
         });
         setReady(true);
       })
-      .catch((e) => setErr(e.message));
+      .catch((e) => {
+        console.error('Satellite map failed to load:', e);
+        setErr(e.message || 'failed');
+      });
     return () => {
       dead = true;
       shapes.current.forEach((s) => s.setMap(null));
@@ -135,7 +138,8 @@ function RoofMap({ center, areas, points, onAdd, onClose }) {
       <div ref={el} className="absolute inset-0" />
       {!MAPS_API_KEY || err ? (
         <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-slate-500">
-          {err || 'Add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to .env.local to see the satellite map.'}
+          {/* the technical reason goes to the console, not to the user */}
+          The map could not load. Check your internet connection and reload the page; if it stays like this, contact support.
         </div>
       ) : (
         <div className="absolute bottom-6 right-4 flex flex-col gap-2">
@@ -170,13 +174,17 @@ export default function StepLocation() {
   const [points, setPoints] = useState([]); // the roof being drawn
   const drawing = points.length > 0;
 
-  // the nav's Continue takes what was marked here along (see App.js)
+  // the nav's Continue takes what was marked here along (see App.js): the finished roofs, and the
+  // one still being drawn once it has three corners (the same as the Continue button on the map)
   useEffect(() => {
-    set({ markedDraft: areas.length ? areas : null });
+    const list = points.length >= 3 ? [...areas, points] : areas;
+    set({ markedDraft: list.length ? list : null });
     return () => set({ markedDraft: null });
-  }, [areas, set]);
+  }, [areas, points, set]);
 
   const pick = (p) => {
+    // a new address starts the marking over: never without asking
+    if ((areas.length || points.length) && !window.confirm('Going to a new address removes the roofs you marked here. Continue?')) return;
     set({ place: p });
     setCenter(p.location);
     setPoints([]);
@@ -213,7 +221,7 @@ export default function StepLocation() {
         : 'Click the first corner (the big dot) or press Finish roof to close this roof.'
       : n === 0
         ? 'Zoom in on your house, then click each corner of the roof.'
-        : `${n} roof${n > 1 ? 's' : ''} marked. Click the corners of another building to add it, or continue to the solar plan.`;
+        : `${n} roof${n > 1 ? 's' : ''} marked. Click the corners of another building to add it, or press Continue.`;
 
   return (
     <div className="absolute inset-0">
@@ -254,7 +262,7 @@ export default function StepLocation() {
           )}
           {(n > 0 || points.length >= 3) && (
             <button type="button" onClick={proceed} className={`inline-flex h-11 items-center gap-2 rounded-lg px-4 text-sm font-semibold shadow-md ${drawing ? 'bg-white text-slate-700 hover:bg-slate-50' : 'bg-brand text-brand-fg hover:bg-brand-600'}`}>
-              <CheckCircle2 className="h-4 w-4" /> Continue to solar plan{n > 1 ? ` (${n} buildings)` : ''}
+              <CheckCircle2 className="h-4 w-4" /> Continue to Building{n > 1 ? ` (${n} buildings)` : ''}
             </button>
           )}
         </div>

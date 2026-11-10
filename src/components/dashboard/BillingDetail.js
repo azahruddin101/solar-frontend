@@ -1,8 +1,9 @@
 'use client';
 
-// One party's money — a won proposal's, or a client's with no proposal — in the order the sale chain runs:
-// bills (goods out of stock) → invoices (paid tax invoices); older invoices stay read-only. Every document is generated from here.
-import { ArrowLeft, Ban, Download, Eye, Loader2, PenLine, ReceiptText, Truck, Undo2, Wallet } from 'lucide-react';
+// One party's money — a won proposal's, or a client's with no proposal: bills (materials and services with tax; each
+// comes with its delivery challan) and receipts (money received). Older invoices stay read-only. Every document is
+// generated from here.
+import { ArrowLeft, Ban, Eye, FileText, HandCoins, Loader2, PenLine, ReceiptText, Trash2, Truck, Undo2, Wallet } from 'lucide-react';
 import WhatsAppIcon from '../icons/WhatsAppIcon';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -10,9 +11,9 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { PAYMENT_MODE_LABEL } from '@/lib/billingPdf';
 import { downloadBlob } from '@/lib/invoicePdf';
-import { buildEwayBillPdfBlob } from '@/lib/ewayBillPdf';
-import { buildBillPdfBlob } from '@/lib/billPdf';
-import { archiveBillPdf, archiveCreditNotePdf, archiveEwayBillPdf, archiveInvoicePdf, uploadBillingPdf, viewBillDocument, viewCreditNoteDocument, viewEwayBillDocument, viewInvoiceDocument } from '@/lib/billingDocuments';
+import { buildChallanPdfBlob, buildEwayBillPdfBlob, challanNoOf, hasChallan } from '@/lib/ewayBillPdf';
+import { buildReceiptPdfBlob } from '@/lib/receiptPdf';
+import { archiveBillPdf, archiveCreditNotePdf, archiveEwayBillPdf, archiveInvoicePdf, uploadBillingPdf, viewBillDocument, viewChallanDocument, viewCreditNoteDocument, viewEwayBillDocument, viewInvoiceDocument, viewReceiptDocument } from '@/lib/billingDocuments';
 import { shareBillOnWhatsApp, shareInvoiceOnWhatsApp } from '@/lib/billingWhatsApp';
 import { formatMoney } from '@/lib/energy';
 import { BILL_STATUS, EWAY_STATUS } from '@/lib/saleChain';
@@ -20,11 +21,11 @@ import { useCan } from '@/lib/useCan';
 import { useSession } from '@/lib/session';
 import { hasBranchOwnerAccess } from '@/lib/tenant';
 import { useResource } from '@/lib/useResource';
-import { Alert, Badge, Button, Card, EmptyState, IconButton, LoadingBlock, Table, Td, Th, Tr, capName, cx, formatDate, showError, toast } from '../kit';
+import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, LoadingBlock, Table, Td, Th, Tr, capName, cx, formatDate, showError, toast } from '../kit';
 import EwayBillModal, { CancelEwayBillDialog } from './EwayBillModal';
 import VoidDocumentDialog from './VoidDocumentDialog';
 import PartialReturnEwayModal from './PartialReturnEwayModal';
-import BillModal from './BillModal';
+import ReceiptModal from './ReceiptModal';
 import { DesignStatusBadge, designHref } from './shared';
 import { useBreadcrumb } from '@/lib/breadcrumbs';
 import { taxIdName, taxName } from '@/lib/tax';
@@ -32,6 +33,7 @@ import { taxIdName, taxName } from '@/lib/tax';
 /** One colour per step of the chain, so the sections read in order. */
 const TONE = {
   eway: { band: 'bg-sky-50/80 border-sky-100', chip: 'bg-sky-600 text-white', title: 'text-sky-950' },
+  receipts: { band: 'bg-emerald-50/80 border-emerald-100', chip: 'bg-emerald-600 text-white', title: 'text-emerald-950' },
   bills: { band: 'bg-violet-50/80 border-violet-100', chip: 'bg-violet-600 text-white', title: 'text-violet-950' },
   invoices: { band: 'bg-indigo-50/80 border-indigo-100', chip: 'bg-indigo-600 text-white', title: 'text-indigo-950' },
 };
@@ -63,7 +65,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
   const company = useSession((s) => s.company);
   const may = useCan();
   const canEway = may('finances', 'create_eway_bill');
-  const canBill = may('finances', 'create_bill');
+  const canReceipt = may('finances', 'create_bill'); // the permission that used to make the paid invoice
   const canInvoice = may('finances', 'create_invoice');
   const isOwner = hasBranchOwnerAccess(useSession((s) => s.user));
   const params = useSearchParams();
@@ -71,7 +73,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
   useBreadcrumb(capName(data?.design?.name || data?.client?.name));
   const { data: catalog } = useResource(designId ? '/api/catalog' : null);
   const { data: packages } = useResource(designId ? '/api/packages' : null);
-  // `?eway=1`, `?bill=1` (from the Billing page's picker) open that form as soon as the page is ready
+  // `?eway=1`, `?receipt=1` (from the Billing page's picker) open that form as soon as the page is ready
   const [autoUsed, setAutoUsed] = useState(false);
   const [modalState, setModalState] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -136,25 +138,26 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
 
   if (loading) return <LoadingBlock />;
   if (error || !data) return <Alert>{error || 'Not found'}</Alert>;
-  const { design = null, total, paid, balance, invoices = [], ewayBills = [], bills = [], creditNotes = [], openEwayBills = 0 } = data;
+  const { design = null, total, paid, billed = 0, due = 0, invoices = [], ewayBills = [], bills = [], receipts = [], creditNotes = [] } = data;
   const client = design ? design.client : data.client;
   const party = design ? { design: designId } : { client: clientId };
   const partyName = design ? design.name : client?.name;
   const won = design ? design.status === 'won' : true;
-  const auto = ['eway', 'bill'].find((k) => params.get(k) === '1');
-  const autoAllowed = auto && !autoUsed && won && ({ eway: canEway, bill: canBill })[auto];
+  const auto = ['eway', 'receipt'].find((k) => params.get(k) === '1');
+  const autoAllowed = auto && !autoUsed && won && ({ eway: canEway, receipt: canReceipt })[auto];
   const modal = modalState ?? (autoAllowed ? { type: auto } : null);
   const setModal = (m) => {
     if (auto) setAutoUsed(true);
     setModalState(m);
   };
-  const settled = total > 0 && balance <= 0.001;
+  const settled = billed > 0 && due <= 0.005;
   const currency = company?.currency || 'INR';
 
   /* ── PDFs ── */
   const invoicePdfParams = (inv) => ({ invoice: inv, pdfName: inv?.pdfName, company, client: inv.billTo || client, currency, quote: design?.quote, proposalPricing: design?.pricing, catalog, packages });
   const ewayPdfParams = (e) => ({ ewayBill: e, pdfName: e.pdfName, company, client, currency });
   const billPdfParams = (b) => ({ bill: b, pdfName: b.pdfName, company, client, currency });
+  const receiptPdfParams = (r) => ({ receipt: r, pdfName: r.pdfName, company, client, currency });
   const creditPdfParams = (c) => ({ note: c, pdfName: c.pdfName, company, client, currency });
   const attempt = async (fn, failed) => {
     try {
@@ -178,6 +181,12 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
     await viewEwayBillDocument(ewayPdfParams(e));
     if (!hadPdf) await reload();
   }, 'The bill could not be opened.');
+  const viewChallanPdf = (e) => runPdfView(`challan:${e.id}`, () => viewChallanDocument(ewayPdfParams(e)), 'The challan could not be opened.');
+  const viewReceiptPdf = (r) => runPdfView(`receipt:${r.id}`, async () => {
+    const hadPdf = Boolean(r.pdfName);
+    await viewReceiptDocument(receiptPdfParams(r));
+    if (!hadPdf) await reload();
+  }, 'The receipt could not be opened.');
   const viewBillPdf = (b) => runPdfView(`bill:${b.id}`, async () => {
     const hadPdf = Boolean(b.pdfName);
     await viewBillDocument(billPdfParams(b));
@@ -216,7 +225,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
   // A document exists as soon as the create call returns (stock taken, payment recorded). Building and archiving its PDF
   // comes after and can fail on its own: that must never look like "not generated", or the user submits the sale again.
   // The request key makes even a repeated submit return the first document.
-  const issueDocument = async ({ kind, path, body, failed, docOf, build, uploadPath, saved, label }) => {
+  const issueDocument = async ({ kind, path, body, failed, docOf, build, uploadPath, saved, label, extra }) => {
     setBusy(true);
     let created;
     try {
@@ -243,6 +252,15 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
     if (archived) toast.success(saved(created));
     else toast.error(`${label(doc)} was generated, but its PDF could not be saved. View or download the row to retry archiving.`);
     if (file) downloadBlob(file.blob, file.filename);
+    // a second document made from the same record (the bill's delivery challan): printed, not stored
+    if (extra) {
+      try {
+        const second = await extra(doc);
+        if (second) downloadBlob(second.blob, second.filename);
+      } catch (e) {
+        console.error(e);
+      }
+    }
     setBusy(false);
   };
   const generateEway = (body) => issueDocument({
@@ -253,20 +271,33 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
     docOf: (created) => created,
     build: (created) => buildEwayBillPdfBlob({ ewayBill: created, company, client, currency }),
     uploadPath: (created) => `/api/billing/eway-bills/${created.id}/pdf`,
-    saved: (created) => `Bill ${created.ewayNo} generated — stock updated`,
+    saved: (created) => `Bill ${created.ewayNo}${hasChallan(created) ? ` and challan ${challanNoOf(created.ewayNo)}` : ''} generated · ${created.paid?.amount > 0 ? `${money(created.paid.amount)} received` : 'paid from the advance'}`,
     label: (created) => `Bill ${created.ewayNo}`,
+    extra: (created) => (hasChallan(created) ? buildChallanPdfBlob({ ewayBill: created, company, client, currency }) : null),
   });
-  const generateBill = (body) => issueDocument({
-    kind: 'bill',
-    path: '/api/billing/bills',
+  const generateReceipt = (body) => issueDocument({
+    kind: 'receipt',
+    path: '/api/billing/receipts',
     body,
-    failed: () => 'Invoice was not generated',
-    docOf: ({ bill }) => bill,
-    build: (bill) => buildBillPdfBlob({ bill, company, client, currency }),
-    uploadPath: (bill) => `/api/billing/bills/${bill.id}/pdf`,
-    saved: ({ bill, payment }) => `Invoice ${bill.billNo} generated · ${money(payment.amount)} received`,
-    label: (bill) => `Invoice ${bill.billNo}`,
+    failed: () => 'Receipt was not saved',
+    docOf: (created) => created,
+    build: (created) => buildReceiptPdfBlob({ receipt: created, company, client, currency }),
+    uploadPath: (created) => `/api/billing/receipts/${created.id}/pdf`,
+    saved: (created) => `Receipt ${created.receiptNo} saved · ${money(created.amount)} received`,
+    label: (created) => `Receipt ${created.receiptNo}`,
   });
+  const removeReceipt = async () => {
+    setBusy(true);
+    try {
+      await api(`/api/billing/receipts/${modal.item.id}`, { method: 'DELETE' });
+      toast.success(`Receipt ${modal.item.receiptNo} removed`);
+      setModal(null);
+      await reload();
+    } catch (e) {
+      showError(e, 'Receipt was not removed');
+    }
+    setBusy(false);
+  };
   const cancelEway = async (reason) => {
     setBusy(true);
     try {
@@ -313,11 +344,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
     setBusy(false);
   };
   const billHasLegacyCredits = (b) => (b.creditedTotal ?? 0) > 0;
-  const proposalDiscount = design?.pricing?.discount > 0 ? { discount: design.pricing.discount, discountIsPercent: design.pricing.discountIsPercent, discountRemark: design.pricing.discountRemark } : null;
-  const steps = [
-    { key: 'eway', label: 'Bills', n: ewayBills.filter((e) => e.status !== 'cancelled').length, note: openEwayBills ? `${openEwayBills} open` : '' },
-    { key: 'bills', label: 'Invoices', n: bills.length, note: '' },
-  ];
+  const dueCard = due < -0.005 ? ['Advance held', money(-due), 'text-slate-900'] : ['Balance due', money(due), settled ? 'text-emerald-700' : 'text-slate-900'];
 
   return (
     <>
@@ -330,37 +357,25 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
         <div className="flex flex-wrap gap-2">
           {design && may('proposals', 'view') && <Link href={designHref({ id: designId, type: design.type, summary: design })} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"><PenLine className="h-4 w-4" />{may('proposals', 'update') ? 'Edit proposal' : 'Open proposal'}</Link>}
           {!design && (may('clients', 'view') || may('clients', 'view_team')) && <Link href={`${basePath.replace(/\/billing$/, '')}/clients/${clientId}`} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"><PenLine className="h-4 w-4" />Open client</Link>}
-          {canEway && won && <Button variant="secondary" icon={Truck} onClick={() => setModal({ type: 'eway' })}>Bill</Button>}
-          {canBill && won && <Button variant="secondary" icon={Wallet} onClick={() => setModal({ type: 'bill' })} title={openEwayBills ? `${openEwayBills} open bill${openEwayBills === 1 ? '' : 's'}` : 'No open bill: an invoice for services only'}>Invoice{openEwayBills ? ` (${openEwayBills})` : ''}</Button>}
+          {canEway && won && <Button variant="secondary" icon={FileText} onClick={() => setModal({ type: 'eway' })}>Bill</Button>}
+          {canReceipt && won && <Button variant="secondary" icon={HandCoins} onClick={() => setModal({ type: 'receipt' })}>Receipt</Button>}
         </div>
       </div>
 
-      {!won && <Alert tone="warn" className="mb-5">Bills and invoices can be created only after the proposal is marked as <b>Booked</b>. Change its status on the proposal, then come back here.</Alert>}
+      {!won && <Alert tone="warn" className="mb-5">Bills and receipts can be created only after the proposal is marked as <b>Booked</b>. Change its status on the proposal, then come back here.</Alert>}
 
-      <div className={`mb-5 grid gap-3 ${design ? 'sm:grid-cols-3' : 'sm:grid-cols-1'}`}>
-        {(design
-          ? [['Proposal total', money(total), ''], ['Billed & received', money(paid), ''], balance < -0.005 ? ['Billed above quote', money(-balance), 'text-slate-900'] : ['Yet to bill', money(balance), settled ? 'text-emerald-700' : 'text-slate-900']]
-          : [['Billed & received', money(paid), '']]
-        ).map(([k, v, c]) => (
+      <div className={`mb-5 grid gap-3 ${design ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'}`}>
+        {[...(design ? [['Proposal total', money(total), '']] : []), ['Billed', money(billed), ''], ['Received', money(paid), ''], dueCard].map(([k, v, c]) => (
           <Card key={k} className="p-4"><div className="text-xs font-medium text-slate-500">{k}</div><div className={`mt-1 text-xl font-semibold ${c || 'text-slate-900'}`}>{v}</div></Card>
         ))}
       </div>
 
-      <ol className="mb-5 grid gap-2 sm:grid-cols-2">
-        {steps.map((s, i) => (
-          <li key={s.key} className={cx('flex items-center gap-3 rounded-xl border px-4 py-2.5', TONE[s.key].band)}>
-            <span className={cx('grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold', TONE[s.key].chip)}>{i + 1}</span>
-            <span className="min-w-0"><span className={cx('block text-sm font-semibold', TONE[s.key].title)}>{s.label} <span className="font-normal text-slate-500">· {s.n}</span></span>{s.note && <span className="block text-xs text-slate-600">{s.note}</span>}</span>
-          </li>
-        ))}
-      </ol>
-
-      <Section tone="eway" icon={Truck} title="Bills" sub="Goods that left stock. Return products partially to put them back in inventory — the old bill stays visible (revised) and a new bill is created with what remains.">
+      <Section tone="eway" icon={FileText} title="Bills & challans" sub="Each bill lists the materials and services with tax, is paid when it is made, and has a delivery challan for its materials. If some materials come back, use Return: the old bill stays visible (revised) and a new bill is made with what remains.">
         {!ewayBills.length ? (
-          <EmptyState icon={Truck} title="No bills yet" description={won ? 'Generate a bill to send goods out of stock.' : 'Mark the proposal as Booked first.'} />
+          <EmptyState icon={FileText} title="No bills yet" description={won ? 'Make a bill for the materials and services. Its delivery challan is made with it.' : 'Mark the proposal as Booked first.'} />
         ) : (
           <Table>
-            <thead><tr><Th>Bill</Th><Th>Date</Th><Th>Goods</Th><Th>Delivery</Th><Th className="text-right">Value</Th><Th>Status</Th><Th className="text-right">Actions</Th></tr></thead>
+            <thead><tr><Th>Bill</Th><Th>Date</Th><Th>Materials & services</Th><Th>Delivery</Th><Th className="text-right">Total</Th><Th>Status</Th><Th className="text-right">Actions</Th></tr></thead>
             <tbody>
               {ewayBills.map((e) => {
                 const ewayPdfBusy = pdfOpening === `eway:${e.id}`;
@@ -371,6 +386,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
                       {ewayPdfBusy && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-slate-500" aria-hidden />}
                       {e.ewayNo}
                     </button>
+                    {hasChallan(e) && <div className="text-xs font-normal text-slate-500">Challan {challanNoOf(e.ewayNo)}</div>}
                     {e.status === 'superseded' && e.supersededByNo && <div className="text-xs font-normal text-slate-500">Replaced by {e.supersededByNo}</div>}
                     {e.supersedesNo && e.status === 'open' && <div className="text-xs font-normal text-slate-500">Revises {e.supersedesNo}</div>}
                     {e.cancelReason && (e.status === 'superseded' || e.status === 'cancelled') && <div className="max-w-[200px] truncate text-xs font-normal text-slate-500" title={e.cancelReason}>{e.cancelReason}</div>}
@@ -379,11 +395,11 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
                   <Td><div className="max-w-[260px] truncate" title={[(e.lines || []).map((l) => `${l.qty} × ${l.name}`).join(', '), ...(e.services || []).map((s) => s.name)].filter(Boolean).join(', ')}>{[(e.lines || []).filter((l) => l.kind !== 'service').map((l) => `${l.qty} × ${l.name}`), ...(e.services || []).map((s) => `${s.qty || 1} × ${s.name}`)].flat().filter(Boolean).join(', ') || (e.pricing?.lines || []).filter((l) => l.kind === 'service').map((l) => `${l.qty} × ${l.name}`).join(', ') || '—'}</div></Td>
                   <Td>{e.transport?.vehicleNo || e.transport?.transporter || '—'}</Td>
                   <Td className="text-right tabular-nums">{money(e.total)}</Td>
-                  <Td><Badge tone={EWAY_STATUS[e.status]?.tone}>{EWAY_STATUS[e.status]?.label || e.status}{e.bill?.billNo ? ` · ${e.bill.billNo}` : ''}</Badge></Td>
+                  <Td><Badge tone={EWAY_STATUS[e.status]?.tone}>{e.status === 'open' && e.paid?.settled ? `Paid · ${PAYMENT_MODE_LABEL[e.paid.mode]?.split(' (')[0] || e.paid.mode}` : EWAY_STATUS[e.status]?.label || e.status}{e.bill?.billNo ? ` · ${e.bill.billNo}` : ''}</Badge></Td>
                   <Td>
                     <div className="flex items-center justify-end gap-1">
-                      <IconButton icon={Eye} label="View PDF" className="text-slate-500" loading={ewayPdfBusy} onClick={() => viewEwayPdf(e)} />
-                      <IconButton icon={Download} label="View PDF" className="text-slate-500" loading={ewayPdfBusy} onClick={() => viewEwayPdf(e)} />
+                      <IconButton icon={Eye} label="View bill" className="text-slate-500" loading={ewayPdfBusy} onClick={() => viewEwayPdf(e)} />
+                      {hasChallan(e) && <IconButton icon={Truck} label={`View delivery challan ${challanNoOf(e.ewayNo)}`} className="text-slate-500" loading={pdfOpening === `challan:${e.id}`} onClick={() => viewChallanPdf(e)} />}
                       {canEway && e.status === 'open' && (e.lines || []).some((l) => l.productId) && <IconButton icon={Undo2} label="Return products (partial)" className="text-slate-500" onClick={() => setModal({ type: 'reviseEway', item: e })} />}
                       {canEway && e.status === 'open' && <IconButton icon={Ban} tone="danger" label="Cancel entire bill (all stock back)" className="text-red-500" onClick={() => setModal({ type: 'cancelEway', item: e })} />}
                     </div>
@@ -396,10 +412,37 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
         )}
       </Section>
 
-      <Section tone="bills" icon={Wallet} title="Invoices" sub="Record payment against product bills and services. To correct a mistake or take goods back after invoicing, void the invoice (you can return stock in the void dialog). Returns before invoicing are done on open product bills above.">
-        {!bills.length ? (
-          <EmptyState icon={Wallet} title="No invoices yet" description={openEwayBills ? `${openEwayBills} open bill${openEwayBills === 1 ? '' : 's'} can be invoiced.` : 'Generate a bill, then invoice it.'} />
+      <Section tone="receipts" icon={HandCoins} title="Receipts" sub="Other money the client has paid, apart from bills — an advance or a part payment. An advance is taken off the next bill automatically.">
+        {!receipts.length ? (
+          <EmptyState icon={HandCoins} title="No receipts yet" description={won ? 'When the client pays any amount, record it with the Receipt button.' : 'Mark the proposal as Booked first.'} />
         ) : (
+          <Table>
+            <thead><tr><Th>Receipt</Th><Th>Date</Th><Th className="text-right">Amount</Th><Th>Paid by</Th><Th>Received by</Th><Th>Reason</Th><Th className="text-right">Actions</Th></tr></thead>
+            <tbody>
+              {receipts.map((r) => (
+                <Tr key={r.id}>
+                  <Td className="font-medium text-slate-900"><button type="button" className="text-left font-medium hover:text-brand-600 hover:underline" onClick={() => viewReceiptPdf(r)}>{r.receiptNo}</button></Td>
+                  <Td>{formatDate(r.receivedOn)}</Td>
+                  <Td className="text-right tabular-nums">{money(r.amount)}</Td>
+                  <Td>{PAYMENT_MODE_LABEL[r.mode]?.split(' (')[0] || r.mode}{r.reference && <div className="max-w-[140px] truncate text-xs text-slate-500">{r.reference}</div>}</Td>
+                  <Td><div className="max-w-[160px] truncate" title={r.receivedByName || r.createdByName}>{r.receivedByName || r.createdByName || '—'}</div></Td>
+                  <Td><div className="max-w-[220px] truncate text-slate-600" title={r.reason || r.note}>{r.reason || r.note || '—'}</div></Td>
+                  <Td>
+                    <div className="flex items-center justify-end gap-1">
+                      <IconButton icon={Eye} label="View receipt" className="text-slate-500" loading={pdfOpening === `receipt:${r.id}`} onClick={() => viewReceiptPdf(r)} />
+                      {isOwner && <IconButton icon={Trash2} tone="danger" label="Remove receipt…" className="text-red-500" onClick={() => setModal({ type: 'removeReceipt', item: r })} />}
+                    </div>
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </Section>
+
+      {bills.length > 0 && (
+      <Section tone="bills" icon={Wallet} title="Invoices" sub="Invoices made before bills and receipts replaced them. They are kept as they are: view or share them, or void one made by mistake (its bills become plain bills again and its payment is removed).">
+        {(
           <Table>
             <thead><tr><Th>Invoice</Th><Th>Date</Th><Th>Covers</Th><Th>Paid by</Th><Th className="text-right">Total</Th><Th>Status</Th><Th className="text-right">Actions</Th></tr></thead>
             <tbody>
@@ -423,7 +466,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
                   <Td>
                     <div className="flex items-center justify-end gap-1">
                       <IconButton icon={Eye} label="View PDF" className="text-slate-500" loading={pdfOpening === `bill:${b.id}`} onClick={() => viewBillPdf(b)} />
-                      {isOwner && b.status !== 'void' && (b.pdfName || canBill) && <IconButton icon={WhatsAppIcon} label="Share on WhatsApp" className="text-slate-500" onClick={() => shareBill(b)} />}
+                      {isOwner && b.status !== 'void' && (b.pdfName || canReceipt) && <IconButton icon={WhatsAppIcon} label="Share on WhatsApp" className="text-slate-500" onClick={() => shareBill(b)} />}
                       {isOwner && b.status === 'paid' && !billHasLegacyCredits(b) && <IconButton icon={Ban} tone="danger" label="Void invoice…" className="text-red-500" onClick={() => setModal({ type: 'void', kind: 'bill', item: b })} />}
                       {isOwner && b.status === 'paid' && billHasLegacyCredits(b) && <IconButton icon={Ban} label="Has older credit notes — cannot void here" disabled className="cursor-not-allowed text-slate-300 hover:bg-transparent hover:text-slate-300" />}
                       {isOwner && b.status === 'invoiced' && <IconButton icon={Ban} label="On an older invoice: void that invoice first" disabled className="cursor-not-allowed text-slate-300 hover:bg-transparent hover:text-slate-300" />}
@@ -435,9 +478,10 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
           </Table>
         )}
       </Section>
+      )}
 
       {creditNotes.length > 0 && (
-        <Section tone="bills" icon={Undo2} title="Credit notes" sub="Older records from when partial returns on invoices were allowed. New returns use open product bills; after invoicing, void the invoice instead.">
+        <Section tone="bills" icon={Undo2} title="Credit notes" sub="Older records from when partial returns on invoices were allowed. Returns are now done on the bill itself.">
           <Table>
             <thead><tr><Th>Credit note</Th><Th>Date</Th><Th>Against</Th><Th>Goods returned</Th><Th>Reason</Th><Th className="text-right">Refunded</Th><Th className="text-right">Actions</Th></tr></thead>
             <tbody>
@@ -462,7 +506,7 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
       )}
 
       {invoices.length > 0 && (
-        <Section tone="invoices" icon={ReceiptText} title="Older invoices" sub="Invoices made before invoices were issued directly, and AMC parts invoices. They are kept read-only: view, download or void them.">
+        <Section tone="invoices" icon={ReceiptText} title="Older invoices" sub="The oldest invoices, and AMC parts invoices. They are kept read-only: view, download or void them.">
           <Table>
             <thead><tr><Th>Invoice</Th><Th>Date</Th><Th>Format</Th><Th>Covers</Th><Th className="text-right">Amount</Th><Th>Status</Th><Th className="text-right">Actions</Th></tr></thead>
             <tbody>
@@ -508,7 +552,12 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
           onSubmit={generateEway}
         />
       )}
-      {modal?.type === 'bill' && <BillModal open onClose={() => setModal(null)} party={party} partyName={partyName} seed={{ nextInvoiceNo: data.nextInvoiceNo, previousTermsAndConditions: data.previousTermsAndConditions, previousBillToCompany: data.previousBillToCompany }} proposalDiscount={proposalDiscount} currency={currency} busy={busy} onSubmit={generateBill} />}
+      {modal?.type === 'receipt' && <ReceiptModal open onClose={() => setModal(null)} party={party} partyName={partyName} due={due} currency={currency} busy={busy} onSubmit={generateReceipt} />}
+      {modal?.type === 'removeReceipt' && (
+        <ConfirmDialog open onClose={() => setModal(null)} onConfirm={removeReceipt} title={`Remove receipt ${modal.item.receiptNo}?`} confirmLabel="Remove receipt" busy={busy}>
+          <p>{money(modal.item.amount)} comes off what this client has paid, and the number {modal.item.receiptNo} is not used again. Do this only for a receipt made by mistake.</p>
+        </ConfirmDialog>
+      )}
       {modal?.type === 'reviseEway' && <PartialReturnEwayModal open onClose={() => setModal(null)} ewayBill={modal.item} busy={busy} onSubmit={reviseEway} />}
       {modal?.type === 'void' && <VoidDocumentDialog kind={modal.kind} doc={modal.item} open onClose={() => setModal(null)} onConfirm={voidDocument} busy={busy} />}
       {modal?.type === 'cancelEway' && <CancelEwayBillDialog open ewayBill={modal.item} onClose={() => setModal(null)} onConfirm={cancelEway} busy={busy} />}
