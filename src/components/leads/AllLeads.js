@@ -13,7 +13,7 @@ import LeadListFilterBar from './LeadListFilterBar';
 import LeadForm from './LeadForm';
 import LeadViewSwitch from './LeadViewSwitch';
 import ManualLeadDetail from './ManualLeadDetail';
-import ConvertToClient from './ConvertToClient';
+import ConvertToClient, { referrerOf } from './ConvertToClient';
 import QuickAssign from './QuickAssign';
 import StatusCell from './StatusCell';
 import PreviousStaffCell from './PreviousStaffCell';
@@ -334,7 +334,7 @@ export default function AllLeads() {
       )}
       {modal?.type === 'convert' && (
         <ConvertToClient
-          lead={{ source: 'manual', id: modal.lead._id, name: modal.lead.fullName, phone: modal.lead.phone, address: modal.lead.address, email: fields.filter((f) => f.type === 'email').map((f) => modal.lead.fields?.[f.key]).find(Boolean) }}
+          lead={{ source: 'manual', id: modal.lead._id, name: modal.lead.fullName, phone: modal.lead.phone, address: modal.lead.address, email: fields.filter((f) => f.type === 'email').map((f) => modal.lead.fields?.[f.key]).find(Boolean), referredBy: referrerOf(modal.lead) }}
           onClose={() => setModal({ type: 'detail', lead: modal.lead })}
           onConverted={(link) => setModal({ type: 'detail', lead: { ...modal.lead, ...link } })}
         />

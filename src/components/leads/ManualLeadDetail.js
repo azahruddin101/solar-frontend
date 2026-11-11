@@ -62,7 +62,7 @@ export default function ManualLeadDetail({ fields, lead, statuses, assignees, ma
       onClose={onClose}
       size="xl"
       title={lead.fullName}
-      description={`${lead.source === 'import' ? 'Imported' : 'Added'} ${timeAgo(lead.createdAt).replace(/^Just now$/, 'just now')}${lead.createdByName ? ` by ${lead.createdByName}` : ''}`}
+      description={lead.source === 'referral' ? `Referral from client ${lead.referredByClientName || ''} · ${timeAgo(lead.createdAt).replace(/^Just now$/, 'just now')}` : `${lead.source === 'import' ? 'Imported' : 'Added'} ${timeAgo(lead.createdAt).replace(/^Just now$/, 'just now')}${lead.createdByName ? ` by ${lead.createdByName}` : ''}`}
       footer={<>{may.update && <Button icon={Pencil} onClick={onEdit}>Edit details</Button>}<Button variant="primary" onClick={onClose}>Close</Button></>}
     >
       {/* left: the lead and what can be done with it; right: what has happened */}
@@ -80,6 +80,14 @@ export default function ManualLeadDetail({ fields, lead, statuses, assignees, ma
             })}
           </dl>
 
+          {lead.source === 'referral' && (
+            // a client referred this person from their portal: who, and how to reach them
+            <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-2.5 text-[13px] text-sky-900">
+              <span className="font-semibold">Referred by client {lead.referredByClientName || '—'}</span>
+              {(lead.referredByClientPhone || lead.referredByClientEmail) && <span> · {[lead.referredByClientPhone, lead.referredByClientEmail].filter(Boolean).join(' · ')}</span>}
+              <div className="mt-0.5 text-sky-800">They are told only when this lead is converted or lost.</div>
+            </div>
+          )}
           {lead.convertedClient && (
             <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-[13px] text-emerald-900">
               <CircleCheck className="h-4 w-4 shrink-0 text-emerald-600" />
@@ -133,7 +141,7 @@ export default function ManualLeadDetail({ fields, lead, statuses, assignees, ma
         <LeadLog
           className="lg:sticky lg:top-0"
           entries={[
-            { at: lead.createdAt, title: lead.source === 'import' ? 'Imported from a spreadsheet' : 'Lead added', by: lead.createdByName },
+            { at: lead.createdAt, title: lead.source === 'referral' ? 'Referred by a client from their portal' : lead.source === 'import' ? 'Imported from a spreadsheet' : 'Lead added', by: lead.createdByName },
             ...(lead.logs?.length ? lead.logs.filter((e) => !['lead_status', 'lead_rescheduled'].includes(e.action)).map((e) => ({ at: e.at, title: LOG_TITLE[e.action] || e.action, remark: e.message, by: e.byName })) : [lead.assignedTo && { at: lead.assignedAt, title: `Assigned to ${lead.assignedTo.name}` }]),
             lead.convertedClient && { at: lead.convertedAt, title: `Converted to client ${lead.convertedClientName}`, by: lead.convertedByName },
             ...(lead.statusHistory || []).map((h) => ({ at: h.changedAt, title: h.rescheduled ? 'Rescheduled' : 'Status changed', status: { name: h.statusName, color: h.statusColor }, remark: h.remark, scheduledAt: h.scheduledAt, by: h.changedByName })),

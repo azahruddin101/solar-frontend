@@ -8,7 +8,7 @@ export default function LeadFields({ fields, values, onChange, errors = {}, disa
   const set = (key, value) => onChange({ ...values, [key]: value });
   return (
     <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
-      {fields.map((f) => {
+      {fields.map((f, i) => {
         const wide = f.type === 'textarea' || f.type === 'multiselect' || f.key === 'address';
         const v = values[f.key];
         let input;
@@ -68,7 +68,8 @@ export default function LeadFields({ fields, values, onChange, errors = {}, disa
             input = <Input maxLength={f.key === 'name' ? 120 : 200} value={v ?? ''} onValue={(x) => set(f.key, x)} disabled={disabled} placeholder={f.key === 'name' ? 'Full name' : undefined} />;
         }
         return (
-          <FormField key={f.key} className={wide ? 'sm:col-span-2' : undefined} label={f.label} optional={!f.required} hint={f.help || undefined} error={errors[f.key]}>
+          // a field just added in the lead-form builder has no key until it is saved: its place stands in for it
+          <FormField key={f.key || `new-${i}`} className={wide ? 'sm:col-span-2' : undefined} label={f.label} optional={!f.required} hint={f.help || undefined} error={errors[f.key]}>
             {input}
           </FormField>
         );

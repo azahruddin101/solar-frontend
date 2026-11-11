@@ -3,7 +3,7 @@
 // "Reassigned ×2" under the person a lead is with, with everyone who held it before on hover.
 import { ArrowLeftRight } from 'lucide-react';
 
-export const LOG_TITLE = { lead_assigned: 'Assigned', lead_reassigned: 'Reassigned', lead_unassigned: 'Assignment removed', lead_status: 'Status changed', lead_rescheduled: 'Rescheduled' };
+export const LOG_TITLE = { lead_assigned: 'Assigned', lead_reassigned: 'Reassigned', lead_unassigned: 'Assignment removed', lead_status: 'Status changed', lead_rescheduled: 'Rescheduled', referral: 'Referred by a client' };
 
 export default function ReassignedMark({ lead }) {
   if (!lead?.isReassigned) return null;

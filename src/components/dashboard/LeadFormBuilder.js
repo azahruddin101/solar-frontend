@@ -52,7 +52,7 @@ function FieldForm({ field, others, onClose, onSave }) {
   );
 }
 
-export default function LeadFormBuilder({ canEditMasters = true, orgMasters = false }) {
+export default function LeadFormBuilder({ canEditMasters = true }) {
   const { company, setCompany, reloadSession } = useSession();
   const [fields, setFields] = useState(() => withIds(company?.leadForm || []));
   const [saved, setSaved] = useState(() => JSON.stringify(company?.leadForm || []));
@@ -68,7 +68,7 @@ export default function LeadFormBuilder({ canEditMasters = true, orgMasters = fa
     return next;
   });
   const save = async () => {
-    if (!canEditMasters || !orgMasters) return;
+    if (!canEditMasters) return;
     setBusy(true);
     try {
       await api(ORG_MASTERS_API.leadForm, { method: 'PUT', body: { fields: strip(fields) } });
@@ -86,13 +86,13 @@ export default function LeadFormBuilder({ canEditMasters = true, orgMasters = fa
   return (
     <>
       <PageHeader title="Lead form" description="The form your team fills in to add a lead by hand, and the columns of the Excel import. Name, Phone and Address are always on it; add the details your company needs.">
-        {canEditMasters && orgMasters && dirty && <Button onClick={() => { setFields(withIds(JSON.parse(saved))); }}>Discard changes</Button>}
-        {canEditMasters && orgMasters && <Button variant="primary" onClick={save} loading={busy} disabled={!dirty}>Save form</Button>}
+        {canEditMasters && dirty && <Button onClick={() => { setFields(withIds(JSON.parse(saved))); }}>Discard changes</Button>}
+        {canEditMasters && <Button variant="primary" onClick={save} loading={busy} disabled={!dirty}>Save form</Button>}
       </PageHeader>
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <Card className="overflow-hidden">
-          <CardHeader title="Fields" description={`${fields.length} of your own (up to ${MAX_FIELDS})`} action={canEditMasters && orgMasters ? <Button size="sm" variant="primary" icon={Plus} disabled={fields.length >= MAX_FIELDS} onClick={() => setModal({ type: 'field' })}>Add field</Button> : null} />
+          <CardHeader title="Fields" description={`${fields.length} of your own (up to ${MAX_FIELDS})`} action={canEditMasters ? <Button size="sm" variant="primary" icon={Plus} disabled={fields.length >= MAX_FIELDS} onClick={() => setModal({ type: 'field' })}>Add field</Button> : null} />
           <ul className="divide-y divide-slate-100">
             {FIXED_FIELDS.map((f) => (
               <li key={f.key} className="flex items-center gap-3 bg-slate-50/60 px-6 py-3">
@@ -114,7 +114,7 @@ export default function LeadFormBuilder({ canEditMasters = true, orgMasters = fa
                     <div className="truncate text-xs text-slate-500">{T.label}{f.options?.length ? ` · ${f.options.join(', ')}` : ''}</div>
                   </div>
                   {f.required && <Badge tone="brand">Required</Badge>}
-                  {canEditMasters && orgMasters && (
+                  {canEditMasters && (
                   <div className="flex shrink-0 items-center">
                     <IconButton icon={ArrowUp} label="Move up" disabled={i === 0} className="disabled:opacity-30" onClick={() => move(i, -1)} />
                     <IconButton icon={ArrowDown} label="Move down" disabled={i === fields.length - 1} className="disabled:opacity-30" onClick={() => move(i, 1)} />

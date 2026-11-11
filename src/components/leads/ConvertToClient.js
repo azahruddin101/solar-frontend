@@ -7,18 +7,23 @@ import { toast } from '../kit';
 import ClientForm from '../dashboard/ClientForm';
 
 /** The lead's details as a new client (the phone as given: the client form keeps an Indian mobile as 10 digits and any other number with its country code). */
-export function clientFromLead({ name, phone, address, email, source }) {
+export function clientFromLead({ name, phone, address, email, source, referredBy }) {
   return {
     name: name || '',
     phone: String(phone || '').trim(),
     address: address || '',
     email: email || '',
-    source: source === 'meta' ? 'Social Media' : source === 'google' ? 'Advertisement' : 'Other',
+    // a client's referral from their portal: the source is Referral and "Referred by" is that client
+    source: referredBy?.name ? 'Referral' : source === 'meta' ? 'Social Media' : source === 'google' ? 'Advertisement' : 'Other',
+    ...(referredBy?.name ? { referredBy: { name: referredBy.name, phone: String(referredBy.phone || '').trim() } } : {}),
     notes: '',
   };
 }
 
-/** `lead`: { source: 'meta' | 'google' | 'manual', id, name, phone, address, email }. */
+/** Who referred a lead (for `lead.referredBy` below): the client who sent it from their portal, or nothing. */
+export const referrerOf = (lead) => (lead?.referredByClientName ? { name: lead.referredByClientName, phone: lead.referredByClientPhone || '' } : undefined);
+
+/** `lead`: { source: 'meta' | 'google' | 'manual', id, name, phone, address, email, referredBy?: { name, phone } }. */
 export default function ConvertToClient({ lead, onClose, onConverted }) {
   return (
     <ClientForm

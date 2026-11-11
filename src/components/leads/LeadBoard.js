@@ -12,7 +12,7 @@ import { useCan } from '@/lib/useCan';
 import { useResource } from '@/lib/useResource';
 import { Alert, Badge, Button, FormField, FormModal, Input, LoadingBlock, PageHeader, Select, Textarea, capName, cx, toast } from '../kit';
 import { KanbanBoard, KanbanCard, KanbanColumn, KanbanColumnHeader, flashCard } from '../kanban/Kanban';
-import ConvertToClient from './ConvertToClient';
+import ConvertToClient, { referrerOf } from './ConvertToClient';
 import LeadForm from './LeadForm';
 import LeadViewSwitch, { leadPaths } from './LeadViewSwitch';
 import ManualLeadDetail from './ManualLeadDetail';
@@ -276,7 +276,7 @@ export default function LeadBoard() {
       )}
       {modal?.type === 'convert' && (
         <ConvertToClient
-          lead={{ source: STATUS_PATH[modal.lead.leadSource] || 'manual', id: modal.lead._id, name: modal.lead.fullName, phone: modal.lead.phone, address: modal.lead.address, email: fields.filter((f) => f.type === 'email').map((f) => modal.lead.fields?.[f.key]).find(Boolean) }}
+          lead={{ source: STATUS_PATH[modal.lead.leadSource] || 'manual', id: modal.lead._id, name: modal.lead.fullName, phone: modal.lead.phone, address: modal.lead.address, email: fields.filter((f) => f.type === 'email').map((f) => modal.lead.fields?.[f.key]).find(Boolean), referredBy: referrerOf(modal.lead) }}
           onClose={() => { setModal(null); load(); }}
           onConverted={() => { setModal(null); load(); }}
         />

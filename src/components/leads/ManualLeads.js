@@ -17,7 +17,7 @@ import LeadForm from './LeadForm';
 import LeadViewSwitch from './LeadViewSwitch';
 import ManualLeadDetail from './ManualLeadDetail';
 import LeadLog from './LeadLog';
-import ConvertToClient from './ConvertToClient';
+import ConvertToClient, { referrerOf } from './ConvertToClient';
 import QuickAssign from './QuickAssign';
 import ScheduleField from './ScheduleField';
 import StatusCell from './StatusCell';
@@ -279,7 +279,7 @@ export default function ManualLeads() {
                     </Td>
                     <Td><PreviousStaffCell lead={l} /></Td>
                     <Td><StatusCell status={l.currentStatus} scheduledAt={l.scheduledAt} rescheduledCount={l.rescheduledCount} previousSchedules={l.previousSchedules} /></Td>
-                    <Td className="whitespace-nowrap text-slate-500"><div>{formatDate(l.createdAt)}</div><div className="text-xs">{l.source === 'import' ? 'Imported' : 'Added'}</div></Td>
+                    <Td className="whitespace-nowrap text-slate-500"><div>{formatDate(l.createdAt)}</div><div className="text-xs">{l.source === 'referral' ? <span className="font-medium text-emerald-700" title={`Referred by client ${l.referredByClientName || ''}`}>Referral{l.referredByClientName ? ` · ${l.referredByClientName}` : ''}</span> : l.source === 'import' ? 'Imported' : 'Added'}</div></Td>
                     <Td><div className="flex justify-end"><Button size="sm" variant="ghost" icon={Eye} onClick={(e) => { e.stopPropagation(); setModal({ type: 'detail', lead: l }); }}>View</Button></div></Td>
                   </Tr>
                 ))}
@@ -321,7 +321,7 @@ export default function ManualLeads() {
       )}
       {modal?.type === 'convert' && (
         <ConvertToClient
-          lead={{ source: 'manual', id: modal.lead._id, name: modal.lead.fullName, phone: modal.lead.phone, address: modal.lead.address, email: fields.filter((f) => f.type === 'email').map((f) => modal.lead.fields?.[f.key]).find(Boolean) }}
+          lead={{ source: 'manual', id: modal.lead._id, name: modal.lead.fullName, phone: modal.lead.phone, address: modal.lead.address, email: fields.filter((f) => f.type === 'email').map((f) => modal.lead.fields?.[f.key]).find(Boolean), referredBy: referrerOf(modal.lead) }}
           onClose={() => setModal({ type: 'detail', lead: modal.lead })}
           onConverted={(link) => {
             const lead = { ...modal.lead, ...link };

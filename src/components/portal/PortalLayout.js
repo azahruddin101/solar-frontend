@@ -1,6 +1,6 @@
 'use client';
 
-import { BadgeIndianRupee, CalendarClock, FileText, Landmark, LifeBuoy, UserCog } from 'lucide-react';
+import { BadgeIndianRupee, CalendarClock, FileText, HeartHandshake, Landmark, LifeBuoy, UserCog } from 'lucide-react';
 import { useResource } from '@/lib/useResource';
 import AppShell from '../layout/AppShell';
 import AuthGuard from '../layout/AuthGuard';
@@ -12,6 +12,7 @@ const nav = (hasLoan, hasSubsidy) => [
       ...(hasLoan ? [{ href: '/portal/loans', label: 'My loans', icon: Landmark }] : []), // only clients with a proposal bought on a loan
       ...(hasSubsidy ? [{ href: '/portal/subsidies', label: 'My subsidies', icon: BadgeIndianRupee }] : []), // only clients with a proposal that has a subsidy
       { href: '/portal/maintenance', label: 'Maintenance (AMC)', icon: CalendarClock },
+      { href: '/portal/refer', label: 'Refer someone', icon: HeartHandshake }, // for the company: a referral lead
       { href: '/portal/support', label: 'Help & support', icon: LifeBuoy },
     ],
   },

@@ -370,11 +370,9 @@ export function PhoneInput({ onValue, ...props }) {
   return <Input type="tel" inputMode="tel" autoComplete="tel" placeholder="Mobile, e.g. 98765 43210 or +971 50 123 4567" onValue={(v) => onValue?.(cleanPhoneInput(v))} {...props} />;
 }
 
-/** Names: `person` allows letters, spaces . ' - ; `business` also digits and & , ( ) / + . Anything else is dropped as it is typed. */
-export function cleanName(v, kind = 'person') {
-  const drop = kind === 'business' ? /[^\p{L}\p{N}\p{M}\s.,&'’()/+-]/gu : /[^\p{L}\p{M}\s.'’-]/gu;
-  const start = kind === 'business' ? /^[^\p{L}\p{N}]+/u : /^[^\p{L}]+/u;
-  return String(v).replace(drop, '').replace(start, '').replace(/\s{2,}/g, ' ');
+/** Names take any characters (letters, digits, symbols); only a leading space and doubled spaces are tidied as it is typed. */
+export function cleanName(v) {
+  return String(v).replace(/^\s+/, '').replace(/\s{2,}/g, ' ');
 }
 export function NameInput({ kind = 'person', onValue, ...props }) {
   return <Input autoComplete="off" onValue={(v) => onValue?.(cleanName(v, kind))} {...props} />;
