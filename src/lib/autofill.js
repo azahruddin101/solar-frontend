@@ -209,9 +209,11 @@ export function autoFillRoof(design) {
  * Auto-arrange panels as independent groups (one array object per table), optionally
  * limited to `count` panels. Groups can then be moved / tilted / resized individually.
  *
- * Groups are rows × cols rectangles, so a limit that is not a multiple of the rows per table lands
- * just under it (13 → 12). With `atLeast`, the limit is raised until the layout covers `count`
- * (13 → 14) — used when sizing to a bill or a kW figure, where falling short is the wrong side.
+ * The roof gets EXACTLY `count` panels whenever it has room for them (a package's 5 panels are 5, never 4 or 6).
+ * Groups are rows × cols rectangles, so the layout is made for whole rows (5 → a 2 × 3 base) and raised until it
+ * covers `count`; the extra slots then stay empty on the base placed last (2 × 3 with 5 panels planted) instead
+ * of becoming a lone panel somewhere else. Only a roof that is full gets fewer. (`atLeast` is kept for callers;
+ * the count is always reached now.)
  */
 export function autoGroups(design, count = 0, { atLeast = false, keepPricing = false, fresh = false } = {}) {
   const s = useStore.getState();
@@ -233,15 +235,29 @@ export function autoGroups(design, count = 0, { atLeast = false, keepPricing = f
   };
   const placed = (groups) => groups.reduce((a, g) => a + g.rows * g.cols, 0);
 
-  let groups = layout(count);
-  if (atLeast && count > 0) {
+  const perBase = Math.max(1, Math.round(Number(c.rowsPerTable)) || 1);
+  const whole = count > 0 ? Math.ceil(count / perBase) * perBase : 0; // whole rows: no single panel left over
+  let groups = layout(whole);
+  if (count > 0) {
     // stops as soon as the target is covered, or when a higher limit adds nothing (the roof is full)
-    for (let limit = count + 1, last = placed(groups); last < count && limit <= count + 8; limit++) {
+    for (let limit = whole + 1, last = placed(groups); last < count && limit <= whole + 8; limit++) {
       const next = layout(limit);
-      if (placed(next) <= last && limit > count + 4) break;
+      if (placed(next) <= last && limit > whole + 4) break;
       if (placed(next) > last) {
         groups = next;
         last = placed(next);
+      }
+    }
+    // exactly `count`: the slots beyond it stay empty, on the bases placed last (a base left with none goes)
+    let excess = placed(groups) - count;
+    for (let i = groups.length - 1; i >= 0 && excess > 0; i--) {
+      const size = groups[i].rows * groups[i].cols;
+      if (excess >= size) {
+        groups.splice(i, 1);
+        excess -= size;
+      } else {
+        groups[i] = { ...groups[i], count: size - excess };
+        excess = 0;
       }
     }
   }

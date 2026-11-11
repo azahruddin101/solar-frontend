@@ -1,16 +1,16 @@
 'use client';
 
-// The house as Google measured it (the js-solar-potential methodology): once the location is set,
-// Google's measurements (outline, roof faces, heights) become the design's roof — nothing is drawn.
+// The house is designed by hand: the user marks each roof's outline on the satellite map (the picture
+// is their reference), then picks the type of house that looks like theirs and its number of floors.
+// Nothing is read from Google's Solar API any more (its measurements were not good enough).
 
 import { useEffect } from 'react';
-import { api } from './api.js';
-import { pointInPolygon, polygonCentroid, signedArea } from './geometry.js';
+import { ensureCCW } from './geometry.js';
 import { toLocal } from './geo.js';
-import { buildingAzimuth, newId, normSection, roofZ } from './model.js';
+import { buildingAzimuth, newId, normSection } from './model.js';
+import { squareUp } from './squareUp.js';
 import { useStore } from './store.js';
 
-export const originKey = (o) => (o ? `${o.lat.toFixed(6)},${o.lng.toFixed(6)}` : '');
 /** The roofs marked on the map, one outline per building (older designs kept a single `roofArea`). */
 export const markedAreas = (st) => (Array.isArray(st.roofAreas) && st.roofAreas.length ? st.roofAreas.filter((a) => a?.length >= 3) : st.roofArea?.length >= 3 ? [st.roofArea] : []);
 /** The middle of marked outlines (the average of all their corners: good enough for a roof). */
@@ -18,23 +18,13 @@ export const areasMiddle = (areas) => {
   const pts = areas.flat();
   return { lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length, lng: pts.reduce((s, p) => s + p.lng, 0) / pts.length };
 };
-/** The marked roofs for the API ("lat,lng;…|lat,lng;…", one outline per building), or '' when only a pin was set. */
-const areaParam = (areas) => areas.filter((a) => a?.length >= 3).map((a) => a.map((p) => `${p.lat.toFixed(7)},${p.lng.toFixed(7)}`).join(';')).join('|');
-/** A short fingerprint of the marked roofs: a moved or added outline rebuilds the roof. */
-const areaKey = (areas) => {
-  const s = areaParam(areas);
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return s ? `|a${(h >>> 0).toString(36)}` : '';
-};
-
-/** The roof styles a user can pick for the measured house. */
+/** The types of house a user can pick: the one that looks most like their building. */
 export const ROOF_STYLES = [
-  { id: 'flat', label: 'Flat' },
-  { id: 'shed', label: 'Single slope' },
-  { id: 'hip', label: 'Four slopes' },
+  { id: 'flat', label: 'Flat roof' },
+  { id: 'shed', label: 'One slope' },
   { id: 'gable', label: 'Two slopes' },
-  { id: 'kerala', label: 'Kerala' },
+  { id: 'hip', label: 'Four slopes' },
+  { id: 'kerala', label: 'Kerala style' },
 ];
 
 /** The style a roof section is drawn in (one of ROOF_STYLES). */
@@ -49,6 +39,7 @@ export const defaultSlopeAz = (sec, lat = useStore.getState().origin?.lat ?? 20)
  * a sloped roof.
  */
 export function restyleRoof(sec, style, pitch = sec.pitch) {
+  if (sec.ground) sec = { ...sec, ground: false }; // a type of house was picked: it is a building again
   const auto = sec.auto || {};
   const wasFlat = !sec.roofType || sec.roofType === 'flat'; // a drawn roof has no type until one is picked
   // a roof made before these heights were kept: about a storey's roof height between the two
@@ -64,58 +55,46 @@ export function restyleRoof(sec, style, pitch = sec.pitch) {
 export const FLOOR_H = 3;
 
 /** How many floors a measured roof stands on (its walls, or a flat roof's top, ÷ a floor's height). */
-export const floorsOf = (sec) => Math.max(1, Math.round((!sec.roofType || sec.roofType === 'flat' ? sec.height : sec.auto?.wallH ?? sec.height) / FLOOR_H));
+export const floorsOf = (sec) => sec.ground ? 0 : Math.max(1, Math.round((!sec.roofType || sec.roofType === 'flat' ? sec.height : sec.auto?.wallH ?? sec.height) / FLOOR_H));
 
 /** The same roof on `floors` floors: walls (or a flat roof) at floors × FLOOR_H, any style after. */
 export function setFloors(sec, floors) {
   const h = Math.max(1, floors) * FLOOR_H;
-  return { ...sec, height: h, auto: { ...(sec.auto || {}), flatH: h, wallH: h, floors } };
+  const auto = { ...(sec.auto || {}), flatH: h, wallH: h, floors };
+  // from the ground back onto a building: a flat-roofed one, until another type is picked
+  if (sec.ground) return restyleRoof({ ...sec, auto }, 'flat');
+  return { ...sec, height: h, auto };
 }
 
-function sectionForHouse(house, planes, key, building, alone = true) {
-  const footprint = house.footprint;
-  const heights = (house.heightsCm || []).filter((v) => v >= 0).map((v) => v / 100).sort((a, b) => a - b);
-  const q = (f) => (heights.length ? heights[Math.floor(f * (heights.length - 1))] : null);
-  const own = planes.filter((p) => p.centre && pointInPolygon(p.centre, footprint));
-  // the faces on this roof; the only house may borrow every face, another building's faces say nothing about this one
-  const use = own.length ? own : alone ? planes : [];
-  const planeH = use.map((p) => p.height).sort((a, b) => a - b);
-  const mid = q(0.5) ?? planeH[Math.floor(planeH.length / 2)] ?? 3;
-  let total = 0;
-  let steep = 0;
-  let steepPitch = 0;
-  for (const p of use) {
-    const a = Math.abs(signedArea(p.points));
-    total += a;
-    if (p.pitch >= 12) {
-      steep += a;
-      steepPitch += a * p.pitch;
-    }
-  }
-  const sloped = total > 0 && steep / total >= 0.35;
-  const pitch = steep ? Math.max(15, Math.min(45, Math.round(steepPitch / steep))) : 25;
-  const hip = { roofType: 'hip', ends: 'hip', overhang: 0.4, pitch, points: footprint, height: Math.max(2.4, q(0.1) ?? mid - 1.5) };
-  const misses = use.filter((p) => p.pitch >= 12 || !sloped).map((p) => p.height - roofZ(normSection(hip), p.centre.x, p.centre.y)).filter(Number.isFinite).sort((a, b) => a - b);
-  const wallH = Math.round(Math.max(2.4, hip.height + (misses.length ? misses[Math.floor((misses.length - 1) / 2)] : 0)) * 100) / 100;
-  const flatH = Math.round(Math.max(2.4, mid) * 100) / 100;
-  const base = { id: newId('r'), name: 'Roof', building, fromGoogle: true, googleKey: key, points: footprint, parapetT: 0.23, auto: { flatH, wallH, pitch, style: sloped ? 'hip' : 'flat' } };
-  return restyleRoof({ ...base, roofType: 'flat', height: flatH }, sloped ? 'hip' : 'flat', pitch);
+/** Height (m) of the marked area of a ground-mounted system: the land itself, a hair above the picture. */
+export const GROUND_H = 0.05;
+
+/**
+ * Panels mounted on the ground: the marked outline is the piece of land, with no building under it.
+ * The panels stand on their frames as on a flat roof. The heights the building had are kept, so picking
+ * a number of floors or a type of house brings it back.
+ */
+export function setGround(sec) {
+  const flat = !sec.roofType || sec.roofType === 'flat';
+  const auto = { ...(sec.auto || {}) };
+  auto.flatH ??= flat ? sec.height : sec.height + 1;
+  auto.wallH ??= flat ? Math.max(2.4, sec.height - 1) : sec.height;
+  return { ...sec, ground: true, roofType: 'flat', height: GROUND_H, parapetH: 0, auto: { ...auto, floors: 0 } };
 }
 
 /**
- * The design's roofs, built from what Google measured: one clean roof per building in the marked
- * areas. `outlines`: the marked roofs (local metres, one per building); a marked roof Google found no
- * house in becomes a building of its own, with the outline as its roof.
+ * The design's roofs, made from the outlines the user marked on the map: one building per outline
+ * (local metres), its walls squared up. Each starts as a one-floor flat-roofed house; the Building step
+ * asks which type of house it looks like and how many floors it has.
  */
-export function sectionsFromModel(model, key, outlines = []) {
-  const listed = (model.houses?.length ? model.houses : model.house ? [model.house] : []).filter((h) => h.footprint?.length >= 3);
-  const houses = [...listed];
-  for (const o of outlines || []) {
-    if (o?.length >= 3 && !houses.some((h) => pointInPolygon(polygonCentroid(h.footprint), o))) houses.push({ footprint: o, heightsCm: [] });
-  }
-  if (!houses.length) return { sections: [], buildings: [] };
-  const buildings = houses.map((_, i) => ({ id: `b${i + 1}`, name: `Building ${i + 1}` }));
-  const sections = houses.map((h, i) => sectionForHouse(h, model.planes || [], key, buildings[i].id, houses.length === 1));
+export function sectionsFromOutlines(outlines = []) {
+  const list = (outlines || []).filter((o) => o?.length >= 3);
+  const buildings = list.map((_, i) => ({ id: `b${i + 1}`, name: `Building ${i + 1}` }));
+  const sections = list.map((o, i) => {
+    const points = ensureCCW(squareUp(ensureCCW(o), 25));
+    const base = { id: newId('r'), name: 'Roof', building: buildings[i].id, fromMap: true, points, parapetT: 0.23, auto: { flatH: FLOOR_H, wallH: FLOOR_H, pitch: 25, floors: 1 } };
+    return restyleRoof({ ...base, roofType: 'flat', height: FLOOR_H }, 'flat');
+  });
   return { sections, buildings: buildings.length > 1 ? buildings : [] };
 }
 
@@ -137,40 +116,24 @@ export function commitMarkedAreas(areas) {
   return true;
 }
 
-/** Load Google's model for the design's location and, for a new or Google-made roof, use its faces. */
-export function useSolarModel(ready) {
+/**
+ * A design with roofs marked on the map but no roof yet (a new design, or outlines that were just
+ * changed) gets its roofs from those outlines. Roofs that exist — drawn, or made from Google's
+ * measurements in an older proposal — are left as they are.
+ */
+export function useMarkedRoofs(ready) {
   const origin = useStore((s) => s.origin);
   const roofArea = useStore((s) => s.roofArea);
   const roofAreas = useStore((s) => s.roofAreas);
-  const set = useStore((s) => s.set);
+  const empty = useStore((s) => s.sections.length === 0);
+  const readOnly = useStore((s) => s.readOnly);
   useEffect(() => {
-    if (!ready || !origin) return undefined;
-    // only what is inside the roofs the user marked is read (older designs have just the pin)
+    if (!ready || !origin || !empty || readOnly) return;
     const areas = markedAreas({ roofArea, roofAreas });
-    const key = originKey(origin) + areaKey(areas);
-    const outline = areaParam(areas);
-    const ctrl = new AbortController();
-    set({ solarModel: { status: 'loading', data: null, error: null, key } });
-    api(`/api/solar/model?lat=${origin.lat}&lng=${origin.lng}${outline ? `&outline=${encodeURIComponent(outline)}` : ''}&r=2`, { signal: ctrl.signal })
-      .then((data) => {
-        const st = useStore.getState();
-        st.set({ solarModel: { status: 'ok', data, error: null, key: `${key}|v${data.version || 1}` } });
-        if (st.readOnly) return;
-        // a roof drawn by hand in an older proposal is left as it is; an empty roof, or a roof made
-        // from Google's data for another spot (or by an older way of building it), is (re)built
-        const made = (s) => s.fromGoogle || s.google;
-        const drawn = st.sections.some((s) => !made(s));
-        const faceKey = `${key}|v${data.version || 1}`;
-        const current = st.sections.length && st.sections.every((s) => s.fromGoogle && s.googleKey === faceKey);
-        if (!drawn && !current) {
-          const marked = areas.map((a) => a.map((p) => toLocal(p, origin)));
-          const { sections, buildings } = sectionsFromModel(data, faceKey, marked);
-          if (!sections.length) return;
-          const keep = st.objects.filter((o) => o.type === 'tree' || o.type === 'block');
-          st.set({ sections, buildings, objects: keep, layoutKey: '' });
-        }
-      })
-      .catch((e) => !ctrl.signal.aborted && set({ solarModel: { status: 'error', data: null, error: e.message, key } }));
-    return () => ctrl.abort();
-  }, [ready, origin, roofArea, roofAreas, set]);
+    if (!areas.length) return;
+    const { sections, buildings } = sectionsFromOutlines(areas.map((a) => a.map((p) => toLocal(p, origin))));
+    if (!sections.length) return;
+    const st = useStore.getState();
+    st.set({ sections, buildings, objects: st.objects.filter((o) => o.type === 'tree' || o.type === 'block'), layoutKey: '' });
+  }, [ready, origin, roofArea, roofAreas, empty, readOnly]);
 }

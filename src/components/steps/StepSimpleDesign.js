@@ -15,7 +15,7 @@ import { compassLabel, normalizeAzimuth } from '@/lib/geo';
 import { edges } from '@/lib/geometry';
 import { baseFit, baseFor, buildDesign, MAX_SUPPORTS, normSection, zonesForSection } from '@/lib/model';
 import { sceneApi } from '../scene/Scene3D';
-import { floorsOf, restyleRoof, ROOF_STYLES, roofStyleOf, setFloors } from '@/lib/solarModel';
+import { floorsOf, restyleRoof, ROOF_STYLES, roofStyleOf, setFloors, setGround } from '@/lib/solarModel';
 import { SIMPLE_SLUGS, useStore } from '@/lib/store';
 import { packagePanelSpec } from '@/lib/useDesign';
 import Editor2D from '../editor/Editor2D';
@@ -36,22 +36,40 @@ import { defaultTaxRate, taxName } from '@/lib/tax';
 
 const Scene3D = dynamic(() => import('../scene/Scene3D'), { ssr: false });
 
-/** Before the roof exists: Google's measurement is loading, or Google has no data for this spot. */
+/** Before the roof exists: its outline has to be marked on the map first. */
 function RoofPending() {
-  const model = useStore((st) => st.solarModel);
   const back = () => useStore.getState().setStep(0);
-  const failed = model.status === 'error';
   return (
     <div className="absolute inset-0 grid place-items-center bg-slate-50 px-6 text-center">
       <div className="max-w-md">
-        <span className={cx('mx-auto mb-4 grid h-12 w-12 place-items-center rounded-xl', failed ? 'bg-amber-50 text-amber-600' : 'bg-brand-soft text-brand')}>
-          {failed ? <AlertCircle className="h-6 w-6" /> : <Loader2 className="h-6 w-6 animate-spin" />}
-        </span>
-        <h2 className="text-lg font-semibold text-slate-900">{failed ? 'No roof measurement for this spot' : 'Measuring the roof from Google’s 3D data…'}</h2>
-        <p className="mt-1 text-sm text-slate-500">{failed ? model.error || 'Google has no roof data here.' : 'The roof faces, their slope and the best panel spots come straight from Google. This takes a few seconds the first time.'}</p>
-        {failed && <button type="button" onClick={back} className="mt-6 h-10 rounded-lg bg-brand px-5 text-sm font-semibold text-brand-fg hover:bg-brand-600">Adjust the roof box</button>}
+        <span className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-xl bg-amber-50 text-amber-600"><AlertCircle className="h-6 w-6" /></span>
+        <h2 className="text-lg font-semibold text-slate-900">Mark the roof on the map first</h2>
+        <p className="mt-1 text-sm text-slate-500">Go to the Location step, find the building on the satellite picture and click the corners of its roof. Then choose the type of house here.</p>
+        <button type="button" onClick={back} className="mt-6 h-10 rounded-lg bg-brand px-5 text-sm font-semibold text-brand-fg hover:bg-brand-600">Go to the map</button>
       </div>
     </div>
+  );
+}
+
+// A small drawing of each type of house, seen from a front corner: walls A–B (front) and B–C (side),
+// with the roof of that type on top. The user picks the one that looks like their building.
+const HOUSE_ROOFS = {
+  flat: [['M6 23 L38 29 L58 22 L26 16 Z', 'roof'], ['M6 23 L38 29 L38 31 L6 25 Z', 'edge'], ['M38 29 L58 22 L58 24 L38 31 Z', 'edgeDark']],
+  shed: [['M38 31 L58 24 L58 12 Z', 'wallDark'], ['M4 26 L39 32.5 L60 11 L25 5 Z', 'roof']],
+  gable: [['M38 31 L58 24 L48 12 Z', 'wallDark'], ['M4 26 L39 32.5 L49.5 11.5 L15 5.5 Z', 'roof']],
+  hip: [['M39 32.5 L60 25 L40 11 Z', 'roofDark'], ['M4 26 L39 32.5 L40 11 L24 8 Z', 'roof']],
+  kerala: [['M39 32.5 L60 25 L50 16.5 L42 19.5 Z', 'roofDark'], ['M42 19.5 L50 16.5 L45.5 10 Z', 'timber'], ['M4 26 L39 32.5 L42 19.5 L45.5 10 L20 5.5 Z', 'roof']],
+};
+function HouseIcon({ type, on }) {
+  const fill = { roof: type === 'flat' ? '#cbd5e1' : '#c2410c', roofDark: '#9a3412', edge: '#f8fafc', edgeDark: '#e2e8f0', wallDark: '#e2e8f0', timber: '#78350f' };
+  return (
+    <svg viewBox="0 0 64 48" className="mx-auto h-14 w-[76px]" aria-hidden>
+      <path d="M6 25 L38 31 L38 45 L6 39 Z" fill="#f8fafc" stroke="#94a3b8" strokeWidth="0.8" strokeLinejoin="round" />
+      <path d="M38 31 L58 24 L58 38 L38 45 Z" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="0.8" strokeLinejoin="round" />
+      <path d="M17 41 L17 33.5 L22 34.4 L22 42 Z" fill="#94a3b8" />
+      <path d="M27 34 L32 34.9 L32 39.4 L27 38.5 Z" fill="#bae6fd" stroke="#94a3b8" strokeWidth="0.5" />
+      {HOUSE_ROOFS[type].map(([d, k]) => <path key={d} d={d} fill={fill[k]} stroke={on ? '#334155' : '#64748b'} strokeWidth="0.8" strokeLinejoin="round" />)}
+    </svg>
   );
 }
 const FT = 3.281;
@@ -164,10 +182,6 @@ const Q = ({ n, children }) => (
 );
 
 /**
- * The roof made from Google's measurements, in the style the user sees on the house: flat, four
- * slopes, two slopes or Kerala, and how steep. Changing it rebuilds the roof and lays the panels again.
- */
-/**
  * The Strings step's bar over the roof: the open string with how many panels it has against what
  * the inverter takes, Undo and Done; with no string open, a nudge to tap a panel.
  */
@@ -220,9 +234,11 @@ function StringBar({ design }) {
   );
 }
 
-// `part`: 'main' = shape, floors (and the low side of a single slope); 'slope' = the slope slider alone
+// The house on the marked outline. `part`: 'main' = the type of house, floors (and the low side of a single slope);
+// 'slope' = the slope slider alone. Changing any of them rebuilds the roof and lays the panels again.
 function RoofShape({ section, part = 'main' }) {
-  const style = roofStyleOf(section);
+  const ground = Boolean(section.ground); // panels on the ground: no house, so no type of house is chosen
+  const style = ground ? '' : roofStyleOf(section);
   const floors = Math.min(5, floorsOf(section));
   const [pitch, setPitch] = useState(section.pitch || section.auto?.pitch || 25);
   const apply = (next, p = pitch) => {
@@ -245,7 +261,7 @@ function RoofShape({ section, part = 'main' }) {
     set({ sections: sections.map((sec) => (sec.id === section.id ? { ...sec, slopeAz } : sec)), layoutKey: '' });
   };
   if (part === 'slope') {
-    if (style === 'flat') return null;
+    if (ground || style === 'flat') return null;
     return (
       <label className="block text-sm font-medium text-slate-700">
         Roof slope · <b className="text-slate-900">{pitch}°</b>
@@ -256,8 +272,8 @@ function RoofShape({ section, part = 'main' }) {
   }
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-600">If it does not match the house, pick the right shape.</p>
-      <div role="radiogroup" aria-label="Roof shape" className="grid grid-cols-2 gap-2">
+      <p className="text-sm text-slate-600">Which one looks most like the building? Check it against the picture on the map.</p>
+      <div role="radiogroup" aria-label="Type of house" className="grid grid-cols-3 gap-2">
         {ROOF_STYLES.map((r) => (
           <button
             key={r.id}
@@ -265,16 +281,25 @@ function RoofShape({ section, part = 'main' }) {
             role="radio"
             aria-checked={style === r.id}
             onClick={() => style !== r.id && apply(r.id)}
-            className={cx('h-11 rounded-lg border-2 text-base font-semibold', style === r.id ? 'border-brand bg-brand-soft text-brand-ink' : 'border-slate-200 text-slate-700 hover:bg-slate-50')}
+            className={cx('rounded-lg border-2 px-1 pb-2 pt-1.5 text-sm font-semibold leading-tight', style === r.id ? 'border-brand bg-brand-soft text-brand-ink' : 'border-slate-200 text-slate-700 hover:bg-slate-50')}
           >
+            <HouseIcon type={r.id} on={style === r.id} />
             {r.label}
-            {section.auto?.style === r.id && <span className="ml-1.5 text-xs font-medium text-slate-500">(found)</span>}
           </button>
         ))}
       </div>
       <div>
-        <div className="mb-2 text-sm font-medium text-slate-700">How many floors?</div>
-        <div role="radiogroup" aria-label="Floors" className="grid grid-cols-5 gap-1.5">
+        <div className="mb-2 text-sm font-medium text-slate-700">How many floors? Or are the panels on the ground?</div>
+        <div role="radiogroup" aria-label="Floors" className="grid grid-cols-[1.6fr_repeat(5,1fr)] gap-1.5">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={ground}
+            onClick={() => !ground && useStore.getState().set({ sections: useStore.getState().sections.map((sec) => (sec.id === section.id ? setGround(sec) : sec)), layoutKey: '' })}
+            className={cx('h-10 rounded-lg border-2 text-sm font-semibold', ground ? 'border-brand bg-brand-soft text-brand-ink' : 'border-slate-200 text-slate-700 hover:bg-slate-50')}
+          >
+            Ground
+          </button>
           {[1, 2, 3, 4, 5].map((n) => (
             <button
               key={n}
@@ -289,8 +314,9 @@ function RoofShape({ section, part = 'main' }) {
           ))}
         </div>
         <p className="mt-1.5 text-xs text-slate-500">
-          {style === 'flat' ? 'Roof' : 'Walls up to the roof edge'} at {section.height.toFixed(1)} m ({Math.round(section.height * 3.28084)} ft)
-          {!section.auto?.floors && ' · from the satellite measurements'}
+          {ground
+            ? 'Ground mounted: the area you marked on the map is the land, and the panels stand on it on their frames.'
+            : `${style === 'flat' ? 'Roof' : 'Walls up to the roof edge'} at ${section.height.toFixed(1)} m (${Math.round(section.height * 3.28084)} ft)`}
         </p>
       </div>
       {style === 'shed' && facings.length > 0 && (
@@ -304,7 +330,7 @@ function RoofShape({ section, part = 'main' }) {
   );
 }
 
-// things on the roof the satellite measurements miss: the user marks each on the plan view
+// things standing on the roof: the user marks each on the plan view
 const ROOF_THINGS = [
   { key: 'tank', icon: Cylinder, label: 'Water tank', preset: { name: 'Water tank', w: 1.5, d: 1.5, h: 1.8 } },
   { key: 'stair', icon: DoorOpen, label: 'Staircase room', preset: { name: 'Staircase room', w: 3, d: 3, h: 2.7 } },
@@ -324,7 +350,7 @@ function RoofObstacles() {
   const heights = (o) => (o.type === 'tree' ? [[4, '13 ft'], [6, '20 ft'], [9, '30 ft'], [12, '40 ft']] : [[1, '3 ft'], [1.8, '6 ft'], [2.7, '9 ft · one floor'], [5.4, '18 ft · two floors']]);
   return (
     <div className="space-y-3">
-      <p className="text-sm text-slate-600">{armed ? <b className="text-brand-ink">Now tap the spot on the roof where it is.</b> : 'Anything on the roof the satellite missed? Pick it, then tap where it is.'} A standard-size one appears and panels are kept away from it. Wrong size? On the Plan view, drag its corner.</p>
+      <p className="text-sm text-slate-600">{armed ? <b className="text-brand-ink">Now tap the spot on the roof where it is.</b> : 'Anything standing on the roof? Pick it, then tap where it is.'} A standard-size one appears and panels are kept away from it. Wrong size? On the Plan view, drag its corner.</p>
       <div className="grid grid-cols-2 gap-2">
         {ROOF_THINGS.map((it) => (
           <button key={it.key} type="button" onClick={() => pick(it)} className={cx('flex items-center gap-2 rounded-lg border-2 px-3 py-2.5 text-left text-sm font-semibold', armed === it.key ? 'border-brand bg-brand-soft text-brand-ink' : 'border-slate-200 text-slate-700 hover:border-slate-300')}>
@@ -365,7 +391,7 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
   const [chosenView, setView] = useState('3d');
   const [help, setHelp] = useState(false);
   const [page, setPage] = useState(0);
-  // a campus has several buildings (Google found more than one house in the marked area, or the user
+  // a campus has several buildings (more than one roof was marked on the map, or the user
   // added one by drawing its outline): the building step edits one at a time
   const buildingsHere = buildingList(s.buildings).filter((b) => sectionsOf(sections, s.buildings, b.id).length);
   const building = buildingsHere.find((b) => b.id === s.buildingId) || buildingsHere[0] || null;
@@ -381,7 +407,7 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
     s.set({ tool: 'draw-section', pendingKey: 'building', pendingBlock: null, selectedId: null });
   };
   const key = (k) => window.dispatchEvent(new KeyboardEvent('keydown', { key: k }));
-  // the main roof of the chosen building: made from Google's measurements or drawn here; its shape can be changed
+  // the main roof of the chosen building: made from the outline marked on the map, or drawn here; its type can be changed
   const roofSec = !s.readOnly && building ? mainSection(sections, s.buildings, building.id) : null;
   // "Edit proposal" (?edit=proposal): straight to materials, charges and subsidy — the roof layout stays as designed
   const editParam = useSearchParams().get('edit');
@@ -506,6 +532,12 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
   };
   const pkgCap = packageCap();
   const inPackage = config.pricingMode === 'package';
+  // a package with more panels than this roof holds: its price would be for panels that have no place
+  const pkgOver = inPackage && pkgCap && roofMax > 0 && pkgCap > roofMax ? pkgCap - roofMax : 0;
+  const pkgOverText = pkgOver ? `This package has ${pkgCap} panels, but the roof holds only ${roofMax}. ${pkgOver} panel${pkgOver === 1 ? ' has' : 's have'} no place.` : '';
+  useEffect(() => {
+    if (pkgOverText && !useStore.getState().readOnly) toast.error(`${pkgOverText} Choose a smaller package, or switch to Custom.`);
+  }, [pkgOverText, config.packageId]);
   const full = totals.count >= Math.min(Math.max(maxFit, 1), pkgCap ?? Infinity);
   const count = totals.count;
   const setCount = (n) => {
@@ -547,7 +579,9 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
     // kW is typed and stored to two decimals (17 × 575 W shows as 9.78): that rounding is not one more panel
     return mode === 'kw' ? Math.ceil((n * 1000) / spec.watts - 0.01) : Math.ceil(n / tariff / perPanelMonth);
   };
-  const needPanels = panelsFor(sizeBy, sizeValue);
+  // with a package, the number of panels is the package's: never worked out again from its kW figure (a "3 kW"
+  // package of 5 × 590 W panels would come to 6)
+  const needPanels = pkgCap || panelsFor(sizeBy, sizeValue);
   // the one question on the Panels step: fill the roof, match the bill, or a typed size
   const sizeMode = ['fill', 'bill', 'kw'].includes(config.sizeMode) ? config.sizeMode : amount > 0 && !(count >= maxFit && !designed) ? sizeBy : 'fill';
 
@@ -560,7 +594,7 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
     if (st.layoutKey !== layoutKey || !st.objects.some((o) => o.type === 'array')) {
       // the requested size (bill or kW) decides how many panels go on — best roof spots first, as
       // Google's own sizing does; with no size asked for, the roof is filled
-      const asked = panelsFor(sizeBy, sizeValue);
+      const asked = packageCap() || panelsFor(sizeBy, sizeValue); // a package's own number of panels comes first
       if (asked > 0) autoGroups(design, asked, { atLeast: true, keepPricing: true });
       else autoGroups(design, 0, { keepPricing: true });
       st.set({ layoutKey });
@@ -1271,8 +1305,8 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
               <div>
                 <Big>{buildingsHere.length > 1 ? 'Your buildings' : 'Your building'}</Big>
                 {roofSec
-                  ? <div className="mt-3"><Done>Found from the satellite: <b>{floorsOf(roofSec)} floor{floorsOf(roofSec) === 1 ? '' : 's'}</b>, <b>{(ROOF_STYLES.find((r) => r.id === roofStyleOf(roofSec))?.label || 'roof').toLowerCase()}</b> roof{count > 0 ? <>, with a first layout of <b>{count} panels</b></> : ''}. If it looks like the house, press Continue.</Done></div>
-                  : <Sub>Check the shape and height the satellite found, and add anything on the roof it missed.</Sub>}
+                  ? <Sub>Pick the type of house that looks like {buildingsHere.length > 1 ? 'this building' : 'the building'} and its number of floors. The roof outline is the one you marked on the map.</Sub>
+                  : <Sub>The roof outline is the one marked on the map.</Sub>}
               </div>
               {building && (buildingsHere.length > 1 || addingBuilding) && (
                 <div className="rounded-xl border border-slate-200 p-4">
@@ -1309,7 +1343,7 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
               )}
               {roofSec ? (
                 <div className="rounded-xl border border-slate-200 p-4">
-                  <div className="mb-3 text-[17px] font-bold text-slate-900">Roof type &amp; floors{buildingsHere.length > 1 && building ? ` · ${building.name}` : ''}</div>
+                  <div className="mb-3 text-[17px] font-bold text-slate-900">Type of house &amp; floors{buildingsHere.length > 1 && building ? ` · ${building.name}` : ''}</div>
                   <RoofShape key={`${roofSec.id}:${roofSec.pitch}:${roofSec.height}`} section={roofSec} />
                 </div>
               ) : (
@@ -1361,6 +1395,7 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="text-[19px] font-bold text-slate-900">Sized by the package</div>
               <p className="mt-1 text-base text-slate-600"><b className="text-slate-900">{design.cost.package?.name || 'The package'}</b>{pkgCap ? <> has <b className="text-slate-900">{pkgCap} panels</b></> : ''}. Place them where you like; the price stays the package&apos;s.</p>
+              {pkgOverText && <p role="alert" className="mt-3 flex gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[15px] text-red-800"><AlertCircle className="mt-0.5 h-5 w-5 shrink-0" /><span><b>Too big for this roof.</b> {pkgOverText} Go back and choose a smaller package, or use your own size.</span></p>}
               {!s.readOnly && (
                 <button type="button" onClick={() => s.patch('config', { pricingMode: 'custom' })} className="mt-3 text-base font-semibold text-brand-ink underline hover:no-underline">Use my own size instead (switches to Custom)</button>
               )}
@@ -1475,17 +1510,25 @@ export default function StepSimpleDesign({ design, stage = 'panels', actions = [
                     {pkgs.map((pkg) => {
                       const on = pkg.id === chosenPkg;
                       const n = pkgPanels(pkg);
+                      const tooBig = roofMax > 0 && n > roofMax; // counted with the panel in use: a guide for the others
                       return (
                         <button key={pkg.id} type="button" disabled={s.readOnly} onClick={() => !on && s.patch('config', { packageId: pkg.id, packageLaidOut: '' })} className={cx('flex w-full items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition', on ? 'border-brand bg-brand-soft' : 'border-slate-200 bg-white hover:border-slate-300')}>
                           <span className={cx('grid h-6 w-6 shrink-0 place-items-center rounded-full border-2', on ? 'border-brand bg-brand text-brand-fg' : 'border-slate-300')}>{on && <Check className="h-4 w-4" strokeWidth={3} />}</span>
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-base font-semibold text-slate-900">{pkg.name}</span>
                             <span className="block text-sm text-slate-500">{[pkg.kw ? `${pkg.kw} kW` : '', n ? `${n} panels` : ''].filter(Boolean).join(' · ')}</span>
+                            {tooBig && <span className="mt-0.5 flex items-center gap-1 text-[13px] font-semibold text-red-600"><AlertCircle className="h-3.5 w-3.5" /> More than this roof holds ({roofMax})</span>}
                           </span>
                           <span className="shrink-0 text-base font-bold text-slate-900">{money(pkg.price)}</span>
                         </button>
                       );
                     })}
+                    {pkgOverText && (
+                      <div role="alert" className="flex gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[15px] text-red-800">
+                        <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+                        <span><b>Too big for this roof.</b> {pkgOverText} Choose a smaller package, or switch to <b>Custom</b>.</span>
+                      </div>
+                    )}
                     {design.cost.package?.items?.length > 0 && (
                       <Fold title={`What's included (${design.cost.package.items.length} items)`}>
                         <ul className="space-y-1.5 text-sm">

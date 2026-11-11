@@ -2,7 +2,8 @@
 
 // The two documents made when a bill is generated, both from the same saved bill:
 //  - the BILL: every material and service with its price, the tax and the total;
-//  - the DELIVERY CHALLAN: the materials and their quantities with the delivery details, and no prices.
+//  - the DELIVERY CHALLAN, only when it was asked for on the bill form: the materials and their quantities with the
+//    delivery details, and no prices.
 // Same grid layout as the tax invoice (gridPdf.js).
 import { jsPDF } from 'jspdf';
 import { loadBranding } from './branding.js';
@@ -36,8 +37,11 @@ export const challanNoOf = (ewayNo) => `DC-${String(ewayNo || '').replace(/^[A-Z
 /** The materials on a bill (its service lines are not delivered, so they are not on the challan). */
 export const challanLines = (ewayBill) => (ewayBill?.pricing?.lines || ewayBill?.lines || []).filter((l) => l?.name && l.kind !== 'service');
 
-/** A bill has a challan when it carries at least one material. */
-export const hasChallan = (ewayBill) => challanLines(ewayBill).length > 0;
+/**
+ * A bill has a challan when one was asked for while making it and it carries at least one material. Bills from
+ * before the question was asked (no `withChallan` saved) always had one.
+ */
+export const hasChallan = (ewayBill) => ewayBill?.withChallan !== false && challanLines(ewayBill).length > 0;
 
 /** Build the bill PDF bytes. `client` is the client record. */
 export async function buildEwayBillPdfBlob({ ewayBill, company = {}, client = {}, currency = 'INR' }) {
@@ -65,7 +69,7 @@ export async function buildEwayBillPdfBlob({ ewayBill, company = {}, client = {}
     ['Dated', fmtDate(ewayBill.issuedOn)],
     ['Reference', ewayBill.title || '—'],
   ];
-  if (hasGoods) metaRows.push(['Delivery Challan', challanNoOf(ewayBill.ewayNo)]);
+  if (hasChallan(ewayBill)) metaRows.push(['Delivery Challan', challanNoOf(ewayBill.ewayNo)]);
   if (ewayBill.paid?.settled && ewayBill.status !== 'cancelled') metaRows.push(['Payment', ['Paid', PAYMENT_MODE_LABEL[ewayBill.paid.mode]?.split(' (')[0], ewayBill.paid.reference].filter(Boolean).join(' · ')]);
   if (ewayBill.status === 'cancelled') metaRows.push(['Status', `Cancelled${ewayBill.cancelReason ? ` — ${ewayBill.cancelReason}` : ''}`]);
   y = partyMetaTable(doc, brand, { y, co, cl, coState: stateFromGstin(co.taxId), clState: stateFromGstin(cl.gstNumber), metaRows, buyerLabel: 'Bill to' });

@@ -1,6 +1,6 @@
 'use client';
 
-import { Building2, ClipboardCheck, CreditCard, LifeBuoy, LayoutDashboard, UserCog } from 'lucide-react';
+import { Building2, ClipboardCheck, CreditCard, FileText, LifeBuoy, LayoutDashboard, UserCog } from 'lucide-react';
 import AppShell from '../layout/AppShell';
 import AuthGuard from '../layout/AuthGuard';
 
@@ -11,6 +11,7 @@ const NAV = [
       { href: '/admin/companies', label: 'Companies', icon: Building2 },
       { href: '/admin/plans', label: 'Plans', icon: CreditCard },
       { href: '/admin/plan-requests', label: 'Plan requests', icon: ClipboardCheck },
+      { href: '/admin/free-proposals', label: 'Free proposals', icon: FileText }, // leads from the public site
       { href: '/admin/support', label: 'Support', icon: LifeBuoy },
     ],
   },

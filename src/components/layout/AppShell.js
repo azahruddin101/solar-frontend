@@ -58,6 +58,7 @@ const COUNT_FOR = {
   '/admin/companies': { key: 'companies' },
   '/admin/plans': { key: 'plans' },
   '/admin/plan-requests': { key: 'planRequests' },
+  '/admin/free-proposals': { key: 'freeProposals' }, // the new ones, not yet contacted
 };
 
 const NAV_LINK_ACTIVE = 'bg-white/10 text-white shadow-[inset_3px_0_0_#ffffff]';

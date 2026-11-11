@@ -220,7 +220,7 @@ export default function StepLocation() {
         ? 'Keep clicking the roof corners, one after another.'
         : 'Click the first corner (the big dot) or press Finish roof to close this roof.'
       : n === 0
-        ? 'Zoom in on your house, then click each corner of the roof.'
+        ? 'Zoom in on your house, then click each corner of the roof. For panels on the ground, click the corners of the land.'
         : `${n} roof${n > 1 ? 's' : ''} marked. Click the corners of another building to add it, or press Continue.`;
 
   return (
@@ -231,7 +231,7 @@ export default function StepLocation() {
         <div className="absolute inset-0 grid place-items-center bg-slate-100 p-6 text-center">
           <div className="max-w-sm text-slate-500">
             <MousePointerClick className="mx-auto mb-3 h-10 w-10 text-slate-400" />
-            Search the customer&apos;s address above. Then click the corners of the roof on the satellite picture.
+            Search the customer&apos;s address above. Then click the corners of the roof on the satellite picture (or of the land, for panels on the ground).
           </div>
         </div>
       )}

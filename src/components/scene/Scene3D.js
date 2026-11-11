@@ -452,7 +452,8 @@ function Building({ section, tex, mapSize, at = HERE }) {
       <mesh geometry={geos.body} castShadow receiveShadow>
         <meshStandardMaterial color={WALL} map={wallMap} roughness={0.92} />
       </mesh>
-      <Windows poly={section.poly} wallH={section.frame ? section.frame.wallBase : section.height} />
+      {/* a ground-mounted system: the marked land, no walls to put windows in */}
+      {!section.ground && <Windows poly={section.poly} wallH={section.frame ? section.frame.wallBase : section.height} />}
       <lineSegments geometry={geos.edges}>
         <lineBasicMaterial color={EDGE} transparent opacity={0.55} />
       </lineSegments>

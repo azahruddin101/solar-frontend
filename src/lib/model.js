@@ -51,6 +51,7 @@ export const ROOF_TYPES = [
 ];
 /** Words for a section's roof shape (proposal, lists). */
 export function roofShapeLabel(s) {
+  if (s.ground) return 'Ground mounted';
   if (!s.frame) return 'Flat';
   if (s.frame.hip) return `${s.frame.ends === 'kerala' ? 'Kerala style' : s.frame.ends === 'gable' ? 'Hip with gable ends' : 'Four slopes (hip)'}, ${Math.round(s.pitch)}° pitch`;
   if (s.roofType === 'gable') return `Two slopes (gable), ${Math.round(s.pitch)}°${Math.abs(s.frame.pitch2 - s.pitch) > 0.5 ? ` and ${Math.round(s.frame.pitch2)}°` : ''} pitch`;

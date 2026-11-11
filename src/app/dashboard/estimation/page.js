@@ -1,7 +1,7 @@
 import EstimateList from '@/components/estimation/EstimateList';
 
 export const metadata = {
-  title: 'Estimation · Innovbit Solar',
+  title: 'Estimation · SolarDesy',
 };
 
 export default function Page() {

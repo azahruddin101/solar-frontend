@@ -1,8 +1,9 @@
 'use client';
 
 // Generate a bill: materials picked from stock (the server takes the stock and prices each line from its batch),
-// services, tax and an optional discount, plus the delivery details. The delivery challan is printed from the same
-// bill, so nothing more is asked for it. A bill is paid when it is generated: the form asks only how it was paid.
+// services, tax and an optional discount. The form asks whether a delivery challan is needed: only then are the
+// delivery details asked and the challan made (printed from the same bill); otherwise only the bill is made. A bill is
+// paid when it is generated: the form asks only how it was paid.
 // Other money (an advance, a part payment) is recorded separately, on receipts.
 import { CircleCheck, ClipboardList, Plus, TriangleAlert, X } from 'lucide-react';
 import { Fragment, useMemo, useState } from 'react';
@@ -10,11 +11,11 @@ import { formatMoney } from '@/lib/energy';
 import { linesFromPricing, resolveProposalPricing } from '@/lib/pricing';
 import { useResource } from '@/lib/useResource';
 import { useSession } from '@/lib/session';
-import { TRANSPORT_MODE_LABEL, TRANSPORT_REASON_LABEL } from '@/lib/ewayBillPdf';
+import { TRANSPORT_MODE_LABEL, TRANSPORT_REASON_LABEL, hasChallan } from '@/lib/ewayBillPdf';
 import { PAYMENT_MODE_LABEL } from '@/lib/billingPdfShared';
 import StockPickModal from './StockPickModal';
 import { PRICE_TYPES, productDetail, stockPreview, useStockCache } from './stockLines';
-import { Alert, Button, ConfirmDialog, FormField, FormModal, Input, Select, Textarea, cx } from '../kit';
+import { Alert, Button, ConfirmDialog, FormField, FormModal, Input, Select, Textarea, Toggle, cx } from '../kit';
 import { DiscountEditor, ServiceLinesEditor, BillSection, billDoc, blankServiceRow, servicesPayload, useBillPricing, validateServices } from './BillContentMode';
 import { defaultTaxRate, taxIdName, taxName } from '@/lib/tax';
 
@@ -72,7 +73,7 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
   const [payMode, setPayMode] = useState('cash');
   const [payReference, setPayReference] = useState('');
   const [pickLine, setPickLine] = useState(null);
-  const [deliveryOpen, setDeliveryOpen] = useState(true);
+  const [withChallan, setWithChallan] = useState(false);
   const [error, setError] = useState('');
   const money = (v) => formatMoney(v, currency);
   const withGst = true;
@@ -169,6 +170,8 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
     }
     if (!validateServices(services, setError)) return;
     if (!(summary.total > 0)) return setError('The bill total must be greater than zero');
+    if (withChallan && !hasProducts) return setError('A delivery challan lists the products delivered. Add a product, or turn the delivery challan off');
+    if (withChallan && !transport.toPlace.trim()) return setError('Enter the address the goods are delivered to');
     setError('');
     onSubmit({
       ...party,
@@ -178,7 +181,8 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
       discount: discountActive ? discount : 0,
       discountIsPercent,
       discountRemark: discountActive ? discountRemark : '',
-      transport: { ...transport, distanceKm: transport.distanceKm === '' ? null : Number(transport.distanceKm) },
+      withChallan,
+      ...(withChallan && { transport: { ...transport, distanceKm: transport.distanceKm === '' ? null : Number(transport.distanceKm) } }),
       issuedOn,
       note,
       payment: { mode: payMode, reference: payReference.trim() },
@@ -193,7 +197,7 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
         open={open}
         onClose={onClose}
         title={`Bill · ${partyName}`}
-        description="Materials, services, tax and delivery details. When you confirm, the bill and its delivery challan are made, the bill is marked paid and product stock is deducted."
+        description={`Materials, services and tax. When you confirm, the bill${withChallan ? ' and its delivery challan are' : ' is'} made, the bill is marked paid and product stock is deducted.`}
         submitLabel={`Confirm · ${money(summary.total)}`}
         busy={busy}
         error={error}
@@ -209,10 +213,10 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
 
         <div className={cx(proposalItems.length > 0 && 'grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start')}>
         <div className="min-w-0 space-y-5">
-        <BillSection title="Document details" hint="The bill date (also the challan date) and an optional note">
+        <BillSection title="Document details" hint="The bill date and an optional note">
           <div className={billDoc.metaStrip}>
             <FormField label="Bill date"><Input type="date" max={today()} value={issuedOn} onValue={setIssuedOn} /></FormField>
-            <FormField label="Note" optional hint="Printed on the bill and the challan"><Input maxLength={300} value={note} onValue={setNote} placeholder="Optional" /></FormField>
+            <FormField label="Note" optional hint={withChallan ? 'Printed on the bill and the challan' : 'Printed on the bill'}><Input maxLength={300} value={note} onValue={setNote} placeholder="Optional" /></FormField>
           </div>
         </BillSection>
 
@@ -303,16 +307,17 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
         <ServiceLinesEditor services={services} setServices={setServices} charges={charges} withGst={withGst} money={money} />
 
         <BillSection
-          title="Delivery & transport"
-          hint="Printed on the delivery challan that is made with this bill — fill in what you know"
-          action={(
-            <button type="button" onClick={() => setDeliveryOpen((o) => !o)} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
-              {deliveryOpen ? 'Hide' : 'Show'}
-            </button>
-          )}
-          bodyClassName={deliveryOpen ? undefined : 'hidden'}
+          title="Delivery challan"
+          hint="A challan goes with the goods: it lists the products and quantities, without prices"
         >
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <Toggle
+            checked={withChallan}
+            onChange={setWithChallan}
+            label="Make a delivery challan with this bill?"
+            description={withChallan ? 'Fill in the delivery details below. They are printed on the challan.' : 'Off: only the bill is made.'}
+          />
+          {withChallan && (
+          <div className="mt-4 grid gap-3 border-t border-slate-200 pt-4 sm:grid-cols-2 lg:grid-cols-3">
             <FormField label="Mode">
               <Select value={transport.mode} onValue={(v) => setT({ mode: v })}>{Object.entries(TRANSPORT_MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
             </FormField>
@@ -326,8 +331,9 @@ export default function EwayBillModal({ open, onClose, party, partyName, clientA
               <Select value={transport.reason} onValue={(v) => setT({ reason: v })}>{Object.entries(TRANSPORT_REASON_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
             </FormField>
             <FormField label="Dispatch from" optional className="sm:col-span-2 lg:col-span-3"><Textarea rows={2} maxLength={200} value={transport.fromPlace} onValue={(v) => setT({ fromPlace: v })} placeholder="Warehouse address" /></FormField>
-            <FormField label="Deliver to" optional className="sm:col-span-2 lg:col-span-3"><Textarea rows={2} maxLength={200} value={transport.toPlace} onValue={(v) => setT({ toPlace: v })} placeholder="Site address" /></FormField>
+            <FormField label="Deliver to" className="sm:col-span-2 lg:col-span-3"><Textarea rows={2} maxLength={200} value={transport.toPlace} onValue={(v) => setT({ toPlace: v })} placeholder="Site address" /></FormField>
           </div>
+          )}
         </BillSection>
 
         <BillSection title="Summary" hint={`Discount, ${taxName()}, and amount due on this bill`}>
@@ -438,7 +444,7 @@ export function CancelEwayBillDialog({ ewayBill, open, onClose, onConfirm, busy 
   const [reason, setReason] = useState('');
   return (
     <ConfirmDialog open={open} onClose={onClose} onConfirm={() => onConfirm(reason)} title={`Cancel bill ${ewayBill?.ewayNo}?`} confirmLabel="Cancel bill" busy={busy}>
-      <p>Its {ewayBill?.itemCount ?? ''} item{ewayBill?.itemCount === 1 ? '' : 's'} go back into stock and the number {ewayBill?.ewayNo} is not reused. The delivery challan is cancelled with it and its payment comes off the books.</p>
+      <p>Its {ewayBill?.itemCount ?? ''} item{ewayBill?.itemCount === 1 ? '' : 's'} go back into stock and the number {ewayBill?.ewayNo} is not reused. {hasChallan(ewayBill) ? 'The delivery challan is cancelled with it and its payment comes off the books.' : 'Its payment comes off the books.'}</p>
       <div className="mt-3">
         <Input maxLength={300} value={reason} onValue={setReason} placeholder="Reason (optional)" />
       </div>

@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import Packages from '@/components/dashboard/Packages';
 
 export const metadata = {
-  title: 'Packages · Innovbit Solar',
+  title: 'Packages · SolarDesy',
 };
 
 export default function Page() {

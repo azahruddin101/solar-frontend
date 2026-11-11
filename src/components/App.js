@@ -21,7 +21,7 @@ import { pricingFrom3D } from '@/lib/pricing';
 import { useDesign } from '@/lib/useDesign';
 import { useDesignSync } from '@/lib/useDesignSync';
 import { useResource } from '@/lib/useResource';
-import { commitMarkedAreas, useSolarModel } from '@/lib/solarModel';
+import { commitMarkedAreas, useMarkedRoofs } from '@/lib/solarModel';
 import { FullPageLoader, LogoChip, Toaster, buttonClass, toast } from './kit';
 import CoverPicker from './kit/CoverPicker';
 import ClientChangeRequestPanel from './dashboard/ClientChangeRequestPanel';
@@ -187,7 +187,7 @@ export default function App({ designId, slug }) {
   const designMeta = useResource(`/api/designs/${designId}`);
   const loaded = sync.status === 'ready' && state.designId === designId;
   useSolar();
-  useSolarModel(loaded);
+  useMarkedRoofs(loaded);
   useCatalog(loaded, company?.id);
   const mapReady = useMapToken(); // satellite images need it before the scene mounts
 

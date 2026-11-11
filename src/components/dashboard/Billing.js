@@ -29,7 +29,7 @@ const proposalTotal = (d) => Number(d.summary?.pricing?.total ?? d.summary?.cost
 
 /** What each "new document" button starts, and which page query opens its form. */
 const DOCS = {
-  eway: { label: 'Bill', icon: FileText, title: 'New bill', hint: 'A bill lists the materials and services with tax. Its delivery challan is made with it. Choose who it is for.', clientOnly: true },
+  eway: { label: 'Bill', icon: FileText, title: 'New bill', hint: 'A bill lists the materials and services with tax. You can ask for a delivery challan with it. Choose who it is for.', clientOnly: true },
   receipt: { label: 'Receipt', icon: HandCoins, title: 'New receipt', hint: 'A receipt records money the client paid. Choose who paid.', clientOnly: true },
 };
 
@@ -267,7 +267,7 @@ export default function Billing({ basePath = '/dashboard/billing' }) {
 
   return (
     <>
-      <PageHeader title="Billing" description={`A bill lists the materials and services with ${taxName()}, and comes with its delivery challan. A bill is paid when it is made; a receipt records any other money the client pays.`}>
+      <PageHeader title="Billing" description={`A bill lists the materials and services with ${taxName()}, with a delivery challan when you ask for one. A bill is paid when it is made; a receipt records any other money the client pays.`}>
         <BillingHeaderActions
           canEway={canEway}
           canReceipt={may('finances', 'create_bill')}

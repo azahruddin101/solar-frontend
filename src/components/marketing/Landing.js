@@ -1,70 +1,179 @@
 'use client';
 
-// Marketing site. Every claim on this page describes something the product actually does — no invented customers,
-// reviews or results. The impact estimate is labelled as rough and shows how it is worked out.
-//
-// Design: one typeface (Geist, with Geist Mono for labels), a 12-column grid, hairline rules, white and paper
-// surfaces, near-black ink and a single green. The product is shown large; the drawings are engineering sheets.
-import { ArrowRight, ArrowUpRight, ChevronDown, Menu, X } from 'lucide-react';
+import { ArrowRight, ChevronDown, Menu, ShieldCheck, Sun, X } from 'lucide-react';
+import Lenis from 'lenis';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { THEME_PRESETS, hexToRgb } from '@/lib/theme';
+import { useEffect, useRef, useState } from 'react';
+import { hexToRgb } from '@/lib/theme';
 import { cx } from '../kit';
 import { BrandMark, PRODUCT_NAME } from '../layout/Brand';
 import Reveal from './Reveal';
-import { ArrayPlan, ModuleDrawing, PortalPhone, SunPathDiagram } from './scenes';
-import { DesignerMock, ProposalMock } from './visuals';
+import { PortalPhone } from './scenes';
+import { ProposalMock } from './visuals';
 
 // the landing page's own palette (the product mocks follow it); workspaces use each company's theme
-const PAGE_THEME = { '--brand': '#0F6E56', '--brand-fg': '#ffffff', '--accent': '#F5B82E', '--accent-fg': '#1c1917' };
-
-const NAV = [['Product', '#product'], ['Design', '#design'], ['Proposals', '#proposals'], ['Operations', '#operations'], ['Portal', '#portal'], ['FAQ', '#faq']];
+const BRAND = '#1D4ED8';
+const ACCENT = '#F5B82E';
+const PAGE_THEME = { '--brand': BRAND, '--brand-fg': '#ffffff', '--accent': ACCENT, '--accent-fg': '#1c1917' };
 
 const mix = (a, b, t) => a.map((c, i) => Math.round(c + (b[i] - c) * t));
 const rgb = (c) => `rgb(${c.join(',')})`;
-/** CSS variables that theme <ProposalMock> — the same palette rules the real PDF cover uses. */
+/** CSS variables that theme <ProposalMock>: the same palette rules the real PDF cover uses. */
 function proposalVars(primaryHex, accentHex) {
   const p = hexToRgb(primaryHex);
   const a = hexToRgb(accentHex);
   return { '--p': rgb(p), '--a': rgb(a), '--ink': rgb(mix(p, [6, 12, 20], 0.72)), '--deep': rgb(mix(p, [0, 0, 0], 0.45)), '--panel': rgb(mix(p, [244, 246, 248], 0.94)), '--cream': rgb(mix(a, [255, 255, 255], 0.9)) };
 }
 
-const Container = ({ className, children }) => <div className={cx('mx-auto max-w-[1200px] px-6 sm:px-10', className)}>{children}</div>;
+// The page's own styles: what Reveal fades, the marquee, and the pieces the scroll position moves.
+const STYLES = `
+.lp .reveal { opacity: 0; transform: translateY(26px); transition: opacity .8s cubic-bezier(.22,1,.36,1), transform .8s cubic-bezier(.22,1,.36,1); transition-delay: var(--reveal-delay, 0ms); will-change: opacity, transform; }
+.lp .reveal.is-visible { opacity: 1; transform: none; }
+.lp.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lp.lenis.lenis-stopped { overflow: clip; }
+.lp-progress { transform: scaleX(var(--lp-progress, 0)); transform-origin: 0 50%; }
+.lp-glow { transform: translate3d(0, calc(var(--lp-y, 0) * .25px), 0); }
+.lp-line { transform: scaleX(var(--lp-steps, 0)); transform-origin: 0 50%; }
+.lp-marquee { animation: lp-marquee 48s linear infinite; }
+.lp-marquee-wrap:hover .lp-marquee { animation-play-state: paused; }
+@keyframes lp-marquee { to { transform: translateX(-50%); } }
+.lp-faq { grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .45s cubic-bezier(.22,1,.36,1), opacity .35s ease; }
+.lp-faq.is-open { grid-template-rows: 1fr; opacity: 1; }
+.lp-card { transition: transform .35s cubic-bezier(.22,1,.36,1), box-shadow .35s, border-color .35s; }
+.lp-card:hover { transform: translateY(-4px); box-shadow: 0 18px 40px -18px rgba(15,23,42,.22); border-color: color-mix(in oklab, var(--brand) 35%, white); }
+.lp-art { transition: transform .45s cubic-bezier(.22,1,.36,1); }
+.lp-card:hover .lp-art { transform: scale(1.08) rotate(-3deg); }
+.lp-float { animation: lp-float 7s ease-in-out infinite; }
+@keyframes lp-float { 50% { transform: translateY(-10px); } }
+@media (prefers-reduced-motion: reduce) {
+  .lp .reveal { opacity: 1; transform: none; transition: none; }
+  .lp-glow { transform: none; }
+  .lp-marquee, .lp-float { animation: none; }
+  .lp-faq { transition: none; }
+  .lp-line { transform: none; }
+}
+`;
 
-/** "01 — Design": the small mono label that opens every section. */
-const Label = ({ n, children, className }) => (
-  <p className={cx('font-mono text-[11px] tracking-[0.14em] text-stone-500 uppercase', className)}>
-    {n && <span className="mr-3 text-stone-950">{n}</span>}{children}
-  </p>
+const NAV = [['Features', '#features'], ['Design', '#design'], ['Proposals', '#proposals'], ['Client portal', '#portal'], ['How it works', '#how'], ['FAQ', '#faq']];
+
+/**
+ * A feature's picture. The drawings are plain SVG files kept in public/landing/features (one per feature, named
+ * by the slug used in FEATURES and STRIP below).
+ */
+// eslint-disable-next-line @next/next/no-img-element -- small static SVGs: nothing for the image optimiser to do
+const FeatureArt = ({ name, className }) => <img src={`/landing/features/${name}.svg`} alt="" width={64} height={64} loading="lazy" decoding="async" className={className} />;
+
+const Frame = ({ title, className, children }) => (
+  <div className={cx('overflow-hidden rounded-xl border border-slate-200 bg-white', className)}>
+    <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+      <span className="h-2.5 w-2.5 rounded-full bg-slate-300" /><span className="h-2.5 w-2.5 rounded-full bg-slate-300" /><span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
+      <span className="ml-3 truncate rounded-md bg-white px-3 py-0.5 text-[11px] text-slate-500 ring-1 ring-slate-200">{title}</span>
+    </div>
+    {children}
+  </div>
 );
 
-const Title = ({ children, className }) => <h2 className={cx('text-[2rem] leading-[1.08] font-medium tracking-[-0.025em] text-balance text-stone-950 sm:text-[2.75rem]', className)}>{children}</h2>;
-const Lede = ({ children, className }) => <p className={cx('text-[17px] leading-relaxed text-pretty text-stone-600', className)}>{children}</p>;
+// The tutorial video (public/landing/tutorial.mp4) is made of real screens of the designer, one step after
+// another. `at`: the second each step starts at, so the steps under the video follow it and can be clicked.
+const TOUR = [
+  { at: 0, name: 'Location', text: 'Find the address, then click the corners of the roof on the satellite picture.' },
+  { at: 6.2, name: 'Building', text: 'Pick the house that looks like the building, and how many floors it has.' },
+  { at: 11, name: 'Package', text: 'Choose a ready package, or your own panel and mounting structure.' },
+  { at: 13.6, name: 'Panels', text: 'Fill the roof in one tap, or set the number of panels. Check it in the plan view.' },
+  { at: 20.4, name: 'Strings', text: 'Strings are worked out for the inverter. Change them only if you want to.' },
+  { at: 23.6, name: 'Products', text: 'Every product and its price, ready to adjust for this customer.' },
+  { at: 26.8, name: 'Proposal', text: 'Energy, savings and price. Download the branded PDF or share it on WhatsApp.' },
+];
 
-const PRIMARY = 'inline-flex h-11 items-center gap-2 rounded-md bg-stone-950 px-5 text-[14px] font-medium text-white transition hover:bg-stone-800';
-const SECONDARY = 'inline-flex h-11 items-center gap-2 rounded-md border border-stone-300 bg-white px-5 text-[14px] font-medium text-stone-900 transition hover:border-stone-400 hover:bg-stone-50';
+/**
+ * A walk through the designer, step by step: the video plays silently on a loop while it is on screen, the
+ * step under it lights up as the video reaches it, and clicking a step jumps there. With "reduce motion" on it
+ * does not start by itself; the steps still work.
+ */
+function Tutorial({ className }) {
+  const ref = useRef(null);
+  const [step, setStep] = useState(0);
+  const [progress, setProgress] = useState(0);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return undefined;
+    const onTime = () => {
+      const t = v.currentTime;
+      let k = 0;
+      TOUR.forEach((x, i) => { if (t >= x.at - 0.05) k = i; });
+      setStep(k);
+      const end = TOUR[k + 1]?.at ?? (v.duration || 30.6);
+      setProgress(Math.max(0, Math.min(1, (t - TOUR[k].at) / (end - TOUR[k].at))));
+    };
+    v.addEventListener('timeupdate', onTime);
+    let io;
+    if (!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      // play only while it is on screen
+      io = new IntersectionObserver(([e]) => (e.isIntersecting ? v.play().catch(() => {}) : v.pause()), { threshold: 0.25 });
+      io.observe(v);
+    }
+    return () => {
+      v.removeEventListener('timeupdate', onTime);
+      io?.disconnect();
+    };
+  }, []);
+  const go = (i) => {
+    const v = ref.current;
+    if (!v) return;
+    v.currentTime = TOUR[i].at + 0.05;
+    setStep(i);
+    v.play().catch(() => {});
+  };
+  return (
+    <div className={className}>
+      <Frame title={`${PRODUCT_NAME} · Designer · Step ${step + 1} of ${TOUR.length}: ${TOUR[step].name}`}>
+        <video ref={ref} muted loop playsInline preload="metadata" poster="/landing/tutorial-poster.jpg" aria-label="A walk through the designer, from marking the roof to the finished proposal" className="block aspect-[1456/826] w-full bg-slate-100 object-cover">
+          <source src="/landing/tutorial.mp4" type="video/mp4" />
+        </video>
+      </Frame>
+      <div role="tablist" aria-label="Steps of the designer" className="mt-3 grid grid-cols-4 gap-1.5 sm:grid-cols-7">
+        {TOUR.map((x, i) => (
+          <button key={x.name} type="button" role="tab" aria-selected={i === step} onClick={() => go(i)} className={cx('relative overflow-hidden rounded-lg border px-2 py-1.5 text-left transition', i === step ? 'border-brand bg-white shadow-sm' : 'border-slate-200 bg-white/60 hover:border-slate-300')}>
+            <span className={cx('block text-[11px] font-semibold', i === step ? 'text-brand' : 'text-slate-400')}>Step {i + 1}</span>
+            <span className={cx('block truncate text-[13px] font-semibold', i === step ? 'text-slate-950' : 'text-slate-600')}>{x.name}</span>
+            <span aria-hidden className="absolute inset-x-0 bottom-0 h-0.5 origin-left bg-brand" style={{ transform: `scaleX(${i === step ? progress : i < step ? 1 : 0})`, opacity: i <= step ? 1 : 0 }} />
+          </button>
+        ))}
+      </div>
+      <p aria-live="polite" className="mt-3 min-h-[2.8rem] px-1 text-[14.5px] leading-snug text-slate-700">{TOUR[step].text}</p>
+    </div>
+  );
+}
+
+// the page uses nearly the whole width of the screen (it stops growing on very large monitors)
+const Container = ({ className, children }) => <div className={cx('mx-auto w-full max-w-[1720px] px-5 sm:px-8 lg:px-14', className)}>{children}</div>;
+const Eyebrow = ({ children, className }) => <p className={cx('inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand-soft px-3 py-1 text-[13px] font-medium text-brand-ink', className)}>{children}</p>;
+const Title = ({ children, className }) => <h2 className={cx('text-[2rem] leading-[1.1] font-semibold tracking-[-0.025em] text-balance text-slate-950 sm:text-[2.6rem]', className)}>{children}</h2>;
+const Lede = ({ children, className }) => <p className={cx('text-[17px] leading-relaxed text-pretty text-slate-600', className)}>{children}</p>;
+
+const PRIMARY = 'inline-flex h-12 items-center gap-2 rounded-full bg-brand px-6 text-[15px] font-semibold text-brand-fg shadow-[0_10px_24px_-10px_var(--brand)] transition hover:-translate-y-0.5 hover:bg-brand-600';
+const SECONDARY = 'inline-flex h-12 items-center gap-2 rounded-full border border-slate-300 bg-white px-6 text-[15px] font-semibold text-slate-900 transition hover:-translate-y-0.5 hover:border-slate-400';
 
 /* ───────────── header ───────────── */
 
 function Header({ scrolled }) {
   const [open, setOpen] = useState(false);
   return (
-    <header className={cx('fixed inset-x-0 top-0 z-40 border-b transition-colors duration-300', scrolled || open ? 'border-stone-200 bg-white/90 backdrop-blur-md' : 'border-transparent')}>
+    <header className={cx('fixed inset-x-0 top-0 z-40 transition-all duration-300', scrolled || open ? 'border-b border-slate-200 bg-white/85 backdrop-blur-md' : 'border-b border-transparent')}>
+      <div aria-hidden className="lp-progress absolute inset-x-0 top-0 h-0.5 bg-brand" />
       <Container className="flex h-16 items-center justify-between">
-        <Link href="/" aria-label={`${PRODUCT_NAME} home`} className="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight text-stone-950"><BrandMark size={28} /> {PRODUCT_NAME}</Link>
-        <nav aria-label="Main" className="hidden items-center gap-7 md:flex">
-          {NAV.map(([label, href]) => <a key={href} href={href} className="text-[14px] text-stone-600 transition hover:text-stone-950">{label}</a>)}
+        <Link href="/" aria-label={`${PRODUCT_NAME} home`} className="flex items-center gap-2.5 text-[16px] font-semibold tracking-tight text-slate-950"><BrandMark size={28} /> {PRODUCT_NAME}</Link>
+        <nav aria-label="Main" className="hidden items-center gap-7 lg:flex">
+          {NAV.map(([label, href]) => <a key={href} href={href} className="text-[14px] font-medium text-slate-600 transition hover:text-slate-950">{label}</a>)}
         </nav>
-        <div className="flex items-center gap-5">
-          <Link href="/login" className="hidden text-[14px] text-stone-600 hover:text-stone-950 sm:inline">Sign in</Link>
-          <Link href="/login" className={cx(PRIMARY, 'h-9 px-4')}>Open workspace</Link>
-          <button type="button" aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open} onClick={() => setOpen(!open)} className="grid h-9 w-9 place-items-center rounded-md text-stone-800 hover:bg-stone-100 md:hidden">{open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>
+        <div className="flex items-center gap-3">
+          <Link href="/login" className="inline-flex h-10 items-center rounded-full bg-slate-950 px-5 text-[14px] font-semibold text-white transition hover:bg-slate-800">Sign in</Link>
+          <button type="button" aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open} onClick={() => setOpen(!open)} className="grid h-10 w-10 place-items-center rounded-full text-slate-800 hover:bg-slate-100 lg:hidden">{open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>
         </div>
       </Container>
       {open && (
-        <nav aria-label="Mobile" className="animate-fade border-t border-stone-200 bg-white px-6 py-2 md:hidden">
-          {NAV.map(([label, href]) => <a key={href} href={href} onClick={() => setOpen(false)} className="block border-b border-stone-100 py-3.5 text-[15px] text-stone-800 last:border-0">{label}</a>)}
-          <Link href="/login" className="block py-3.5 text-[15px] text-stone-800">Sign in</Link>
+        <nav aria-label="Mobile" className="animate-fade border-t border-slate-200 bg-white px-5 py-2 lg:hidden">
+          {NAV.map(([label, href]) => <a key={href} href={href} onClick={() => setOpen(false)} className="block border-b border-slate-100 py-3.5 text-[15px] font-medium text-slate-800 last:border-0">{label}</a>)}
         </nav>
       )}
     </header>
@@ -73,372 +182,260 @@ function Header({ scrolled }) {
 
 /* ───────────── hero ───────────── */
 
-const HERO_FACTS = [['3D design', 'Shading modelled hour by hour'], ['9-page proposal', 'Branded A4, accepted online'], ['Loans & billing', 'Loan steps, GST invoices, receipts'], ['25-year care', 'Installations and AMC visits']];
+const HERO_POINTS = ['Leads to maintenance in one place', 'Your brand on every document', 'A portal for your clients'];
 
 function Hero() {
   return (
-    <section className="bg-[#f6f6f3] pt-32 pb-0 sm:pt-40">
+    <section className="relative overflow-hidden pt-28 sm:pt-32 lg:pt-36">
+      <div aria-hidden className="lp-glow pointer-events-none absolute inset-x-0 -top-40 h-[720px] bg-[radial-gradient(60%_60%_at_70%_30%,color-mix(in_oklab,var(--brand)_16%,white),transparent_70%)]" />
+      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(15,23,42,.04)_1px,transparent_1px),linear-gradient(to_bottom,rgba(15,23,42,.04)_1px,transparent_1px)] [mask-image:radial-gradient(80%_60%_at_60%_20%,black,transparent)] bg-[size:44px_44px]" />
+      {/* words on the left, the tutorial on the right: the two share the width of the screen */}
+      <Container className="relative grid items-center gap-12 lg:grid-cols-12 lg:gap-10 xl:gap-16">
+        <div className="lg:col-span-6 xl:col-span-6">
+          <Reveal><Eyebrow><Sun className="h-3.5 w-3.5" /> Software for solar installation companies</Eyebrow></Reveal>
+          <Reveal delay={80}>
+            <h1 className="mt-6 max-w-[16ch] text-[2.6rem] leading-[1.04] font-semibold tracking-[-0.035em] text-balance text-slate-950 sm:text-[3.6rem] xl:text-[4.4rem]">
+              Run your whole solar business from <span className="text-brand">one workspace</span>.
+            </h1>
+          </Reveal>
+          <Reveal delay={160}>
+            <Lede className="mt-6 max-w-[52ch]">{PRODUCT_NAME} takes a project from the first enquiry to the last service visit: leads, 3D design, proposals, loans, subsidies, billing, stock, installation and maintenance.</Lede>
+          </Reveal>
+          <Reveal delay={240} className="mt-9 flex flex-wrap gap-3">
+            <Link href="/login" className={PRIMARY}>Open your workspace <ArrowRight className="h-4 w-4" /></Link>
+            <a href="#features" className={SECONDARY}>See all features</a>
+          </Reveal>
+          <Reveal delay={300}>
+            <ul className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-[14px] text-slate-500">
+              {HERO_POINTS.map((p) => <li key={p} className="flex items-center gap-1.5"><ShieldCheck className="h-4 w-4 text-brand" /> {p}</li>)}
+            </ul>
+          </Reveal>
+        </div>
+        <Reveal delay={200} className="lg:col-span-6 xl:col-span-6">
+          <div className="rounded-2xl border border-slate-200 bg-white/70 p-2 pb-3 shadow-[0_30px_80px_-30px_rgba(15,23,42,.35)] backdrop-blur">
+            <Tutorial />
+          </div>
+        </Reveal>
+      </Container>
+    </section>
+  );
+}
+
+/* ───────────── what is inside, scrolling by ───────────── */
+
+const STRIP = [['Leads', 'leads'], ['Lead board', 'lead-board'], ['Clients', 'clients'], ['3D designer', 'roof'], ['Proposals', 'proposals'], ['Estimation', 'quick'], ['Packages', 'packages'], ['Loans', 'loans'], ['Subsidies', 'subsidies'], ['Bills', 'bills'], ['Delivery challans', 'challans'], ['Receipts', 'receipts'], ['Expenses', 'expenses'], ['Inventory', 'inventory'], ['Installations', 'installations'], ['Tasks', 'tasks'], ['AMC tracker', 'amc'], ['Client support', 'support'], ['Client portal', 'portal'], ['Team roles', 'team'], ['Branches', 'branches']];
+
+function Strip() {
+  const row = (hidden) => (
+    <ul aria-hidden={hidden || undefined} className="flex shrink-0 items-center gap-3 pr-3">
+      {STRIP.map(([t, art]) => (
+        <li key={t} className="flex items-center gap-2.5 rounded-full border border-slate-200 bg-white py-1.5 pr-5 pl-1.5 text-[14.5px] font-medium whitespace-nowrap text-slate-700">
+          <FeatureArt name={art} className="h-9 w-9 rounded-full" /> {t}
+        </li>
+      ))}
+    </ul>
+  );
+  return (
+    <section aria-label="Everything inside" className="lp-marquee-wrap mt-16 overflow-hidden border-y border-slate-200 bg-slate-50 py-5 [mask-image:linear-gradient(to_right,transparent,black_8%,black_92%,transparent)] sm:mt-24">
+      <div className="lp-marquee flex w-max">{row(false)}{row(true)}</div>
+    </section>
+  );
+}
+
+/* ───────────── every feature ───────────── */
+
+const FEATURES = [
+  ['Win the customer', 'From the first enquiry to a priced offer.', [
+    ['leads', 'Leads', 'Leads from Meta Lead Ads and Google Sheets arrive on their own; walk-ins go on your own form. Status, priority and who it is assigned to.'],
+    ['lead-board', 'Lead board', 'Drag leads between stages on a board. Every status date, reschedule and reassignment is kept in the lead’s log.'],
+    ['clients', 'Clients', 'Contact details, consumer number, sanctioned load and documents such as bills, ID proofs and roof photos in one record.'],
+    ['quick', 'Quick proposals & estimation', 'A priced proposal from your packages and catalog in a minute, when a full 3D design is not needed.'],
+    ['packages', 'Packages & catalog', 'Ready system packages and a product catalog with categories, so every quote uses your own items and prices.'],
+  ]],
+  ['Design the system', 'A 3D design anyone on your team can make.', [
+    ['roof', 'Roof from the map', 'Mark the roof on the satellite map, then pick the house that looks like it: flat, one slope, two slopes, four slopes or Kerala style. Ground mounting too.'],
+    ['panel-layout', 'Panel layout', 'Place mounting bases and plant panels on them, or fill the roof in one tap. Tanks, staircase rooms and trees are kept clear, with cleaning walkways.'],
+    ['structure', 'Mounting structure', 'Pole heights, tilt and supports for each base. The frame is measured and priced by its total length.'],
+    ['sun-shading', 'Sun & shading', 'Shadows from walls, obstacles and neighbouring rows are worked out hour by hour, with a shadow report and yearly energy.'],
+    ['strings', 'Strings & single-line diagram', 'Strings are worked out for the inverter, or picked panel by panel. The single-line diagram is drawn and checked for you.'],
+    ['buildings', 'Several buildings', 'A site with more than one building gets one design and one price, with a breakdown for each building.'],
+  ]],
+  ['Close the deal', 'Documents and money, in your brand.', [
+    ['proposals', 'Branded proposals', 'A proposal PDF with the 3D model, bill of materials, drawings and savings outlook. Share by link, QR code or WhatsApp; clients accept online.'],
+    ['loans', 'Loans', 'Set your own loan steps once. A proposal bought on a loan follows them, with remarks the client can read.'],
+    ['subsidies', 'Subsidies', 'A subsidy file for each proposal with its own steps; the subsidy is shown under the price and on the PDF.'],
+    ['bills', 'Bills', 'Bills for materials taken from stock and for services, with tax on each line and an optional discount.'],
+    ['challans', 'Delivery challans', 'Ask for a delivery challan while making a bill: add the delivery details and it is printed with the bill, without prices.'],
+    ['receipts', 'Receipts & dues', 'Record advances and part payments as receipts, and see at a glance which clients still owe money.'],
+    ['currency-tax', 'Your currency & tax', 'Each company sets its own currency, tax name and usual rate; every screen and document follows it.'],
+  ]],
+  ['Deliver the project', 'Stock, site work and care after the sale.', [
+    ['inventory', 'Inventory', 'Batches with base, wholesale and retail prices, serial numbers, warranties and suppliers. Stock is deducted when a bill is made.'],
+    ['installations', 'Installations', 'Installation steps from your own template, assigned by job title and priority, with photos and notes from site.'],
+    ['tasks', 'Task management', 'Give work to your staff and follow it until it is done.'],
+    ['amc', 'AMC tracker', 'Free maintenance visits are scheduled from the installation date; paid visits are booked by the client and assigned to technicians.'],
+    ['support', 'Client support', 'Clients raise requests with photos and PDFs; your team replies and tracks every thread.'],
+    ['portal', 'Client portal', 'Clients sign in to read and answer proposals, follow their loan and subsidy, book visits and ask for help.'],
+  ]],
+  ['Run the company', 'Control for the owner, the right view for everyone else.', [
+    ['dashboard', 'Dashboard', 'Charts of leads, proposals, sales and dues, so you see how the business is doing as soon as you sign in.'],
+    ['expenses', 'Expenses', 'Record what the company spends, next to what it earns.'],
+    ['team', 'Team & roles', 'Roles such as telecaller, accountant or supervisor, or your own. Staff see only what their role allows.'],
+    ['branches', 'Branches', 'Work as one office or many. Products are shared across the company; stock, suppliers and packages belong to each branch.'],
+    ['notifications', 'Notifications', 'Your team is told when something needs them: a new lead, an assigned step, a client request.'],
+    ['private', 'Private by company', 'Every client, product, design and document belongs to one company and is only loaded for that company’s sign-in.'],
+  ]],
+];
+
+function Features() {
+  return (
+    <section id="features" className="scroll-mt-20 py-24 sm:py-32">
       <Container>
-        <div className="grid gap-12 lg:grid-cols-12 lg:items-center">
+        <Reveal className="grid gap-6 lg:grid-cols-12 lg:items-end">
           <div className="lg:col-span-7">
-            <Reveal><Label>Software for rooftop solar companies</Label></Reveal>
-            <Reveal delay={60}>
-              <h1 className="mt-6 max-w-[14ch] text-[2.75rem] leading-[1.02] font-medium tracking-[-0.035em] text-balance text-stone-950 sm:text-[4rem] lg:text-[4.5rem]">
-                Every solar project, from the first enquiry to the last service visit.
-              </h1>
-            </Reveal>
-            <Reveal delay={120}>
-              <Lede className="mt-8 max-w-[46ch]">{PRODUCT_NAME} is the one workspace for solar installers: leads, clients, 3D design, proposals, loans, invoicing, installation and maintenance — with a portal where your clients follow it all.</Lede>
-            </Reveal>
-            <Reveal delay={180} className="mt-8 flex flex-wrap gap-3">
-              <Link href="/login" className={PRIMARY}>Open your workspace <ArrowRight className="h-4 w-4" /></Link>
-              <a href="#product" className={SECONDARY}>What’s inside</a>
-            </Reveal>
+            <Eyebrow>All features</Eyebrow>
+            <Title className="mt-5 max-w-[22ch]">Everything a solar company does, already connected.</Title>
           </div>
-          <Reveal delay={140} className="hidden lg:col-span-5 lg:block">
-            <ModuleDrawing className="w-full" />
-          </Reveal>
-        </div>
-        <Reveal delay={240} className="mt-16 sm:mt-20">
-          <div className="rounded-t-xl border border-b-0 border-stone-300 bg-white p-1.5 shadow-[0_-1px_0_0_#fff_inset]">
-            <DesignerMock flat />
-          </div>
+          <Lede className="lg:col-span-5">No separate tools for leads, drawings, quotes and bills. What you enter once is used everywhere after it.</Lede>
         </Reveal>
-      </Container>
-      <div className="border-y border-stone-200 bg-white">
-        <Container>
-          <dl className="grid divide-y divide-stone-200 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
-            {HERO_FACTS.map(([t, d], i) => (
-              <div key={t} className={cx('py-5 sm:pr-8', i > 0 && 'lg:pl-8', i % 2 === 1 && 'sm:pl-8 lg:pl-8', i >= 2 && 'sm:border-t sm:border-stone-200 lg:border-t-0')}>
-                <dt className="text-[15px] font-medium text-stone-950">{t}</dt>
-                <dd className="mt-0.5 text-[14px] text-stone-500">{d}</dd>
-              </div>
-            ))}
-          </dl>
-        </Container>
-      </div>
-    </section>
-  );
-}
-
-/* ───────────── index of modules ───────────── */
-
-const MODULES = [
-  ['Leads', 'Meta Lead Ads, Google Ads and Google Sheets connect once; walk-ins go on your own form. Statuses, priority, assignment, Excel export.'],
-  ['Clients', 'Contact details, consumer number, sanctioned load, referrer and documents — bills, ID proofs, roof photos — in one record.'],
-  ['3D designer', 'Satellite roof tracing, automatic panel layout around obstacles, hour-by-hour shading, a 25-year financial outlook.'],
-  ['Quick proposals', 'A priced proposal from your packages and catalog in a minute, when a full design isn’t needed.'],
-  ['Proposals', 'Nine A4 pages in your brand, with version history, a share link and QR code, WhatsApp sharing and online acceptance.'],
-  ['Loans', 'Your own loan steps. A proposal bought on a loan follows them, with remarks the client sees.'],
-  ['Billing', 'E-way bills from stock, bills paid by cash, UPI, cheque, card or transfer, and GST invoices with your own numbering.'],
-  ['Inventory', 'Categories with custom attributes, batches with base, wholesale and retail prices, suppliers, serial numbers and warranties.'],
-  ['Installations', 'Steps from your template, assigned by job title and priority; photos and notes from site.'],
-  ['Maintenance', 'Free AMC visits scheduled from the installation date; paid visits booked by the client and assigned to technicians.'],
-  ['Helpdesk', 'Clients raise requests with photos and PDFs from their portal; your team replies and tracks every thread.'],
-  ['Team', 'Roles such as telecaller, accountant or supervisor — or your own. Staff see only what their role allows.'],
-];
-
-function ModuleIndex() {
-  return (
-    <section id="product" className="scroll-mt-16 py-24 sm:py-32">
-      <Container>
-        <div className="grid gap-10 lg:grid-cols-12">
-          <Reveal className="lg:col-span-4">
-            <Label n="01">What’s inside</Label>
-            <Title className="mt-5">Twelve modules, one client record.</Title>
-            <Lede className="mt-5">Nothing is retyped between stages. The address from the lead becomes the site of the design, the price on the proposal becomes the invoice, the installation date schedules the maintenance.</Lede>
-          </Reveal>
-          <Reveal delay={100} className="lg:col-span-8">
-            <ol className="grid border-t border-stone-200 sm:grid-cols-2 sm:gap-x-10">
-              {MODULES.map(([name, text], i) => (
-                <li key={name} className="grid grid-cols-[2.5rem_1fr] gap-x-2 border-b border-stone-200 py-5">
-                  <span className="pt-0.5 font-mono text-[11px] text-stone-400">{String(i + 1).padStart(2, '0')}</span>
-                  <div>
-                    <h3 className="text-[15px] font-medium text-stone-950">{name}</h3>
-                    <p className="mt-1 text-[14px] leading-relaxed text-stone-600">{text}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </Reveal>
-        </div>
-      </Container>
-    </section>
-  );
-}
-
-/* ───────────── design ───────────── */
-
-const DESIGN_POINTS = [
-  ['Roof from satellite', 'Search the address, trace the outline and mark parapets, tanks, staircase rooms and trees.'],
-  ['Layout, automatically', 'Panels are placed in rows around every obstacle, with the clearances you set.'],
-  ['Shading, hour by hour', 'Shadows from walls, obstacles and neighbouring rows are sampled through every day of the year.'],
-  ['Sized from the bill', 'Start from the monthly bill or the kilowatts asked for; panel count, price and payback update as you type.'],
-];
-
-function Design() {
-  return (
-    <section id="design" className="scroll-mt-16 border-t border-stone-200 bg-[#f6f6f3] py-24 sm:py-32">
-      <Container>
-        <div className="grid gap-12 lg:grid-cols-12">
-          <div className="lg:col-span-5">
-            <Reveal>
-              <Label n="02">Design</Label>
-              <Title className="mt-5">Designed on the real roof, not a sketch.</Title>
-              <Lede className="mt-5">The designer works from satellite imagery and the sun’s actual path over the site. What it draws is what gets installed.</Lede>
-            </Reveal>
-            <dl className="mt-10 border-t border-stone-200">
-              {DESIGN_POINTS.map(([t, d], i) => (
-                <Reveal key={t} delay={i * 60} className="border-b border-stone-200 py-4">
-                  <dt className="text-[15px] font-medium text-stone-950">{t}</dt>
-                  <dd className="mt-1 text-[14px] leading-relaxed text-stone-600">{d}</dd>
-                </Reveal>
-              ))}
-            </dl>
-          </div>
-          <div className="grid gap-6 lg:col-span-7">
-            <Reveal delay={80} className="border border-stone-300 bg-white p-6 sm:p-8">
-              <ArrayPlan className="w-full" />
-            </Reveal>
-            <Reveal delay={140} className="border border-stone-300 bg-white p-6 sm:p-8">
-              <SunPathDiagram className="w-full" />
-            </Reveal>
-          </div>
-        </div>
-      </Container>
-    </section>
-  );
-}
-
-/* ───────────── proposals ───────────── */
-
-const PAGES = ['Cover with the 3D model', 'Summary letter and key figures', 'Panel, roof and structure details', 'Panel layout drawing', 'String layout drawing', 'Electrical design', 'Bill of materials', 'Energy and 25-year financials', 'Price, terms and sign-off'];
-
-function Proposals() {
-  const [preset, setPreset] = useState(THEME_PRESETS[1]);
-  return (
-    <section id="proposals" className="scroll-mt-16 border-t border-stone-200 py-24 sm:py-32">
-      <Container>
-        <div className="grid gap-12 lg:grid-cols-12 lg:items-start">
-          <Reveal className="order-2 lg:order-1 lg:col-span-5">
-            <div className="mx-auto max-w-[380px] lg:mx-0">
-              <ProposalMock flat company={`${preset.name} Solar`} style={proposalVars(preset.primary, preset.accent)} />
-            </div>
-          </Reveal>
-          <div className="order-1 lg:order-2 lg:col-span-6 lg:col-start-7">
-            <Reveal>
-              <Label n="03">Proposals</Label>
-              <Title className="mt-5">Nine pages your client can sign.</Title>
-              <Lede className="mt-5">Written for the homeowner and detailed enough for the engineer. Your colours, logo, signature and QR code are on every page; your terms are carried over exactly.</Lede>
-            </Reveal>
-            <Reveal delay={80} className="mt-8">
-              <div className="flex items-center justify-between"><span className="text-[13px] text-stone-500">Preview in a palette</span><span className="font-mono text-[11px] text-stone-400 uppercase">{preset.name}</span></div>
-              <div className="mt-3 flex gap-2" role="radiogroup" aria-label="Theme palette">
-                {THEME_PRESETS.map((p) => (
-                  <button key={p.name} type="button" role="radio" aria-checked={preset.name === p.name} aria-label={p.name} title={p.name} onClick={() => setPreset(p)} className={cx('flex h-7 w-7 overflow-hidden rounded-sm ring-1 ring-stone-300 ring-offset-2 transition', preset.name === p.name ? 'ring-stone-950' : 'hover:ring-stone-500')}>
-                    <span className="h-full w-1/2" style={{ background: p.primary }} /><span className="h-full w-1/2" style={{ background: p.accent }} />
-                  </button>
-                ))}
-              </div>
-            </Reveal>
-            <Reveal delay={120}>
-              <ol className="mt-10 border-t border-stone-200">
-                {PAGES.map((p, i) => <li key={p} className="grid grid-cols-[2.5rem_1fr] border-b border-stone-200 py-3 text-[14px]"><span className="font-mono text-[11px] text-stone-400">{String(i + 1).padStart(2, '0')}</span><span className="text-stone-800">{p}</span></li>)}
-              </ol>
-            </Reveal>
-            <Reveal delay={160} className="mt-8 flex flex-wrap gap-x-8 gap-y-2 text-[14px] text-stone-600">
-              {['Version history', 'Share link & QR code', 'WhatsApp', 'Accept, decline or request changes'].map((t) => <span key={t}>{t}</span>)}
-            </Reveal>
-          </div>
-        </div>
-      </Container>
-    </section>
-  );
-}
-
-/* ───────────── operations ───────────── */
-
-const INSTALLS = [
-  ['Mehta Textiles', '48 kW', ['done', 'done', 'done', 'current', 'todo'], 'Panel & electrical · Electrician'],
-  ['Kumar residence', '5 kW', ['done', 'done', 'current', 'todo', 'todo'], 'Structure · Installer'],
-  ['Green Valley School', '32 kW', ['done', 'current', 'todo', 'todo', 'todo'], 'Material procurement · Supervisor'],
-];
-const AMC = [['Kumar residence', 'AMC 1 · free', '14 Nov 2026', 'Scheduled'], ['Shree Hospital', 'Panel cleaning · ₹9,000', '20 Nov 2026', 'Technician assigned'], ['Mehta Textiles', 'Annual check · ₹1,500', '02 Dec 2026', 'Requested']];
-const OPS_POINTS = [
-  ['Installations', 'Every installation starts from your step template. Steps are assigned by job title and priority; the field team updates them with photos and notes from site, and material is issued from stock.'],
-  ['Maintenance', 'Free visits are scheduled from the installation date and the client is reminded a week before. Paid visits are booked by the client — optional ones as often as they like — and assigned to technicians.'],
-  ['Billing', 'Goods leave stock on an e-way bill, are paid on a bill, and GST invoices with your own numbering settle the bills. Nothing booked can be silently changed.'],
-];
-
-const Dot = ({ s }) => <span className={cx('h-1.5 w-5', s === 'done' ? 'bg-[#0F6E56]' : s === 'current' ? 'bg-[#F5B82E]' : 'bg-stone-200')} />;
-
-function Operations() {
-  return (
-    <section id="operations" className="scroll-mt-16 border-t border-stone-200 bg-[#f6f6f3] py-24 sm:py-32">
-      <Container>
-        <Reveal className="max-w-2xl">
-          <Label n="04">Operations</Label>
-          <Title className="mt-5">After the sale, the work.</Title>
-          <Lede className="mt-5">The part of the business that usually lives in WhatsApp groups and notebooks — tracked, assigned and visible to the client.</Lede>
-        </Reveal>
-        <div className="mt-12 grid gap-6 lg:grid-cols-2">
-          <Reveal delay={60} className="border border-stone-300 bg-white">
-            <div className="flex items-center justify-between border-b border-stone-200 px-5 py-3"><span className="text-[13px] font-medium text-stone-950">Installations</span><span className="font-mono text-[11px] text-stone-400 uppercase">3 active</span></div>
-            <table className="w-full text-[13px]">
-              <tbody className="divide-y divide-stone-200">
-                {INSTALLS.map(([name, kw, steps, cur]) => (
-                  <tr key={name}>
-                    <td className="px-5 py-3.5"><div className="font-medium text-stone-950">{name}</div><div className="text-stone-500">{cur}</div></td>
-                    <td className="px-3 py-3.5 text-right font-mono text-[11px] text-stone-500">{kw}</td>
-                    <td className="px-5 py-3.5"><div className="flex justify-end gap-1">{steps.map((s, i) => <Dot key={i} s={s} />)}</div></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Reveal>
-          <Reveal delay={120} className="border border-stone-300 bg-white">
-            <div className="flex items-center justify-between border-b border-stone-200 px-5 py-3"><span className="text-[13px] font-medium text-stone-950">AMC visits</span><span className="font-mono text-[11px] text-stone-400 uppercase">Next 30 days</span></div>
-            <table className="w-full text-[13px]">
-              <tbody className="divide-y divide-stone-200">
-                {AMC.map(([name, pkg, date, st]) => (
-                  <tr key={name + pkg}>
-                    <td className="px-5 py-3.5"><div className="font-medium text-stone-950">{name}</div><div className="text-stone-500">{pkg}</div></td>
-                    <td className="px-3 py-3.5 text-right font-mono text-[11px] whitespace-nowrap text-stone-500">{date}</td>
-                    <td className="px-5 py-3.5 text-right whitespace-nowrap text-stone-700">{st}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Reveal>
-        </div>
-        <dl className="mt-12 grid gap-x-10 border-t border-stone-200 sm:grid-cols-3">
-          {OPS_POINTS.map(([t, d], i) => (
-            <Reveal key={t} delay={i * 60} className="border-b border-stone-200 py-5 sm:border-b-0">
-              <dt className="text-[15px] font-medium text-stone-950">{t}</dt>
-              <dd className="mt-1.5 text-[14px] leading-relaxed text-stone-600">{d}</dd>
-            </Reveal>
-          ))}
-        </dl>
-      </Container>
-    </section>
-  );
-}
-
-/* ───────────── client portal ───────────── */
-
-const PORTAL_POINTS = [
-  ['Proposals', 'Read the proposal and the 3D design; accept it, decline it or ask for changes.'],
-  ['Loan', 'Every step of the loan with your remarks — the bank, the amount, what comes next.'],
-  ['Maintenance', 'Free visits with their dates; paid visits booked with a preferred date, again whenever needed.'],
-  ['Support', 'Help requests with photos or PDFs, and your replies.'],
-];
-
-function Portal() {
-  return (
-    <section id="portal" className="scroll-mt-16 border-t border-stone-200 py-24 sm:py-32">
-      <Container>
-        <div className="grid gap-12 lg:grid-cols-12 lg:items-center">
-          <div className="lg:col-span-6">
-            <Reveal>
-              <Label n="05">Client portal</Label>
-              <Title className="mt-5">Your clients see where things stand.</Title>
-              <Lede className="mt-5">Every client with an email address gets a sign-in. They follow their own system from proposal to loan to maintenance, and stop phoning to ask.</Lede>
-            </Reveal>
-            <dl className="mt-10 grid border-t border-stone-200 sm:grid-cols-2 sm:gap-x-10">
-              {PORTAL_POINTS.map(([t, d], i) => (
-                <Reveal key={t} delay={i * 60} className="border-b border-stone-200 py-4">
-                  <dt className="text-[15px] font-medium text-stone-950">{t}</dt>
-                  <dd className="mt-1 text-[14px] leading-relaxed text-stone-600">{d}</dd>
-                </Reveal>
-              ))}
-            </dl>
-          </div>
-          <Reveal delay={100} className="lg:col-span-5 lg:col-start-8"><PortalPhone /></Reveal>
-        </div>
-      </Container>
-    </section>
-  );
-}
-
-/* ───────────── impact ───────────── */
-
-// Rough figures for India, for this illustration only: ~1,450 kWh a year per kW installed, ~0.71 kg CO₂ per grid kWh
-// (CEA baseline), ~21 kg CO₂ absorbed by a grown tree each year. Proposals model each site on its own.
-const KWH_PER_KW = 1450;
-const CO2_PER_KWH = 0.71;
-const CO2_PER_TREE = 21;
-const fmt = (n) => Math.round(n).toLocaleString('en-IN');
-
-function Impact() {
-  const [kw, setKw] = useState(10);
-  const kwh = kw * KWH_PER_KW;
-  const co2 = (kwh * CO2_PER_KWH) / 1000;
-  const rows = [
-    ['Generation', fmt(kwh), 'kWh / year'],
-    ['CO₂ avoided', co2.toFixed(1), 't / year'],
-    ['Equivalent trees', fmt((kwh * CO2_PER_KWH) / CO2_PER_TREE), 'growing all year'],
-    ['Over 25 years', fmt(co2 * 25), 't CO₂'],
-  ];
-  return (
-    <section className="border-t border-stone-200 bg-[#f6f6f3] py-24 sm:py-32">
-      <Container>
-        <div className="grid gap-12 lg:grid-cols-12">
-          <Reveal className="lg:col-span-5">
-            <Label n="06">Why it matters</Label>
-            <Title className="mt-5">Each system you install keeps working for decades.</Title>
-            <Lede className="mt-5">Move the slider to size a rooftop and see roughly what it does for the grid and the air.</Lede>
-            <p className="mt-6 text-[13px] leading-relaxed text-stone-500">Estimate for India: {fmt(KWH_PER_KW)} kWh a year per kW, {CO2_PER_KWH} kg CO₂ per grid kWh, {CO2_PER_TREE} kg CO₂ absorbed by a tree each year. Your proposals model each site’s own sunlight and shading.</p>
-          </Reveal>
-          <Reveal delay={100} className="border border-stone-300 bg-white lg:col-span-7">
-            <div className="flex items-end justify-between border-b border-stone-200 px-6 py-5">
-              <label htmlFor="impact-kw" className="text-[13px] text-stone-500">System size</label>
-              <div className="font-mono text-4xl tracking-tight text-stone-950 tabular-nums">{kw} <span className="text-base text-stone-500">kW</span></div>
-            </div>
-            <div className="px-6 py-5">
-              <input id="impact-kw" type="range" min={1} max={100} value={kw} onChange={(e) => setKw(Number(e.target.value))} className="w-full accent-stone-950" />
-              <div className="mt-1 flex justify-between font-mono text-[11px] text-stone-400 uppercase"><span>1 kW · a home</span><span>100 kW · a factory roof</span></div>
-            </div>
-            <dl className="divide-y divide-stone-200 border-t border-stone-200">
-              {rows.map(([k, v, u]) => (
-                <div key={k} className="flex items-baseline justify-between px-6 py-3.5">
-                  <dt className="text-[14px] text-stone-600">{k}</dt>
-                  <dd className="font-mono text-[15px] text-stone-950 tabular-nums">{v} <span className="text-stone-400">{u}</span></dd>
+        <div className="mt-16 space-y-16 sm:mt-20 sm:space-y-20">
+          {FEATURES.map(([group, sub, items], g) => (
+            <div key={group} className="grid gap-8 lg:grid-cols-12">
+              <Reveal className="lg:col-span-3">
+                <div className="lg:sticky lg:top-28">
+                  <div className="text-[13px] font-semibold tracking-wide text-brand uppercase">Step {g + 1}</div>
+                  <h3 className="mt-2 text-[1.5rem] leading-tight font-semibold tracking-tight text-slate-950">{group}</h3>
+                  <p className="mt-2 text-[15px] leading-relaxed text-slate-500">{sub}</p>
                 </div>
-              ))}
-            </dl>
-          </Reveal>
+              </Reveal>
+              <div className="grid gap-4 sm:grid-cols-2 lg:col-span-9 xl:grid-cols-3 2xl:grid-cols-4">
+                {items.map(([art, name, text], i) => (
+                  <Reveal key={name} delay={(i % 4) * 60}>
+                    <article className="lp-card h-full rounded-2xl border border-slate-200 bg-white p-5">
+                      <FeatureArt name={art} className="lp-art h-16 w-16" />
+                      <h4 className="mt-4 text-[16px] font-semibold text-slate-950">{name}</h4>
+                      <p className="mt-1.5 text-[14.5px] leading-relaxed text-slate-600">{text}</p>
+                    </article>
+                  </Reveal>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       </Container>
     </section>
   );
 }
 
-/* ───────────── access ───────────── */
+/* ───────────── three things shown large ───────────── */
 
-const ROLES = [
-  ['Platform admin', ['Creates solar companies', 'Plans, limits and subscriptions', 'Upgrade requests', 'Platform support']],
-  ['Solar company', ['Every module and setting', 'Brand, masters, integrations', 'Staff accounts and roles', 'Pipeline dashboard']],
-  ['Staff', ['What their role allows', 'Their leads, steps and visits', 'Photos and notes from site', 'Works on a phone']],
-  ['Client', ['Proposals and acceptance', 'Loan progress', 'AMC visits and bookings', 'Help requests']],
+function Points({ items }) {
+  return (
+    <ul className="mt-7 space-y-3">
+      {items.map((t) => (
+        <li key={t} className="flex gap-3 text-[15.5px] leading-relaxed text-slate-700">
+          <span className="mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-brand text-brand-fg"><svg viewBox="0 0 12 12" className="h-3 w-3" aria-hidden><path d="M2.5 6.2 5 8.5l4.5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
+          {t}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Spotlight({ id, tone, eyebrow, title, lede, points, flip, cta, children }) {
+  return (
+    <section id={id} className={cx('scroll-mt-20 py-20 sm:py-28', tone)}>
+      <Container className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+        <Reveal className={cx(flip && 'lg:order-2')}>
+          <Eyebrow>{eyebrow}</Eyebrow>
+          <Title className="mt-5">{title}</Title>
+          <Lede className="mt-4">{lede}</Lede>
+          <Points items={points} />
+          {cta}
+        </Reveal>
+        <Reveal delay={120} className={cx(flip && 'lg:order-1')}>{children}</Reveal>
+      </Container>
+    </section>
+  );
+}
+
+function Spotlights() {
+  return (
+    <>
+      <Spotlight
+        id="design"
+        tone="bg-slate-50 border-y border-slate-200"
+        eyebrow="3D design"
+        title="A real-looking design in a few taps."
+        lede="Your sales staff can make it in front of the customer. No drawing skills needed."
+        points={['Find the address and mark the roof on the satellite picture', 'Pick the type of house and its floors, or choose ground mounted', 'Size the system by the monthly bill or by kW', 'Panels, structure, strings and price are worked out together']}
+      >
+        <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_30px_70px_-30px_rgba(15,23,42,.3)]">
+          <Frame title={`${PRODUCT_NAME} · Designer · Panels`}>
+            {/* eslint-disable-next-line @next/next/no-img-element -- a static screenshot from public/landing */}
+            <img src="/landing/designer-panels.jpg" alt="The designer's Panels step: a three-floor building with its roof filled with 104 panels" width={1456} height={826} loading="lazy" className="block w-full" />
+          </Frame>
+        </div>
+      </Spotlight>
+      <Spotlight
+        id="proposals"
+        flip
+        eyebrow="Proposals"
+        title="A proposal your client is glad to open."
+        lede="Your logo, your colours and your terms on every page, made from the design with one press."
+        points={['The 3D model, bill of materials, drawings and savings outlook', 'Share a link, a QR code or send it on WhatsApp', 'Clients accept or ask for changes online', 'Subsidy and loan shown next to the price']}
+        cta={(
+          <div className="mt-9">
+            <Link href="/free-proposal" className={PRIMARY}>Create your free proposal <ArrowRight className="h-4 w-4" /></Link>
+            <p className="mt-3 text-[14px] text-slate-500">No sign-in needed. Enter your details, the items and the price, pick a design and download the PDF.</p>
+          </div>
+        )}
+      >
+        <div className="lp-float mx-auto max-w-[420px]"><ProposalMock style={proposalVars(BRAND, ACCENT)} /></div>
+      </Spotlight>
+      <Spotlight
+        id="portal"
+        tone="bg-slate-50 border-y border-slate-200"
+        eyebrow="Client portal"
+        title="Your clients always know where things stand."
+        lede="Fewer “any update?” calls. Each client gets a sign-in of their own."
+        points={['Read and answer proposals', 'Follow the loan and the subsidy step by step', 'Book maintenance visits', 'Ask for help with photos and documents']}
+      >
+        <div className="lp-float"><PortalPhone /></div>
+      </Spotlight>
+    </>
+  );
+}
+
+/* ───────────── how it works ───────────── */
+
+const STEPS = [
+  ['A lead comes in', 'From your ads, a sheet or your own form. It is assigned to someone on your team and followed on the board.'],
+  ['Design and propose', 'Mark the roof, pick the house, place the panels. The priced proposal goes to the client by link or WhatsApp.'],
+  ['Book and bill', 'The client accepts. Loan and subsidy follow their steps; bills, challans and receipts come from your stock and prices.'],
+  ['Install and look after', 'Your team works through the installation steps, and maintenance visits are scheduled for the years after.'],
 ];
 
-function Access() {
+function How({ stepsRef }) {
   return (
-    <section className="border-t border-stone-200 py-24 sm:py-32">
+    <section id="how" className="scroll-mt-20 py-24 sm:py-32">
       <Container>
-        <Reveal className="max-w-2xl">
-          <Label n="07">Access</Label>
-          <Title className="mt-5">The right view for each person.</Title>
-          <Lede className="mt-5">Each company works in its own private workspace; one company can never see another’s clients, prices or designs.</Lede>
+        <Reveal>
+          <Eyebrow>How it works</Eyebrow>
+          <Title className="mt-5">One project, one continuous line.</Title>
         </Reveal>
-        <div className="mt-12 grid border-t border-stone-200 sm:grid-cols-2 lg:grid-cols-4">
-          {ROLES.map(([title, points], i) => (
-            <Reveal key={title} delay={i * 60} className={cx('border-b border-stone-200 py-6 lg:border-b-0', i > 0 && 'lg:border-l lg:border-stone-200 lg:pl-8', i < 3 && 'lg:pr-8')}>
-              <h3 className="text-[15px] font-medium text-stone-950">{title}</h3>
-              <ul className="mt-4 space-y-2 text-[14px] text-stone-600">{points.map((p) => <li key={p}>{p}</li>)}</ul>
+        <ol ref={stepsRef} className="relative mt-14 grid gap-10 md:grid-cols-2 xl:grid-cols-4 xl:gap-8">
+          {/* the line the steps sit on: it fills as the section scrolls by (across on wide screens) */}
+          <span aria-hidden className="absolute top-5 right-0 left-0 hidden h-px bg-slate-200 xl:block" />
+          <span aria-hidden className="lp-line absolute top-5 right-0 left-0 hidden h-px bg-brand xl:block" />
+          {STEPS.map(([t, d], i) => (
+            <Reveal as="li" key={t} delay={i * 90} className="relative">
+              <span className="relative z-10 grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-[15px] font-semibold text-brand shadow-sm">{i + 1}</span>
+              <h3 className="mt-5 text-[19px] font-semibold text-slate-950">{t}</h3>
+              <p className="mt-2 max-w-[38ch] text-[15.5px] leading-relaxed text-slate-600">{d}</p>
             </Reveal>
           ))}
-        </div>
+        </ol>
       </Container>
     </section>
   );
@@ -448,31 +445,58 @@ function Access() {
 
 const FAQ = [
   ['How do I get a workspace?', 'Company workspaces are created by the platform administrator, who gives you a sign-in email and a temporary password. You can change the password after your first sign-in.'],
-  ['Can my leads come in automatically?', 'Yes. Connect Meta Lead Ads, Google Ads or a Google Sheet once and new leads arrive in your workspace on their own. You can still add walk-ins by hand with your own lead form.'],
-  ['Do my clients get an account?', 'Every client with an email address can get a portal sign-in. There they read their proposals, respond to them, follow their loan, book maintenance visits and ask for help. Clients without one simply receive the PDF.'],
-  ['How do loans work?', 'You set your own loan steps once. Mark a proposal as bought on a loan and it starts on those steps; your team updates each one with a remark, and the client sees the progress in their portal.'],
-  ['How accurate are the energy figures?', 'Sunlight is modelled for the building’s location and calibrated with Google’s Solar API where it has data. Shading from parapets, tanks, trees and neighbouring panel rows is calculated hour by hour. Figures are indicative and should be confirmed with a site visit — the proposal says so too.'],
-  ['Can my staff only see their own work?', 'Yes. Staff always see the leads, installation steps and AMC visits assigned to them. Anything more — finances, inventory, loans, every installation — is granted through roles you define.'],
+  ['Can my leads come in automatically?', 'Yes. Connect Meta Lead Ads or a Google Sheet once and new leads arrive in your workspace on their own. You can still add walk-ins by hand with your own lead form.'],
+  ['Do I need to know CAD to make a design?', 'No. You mark the roof on the satellite map, pick the house that looks like the building and say how many floors it has. Panels, structure and strings are worked out from there, and you can adjust any of them.'],
+  ['Do my clients get an account?', 'Every client with an email address can get a portal sign-in. There they read their proposals, respond to them, follow their loan and subsidy, book maintenance visits and ask for help. Clients without one simply receive the PDF.'],
+  ['How accurate are the energy figures?', 'Sunlight is modelled for the building’s location, and shading from walls, tanks, trees and neighbouring panel rows is worked out hour by hour. Figures are indicative and should be confirmed with a site visit; the proposal says so too.'],
+  ['Can my staff only see their own work?', 'Yes. Staff always see the leads, installation steps and maintenance visits assigned to them. Anything more, such as finances, inventory or loans, is granted through roles you define.'],
   ['Can other companies see my data?', 'No. Every client, product, design and image belongs to one company and is only ever loaded for that company’s sign-in.'],
 ];
 
-function Faq() {
+/** One question: the answer slides open and closed (its row grows from nothing to its own height). */
+function FaqItem({ q, a, open, onToggle, id }) {
   return (
-    <section id="faq" className="scroll-mt-16 border-t border-stone-200 bg-[#f6f6f3] py-24 sm:py-32">
-      <Container>
-        <div className="grid gap-10 lg:grid-cols-12">
-          <Reveal className="lg:col-span-4"><Label n="08">Questions</Label><Title className="mt-5">Good to know.</Title></Reveal>
-          <div className="border-t border-stone-200 lg:col-span-8">
-            {FAQ.map(([q, a]) => (
-              <details key={q} className="group border-b border-stone-200">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-6 py-5 text-left text-[16px] font-medium text-stone-950 [&::-webkit-details-marker]:hidden">
-                  {q} <ChevronDown className="h-4 w-4 shrink-0 text-stone-400 transition group-open:rotate-180" />
-                </summary>
-                <p className="max-w-[64ch] pb-6 text-[15px] leading-relaxed text-stone-600">{a}</p>
-              </details>
-            ))}
-          </div>
+    <div>
+      <h3>
+        <button type="button" aria-expanded={open} aria-controls={id} onClick={onToggle} className="flex w-full cursor-pointer items-center justify-between gap-6 py-5 text-left text-[16px] font-semibold text-slate-950 transition-colors hover:text-brand">
+          {q}
+          <span className={cx('grid h-8 w-8 shrink-0 place-items-center rounded-full border transition-all duration-300', open ? 'rotate-180 border-brand bg-brand text-brand-fg' : 'border-slate-200 text-slate-500')}><ChevronDown className="h-4 w-4" /></span>
+        </button>
+      </h3>
+      <div id={id} role="region" inert={!open} className={cx('lp-faq grid', open && 'is-open')}>
+        <div className="overflow-hidden">
+          <p className="max-w-[70ch] pb-6 text-[15px] leading-relaxed text-slate-600">{a}</p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+const FAQ_FACTS = ['Set up for you by the platform administrator', 'Your own logo, colours, currency and tax', 'A separate sign-in for staff and for clients'];
+
+function Faq() {
+  const [open, setOpen] = useState(0); // one answer open at a time; the first one to start with
+  return (
+    <section id="faq" className="scroll-mt-20 border-t border-slate-200 bg-slate-50 py-24 sm:py-32">
+      <Container className="grid gap-10 lg:grid-cols-12">
+        <Reveal className="lg:col-span-4">
+          <div className="lg:sticky lg:top-28">
+            <Eyebrow>FAQ</Eyebrow>
+            <Title className="mt-5">Good to know.</Title>
+            <Lede className="mt-4 max-w-[40ch]">The questions solar companies ask most before they start: getting a workspace, what the team and the clients can see, and how far to trust the numbers.</Lede>
+            <ul className="mt-6 space-y-2.5">
+              {FAQ_FACTS.map((t) => <li key={t} className="flex items-start gap-2.5 text-[15px] text-slate-700"><ShieldCheck className="mt-0.5 h-[18px] w-[18px] shrink-0 text-brand" /> {t}</li>)}
+            </ul>
+            <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5">
+              <div className="text-[16px] font-semibold text-slate-950">Something else on your mind?</div>
+              <p className="mt-1.5 text-[14.5px] leading-relaxed text-slate-600">Your platform administrator can answer it, and can set up a workspace for your company.</p>
+              <Link href="/login" className="mt-4 inline-flex items-center gap-1.5 text-[14.5px] font-semibold text-brand hover:underline">Already have a workspace? Sign in <ArrowRight className="h-4 w-4" /></Link>
+            </div>
+          </div>
+        </Reveal>
+        <Reveal delay={100} className="divide-y divide-slate-200 self-start rounded-2xl border border-slate-200 bg-white px-6 lg:col-span-8">
+          {FAQ.map(([q, a], i) => <FaqItem key={q} id={`faq-${i}`} q={q} a={a} open={open === i} onToggle={() => setOpen(open === i ? -1 : i)} />)}
+        </Reveal>
       </Container>
     </section>
   );
@@ -482,15 +506,14 @@ function Faq() {
 
 function Cta() {
   return (
-    <section className="border-t border-stone-200 py-20 sm:py-28">
+    <section className="py-20 sm:py-28">
       <Container>
-        <Reveal className="grid gap-8 lg:grid-cols-12 lg:items-end">
-          <div className="lg:col-span-8">
-            <Title>Ready before the next client calls.</Title>
-            <Lede className="mt-4">Sign in to your company workspace, or ask your platform administrator to set one up.</Lede>
-          </div>
-          <div className="flex flex-wrap gap-3 lg:col-span-4 lg:justify-end">
-            <Link href="/login" className={PRIMARY}>Sign in <ArrowUpRight className="h-4 w-4" /></Link>
+        <Reveal className="relative overflow-hidden rounded-3xl bg-slate-950 px-6 py-16 text-center sm:px-12 sm:py-20">
+          <div aria-hidden className="pointer-events-none absolute -top-32 left-1/2 h-80 w-[720px] -translate-x-1/2 rounded-full bg-brand opacity-40 blur-3xl" />
+          <h2 className="relative mx-auto max-w-[20ch] text-[2rem] leading-[1.1] font-semibold tracking-[-0.025em] text-balance text-white sm:text-[2.75rem]">Ready before the next client calls.</h2>
+          <p className="relative mx-auto mt-4 max-w-[48ch] text-[17px] leading-relaxed text-slate-300">Sign in to your company workspace, or ask your platform administrator to set one up.</p>
+          <div className="relative mt-8 flex justify-center">
+            <Link href="/login" className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-7 text-[15px] font-semibold text-slate-950 transition hover:-translate-y-0.5 hover:bg-slate-100">Sign in <ArrowRight className="h-4 w-4" /></Link>
           </div>
         </Reveal>
       </Container>
@@ -500,55 +523,98 @@ function Cta() {
 
 function Footer() {
   const cols = [
-    ['Product', [['What’s inside', '#product'], ['Design', '#design'], ['Proposals', '#proposals'], ['Operations', '#operations'], ['Client portal', '#portal'], ['FAQ', '#faq']]],
+    ['Product', [['All features', '#features'], ['3D design', '#design'], ['Proposals', '#proposals'], ['Client portal', '#portal'], ['How it works', '#how'], ['FAQ', '#faq']]],
     ['Workspace', [['Sign in', '/login'], ['Company dashboard', '/dashboard'], ['Staff workspace', '/agent'], ['Client portal', '/portal']]],
   ];
   return (
-    <footer className="border-t border-stone-200 bg-[#f6f6f3]">
+    <footer className="border-t border-slate-200">
       <Container className="grid gap-10 py-14 md:grid-cols-12">
         <div className="md:col-span-6">
-          <span className="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight text-stone-950"><BrandMark size={28} /> {PRODUCT_NAME}</span>
-          <p className="mt-4 max-w-[40ch] text-[14px] leading-relaxed text-stone-500">The workspace for rooftop solar companies — leads, design, proposals, loans, billing, installations and maintenance.</p>
+          <span className="flex items-center gap-2.5 text-[16px] font-semibold tracking-tight text-slate-950"><BrandMark size={28} /> {PRODUCT_NAME}</span>
+          <p className="mt-4 max-w-[40ch] text-[14.5px] leading-relaxed text-slate-500">The workspace for solar installation companies: leads, design, proposals, loans, subsidies, billing, stock, installations and maintenance.</p>
         </div>
         {cols.map(([title, links]) => (
           <nav key={title} aria-label={title} className="md:col-span-3">
-            <div className="font-mono text-[11px] tracking-[0.14em] text-stone-500 uppercase">{title}</div>
-            <ul className="mt-4 space-y-2.5 text-[14px]">{links.map(([label, href]) => <li key={label}>{href.startsWith('#') ? <a href={href} className="text-stone-700 hover:text-stone-950">{label}</a> : <Link href={href} className="text-stone-700 hover:text-stone-950">{label}</Link>}</li>)}</ul>
+            <div className="text-[13px] font-semibold tracking-wide text-slate-950 uppercase">{title}</div>
+            <ul className="mt-4 space-y-2.5 text-[14.5px]">{links.map(([label, href]) => <li key={label}>{href.startsWith('#') ? <a href={href} className="text-slate-600 hover:text-slate-950">{label}</a> : <Link href={href} className="text-slate-600 hover:text-slate-950">{label}</Link>}</li>)}</ul>
           </nav>
         ))}
       </Container>
-      <div className="border-t border-stone-200"><Container className="flex flex-wrap items-center justify-between gap-3 py-5 font-mono text-[11px] tracking-wide text-stone-500 uppercase"><span>© {new Date().getFullYear()} {PRODUCT_NAME}</span><span>Made for solar installers</span></Container></div>
+      <div className="border-t border-slate-200"><Container className="flex flex-wrap items-center justify-between gap-3 py-5 text-[13px] text-slate-500"><span>© {new Date().getFullYear()} {PRODUCT_NAME}</span><span>Made for solar installers</span></Container></div>
     </footer>
   );
 }
 
+/* ───────────── the page ───────────── */
+
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
 export default function Landing() {
   const [scrolled, setScrolled] = useState(false);
   // the page scrolls inside this container (the app shell keeps <body> fixed)
-  const [root, setRoot] = useState(null);
+  const rootRef = useRef(null);
+  const contentRef = useRef(null);
+  const stepsRef = useRef(null);
+
   useEffect(() => {
-    if (!root) return undefined;
-    const onScroll = () => setScrolled(root.scrollTop > 24);
-    root.addEventListener('scroll', onScroll, { passive: true });
-    return () => root.removeEventListener('scroll', onScroll);
-  }, [root]);
+    const root = rootRef.current;
+    const content = contentRef.current;
+    if (!root || !content) return undefined;
+
+    // everything the scroll position moves is a CSS variable, so no React render happens while scrolling
+    const apply = () => {
+      const y = root.scrollTop;
+      const limit = Math.max(1, root.scrollHeight - root.clientHeight);
+      root.style.setProperty('--lp-progress', clamp01(y / limit).toFixed(4));
+      root.style.setProperty('--lp-y', y.toFixed(0));
+      const steps = stepsRef.current;
+      if (steps) {
+        const r = steps.getBoundingClientRect();
+        steps.style.setProperty('--lp-steps', clamp01((root.clientHeight * 0.85 - r.top) / (root.clientHeight * 0.5)).toFixed(4));
+      }
+      setScrolled(y > 24);
+    };
+    apply();
+
+    const calm = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (calm) {
+      root.addEventListener('scroll', apply, { passive: true });
+      return () => root.removeEventListener('scroll', apply);
+    }
+
+    const lenis = new Lenis({ wrapper: root, content, lerp: 0.09, wheelMultiplier: 1, smoothWheel: true, autoRaf: true });
+    lenis.on('scroll', apply);
+    // links to a section glide there, stopping under the fixed header
+    const onClick = (e) => {
+      const a = e.target.closest?.('a[href^="#"]');
+      const target = a && content.querySelector(a.getAttribute('href'));
+      if (!target) return;
+      e.preventDefault();
+      lenis.scrollTo(target, { offset: -72, duration: 1.2 });
+    };
+    root.addEventListener('click', onClick);
+    return () => {
+      root.removeEventListener('click', onClick);
+      lenis.destroy();
+    };
+  }, []);
 
   return (
-    <div ref={setRoot} style={PAGE_THEME} className="h-dvh overflow-x-hidden overflow-y-auto scroll-smooth bg-white text-stone-900 antialiased">
-      <Header scrolled={scrolled} />
-      <main>
-        <Hero />
-        <ModuleIndex />
-        <Design />
-        <Proposals />
-        <Operations />
-        <Portal />
-        <Impact />
-        <Access />
-        <Faq />
-        <Cta />
-      </main>
-      <Footer />
+    <div ref={rootRef} style={PAGE_THEME} className="lp h-dvh overflow-x-hidden overflow-y-auto bg-white text-slate-900 antialiased">
+      <style dangerouslySetInnerHTML={{ __html: STYLES }} />
+      <div ref={contentRef}>
+        <Header scrolled={scrolled} />
+        <main>
+          <Hero />
+          <Strip />
+          <Features />
+          <Spotlights />
+          <How stepsRef={stepsRef} />
+          <Faq />
+          <Cta />
+        </main>
+        <Footer />
+      </div>
     </div>
   );
 }

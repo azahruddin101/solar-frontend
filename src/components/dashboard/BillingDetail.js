@@ -370,9 +370,9 @@ export default function BillingDetail({ designId, clientId, basePath = '/dashboa
         ))}
       </div>
 
-      <Section tone="eway" icon={FileText} title="Bills & challans" sub="Each bill lists the materials and services with tax, is paid when it is made, and has a delivery challan for its materials. If some materials come back, use Return: the old bill stays visible (revised) and a new bill is made with what remains.">
+      <Section tone="eway" icon={FileText} title="Bills & challans" sub="Each bill lists the materials and services with tax and is paid when it is made. A delivery challan is made with it when you ask for one. If some materials come back, use Return: the old bill stays visible (revised) and a new bill is made with what remains.">
         {!ewayBills.length ? (
-          <EmptyState icon={FileText} title="No bills yet" description={won ? 'Make a bill for the materials and services. Its delivery challan is made with it.' : 'Mark the proposal as Booked first.'} />
+          <EmptyState icon={FileText} title="No bills yet" description={won ? 'Make a bill for the materials and services. You can ask for a delivery challan with it.' : 'Mark the proposal as Booked first.'} />
         ) : (
           <Table>
             <thead><tr><Th>Bill</Th><Th>Date</Th><Th>Materials & services</Th><Th>Delivery</Th><Th className="text-right">Total</Th><Th>Status</Th><Th className="text-right">Actions</Th></tr></thead>

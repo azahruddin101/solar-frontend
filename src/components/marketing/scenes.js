@@ -34,7 +34,7 @@ export function ModuleDrawing({ className }) {
       {/* front elevation */}
       <rect x={fx} y={fy} width={fw} height={fh} fill="none" stroke={INK} strokeWidth="1.2" />
       <rect x={fx + 3} y={fy + 3} width={fw - 6} height={fh - 6} fill="none" stroke={INK} strokeWidth="0.5" opacity="0.5" />
-      {cells.map(([x, y]) => <rect key={`${x}-${y}`} x={x} y={y} width={cw} height={ch} fill="#0F6E56" fillOpacity="0.9" />)}
+      {cells.map(([x, y]) => <rect key={`${x}-${y}`} x={x} y={y} width={cw} height={ch} fill="#1D4ED8" fillOpacity="0.9" />)}
       {Array.from({ length: cols }, (_, c) => <line key={c} x1={fx + 5 + c * (cw + gap) + cw / 2} y1={fy + 5} x2={fx + 5 + c * (cw + gap) + cw / 2} y2={fy + fh - 5} stroke="#fff" strokeWidth="0.6" opacity="0.5" />)}
       <line x1={fx} y1={fy + fh / 2} x2={fx + fw} y2={fy + fh / 2} stroke="#fff" strokeWidth="1.2" opacity="0.7" />
       {/* dimensions */}
@@ -48,7 +48,7 @@ export function ModuleDrawing({ className }) {
       <text x={bx - 8} y="26" fontSize="9" fontFamily={MONO} fill={INK} opacity="0.7">SIDE · TILT 15° · SOUTH</text>
       <line x1="300" y1={by} x2="548" y2={by} stroke={INK} strokeWidth="1" />
       {Array.from({ length: 12 }, (_, i) => <line key={i} x1={302 + i * 21} y1={by} x2={296 + i * 21} y2={by + 7} stroke={INK} strokeWidth="0.6" opacity="0.5" />)}
-      <polygon points={`${bx},${by - 40} ${tx},${ty - 40} ${tx + nx},${ty - 40 + ny} ${bx + nx},${by - 40 + ny}`} fill="#0F6E56" fillOpacity="0.9" stroke={INK} strokeWidth="0.8" />
+      <polygon points={`${bx},${by - 40} ${tx},${ty - 40} ${tx + nx},${ty - 40 + ny} ${bx + nx},${by - 40 + ny}`} fill="#1D4ED8" fillOpacity="0.9" stroke={INK} strokeWidth="0.8" />
       {/* rail and legs */}
       {[bx + 30, tx - 30].map((x) => <line key={x} x1={x} y1={by - 40 + ny - (x - bx - nx) * Math.tan(tilt)} x2={x} y2={by} stroke={INK} strokeWidth="1.2" />)}
       <line x1={bx + 30} y1={by - 2} x2={tx - 30} y2={by - 2} stroke={INK} strokeWidth="1.2" />
@@ -94,7 +94,7 @@ export function SunPathDiagram({ className }) {
       {/* a panel row on a flat roof behind a parapet, with its shadow */}
       <rect x="150" y={cy0 - 34} width="300" height="34" fill="none" stroke={INK} strokeWidth="1" />
       <line x1="150" y1={cy0 - 34} x2="150" y2={cy0 - 50} stroke={INK} strokeWidth="1" />
-      <path d={`M 240 ${cy0 - 34} L 360 ${cy0 - 60} L 364 ${cy0 - 56} L 244 ${cy0 - 30} Z`} fill="#0F6E56" stroke={INK} strokeWidth="0.8" />
+      <path d={`M 240 ${cy0 - 34} L 360 ${cy0 - 60} L 364 ${cy0 - 56} L 244 ${cy0 - 30} Z`} fill="#1D4ED8" stroke={INK} strokeWidth="0.8" />
       <path d={`M 244 ${cy0 - 34} L 300 ${cy0 - 34} L 258 ${cy0 - 46} Z`} fill={INK} opacity="0.12" />
       <text x="152" y={cy0 - 54} fontSize="9" fontFamily={MONO} fill={INK} opacity="0.7">PARAPET 0.6 m</text>
       <text x="368" y={cy0 - 58} fontSize="9" fontFamily={MONO} fill={INK} opacity="0.7">TILT 15°</text>
@@ -120,7 +120,7 @@ export function ArrayPlan({ className }) {
       <rect x="48" y="44" width="424" height="236" fill="none" stroke={INK} strokeWidth="0.6" strokeDasharray="2 3" opacity="0.6" />
       {panels.map(([x, y]) => (
         <g key={`${x}-${y}`}>
-          <rect x={x} y={y} width={pw} height={ph} fill="#0F6E56" fillOpacity="0.9" stroke={INK} strokeWidth="0.6" />
+          <rect x={x} y={y} width={pw} height={ph} fill="#1D4ED8" fillOpacity="0.9" stroke={INK} strokeWidth="0.6" />
           <line x1={x + pw / 2} y1={y} x2={x + pw / 2} y2={y + ph} stroke="#fff" strokeWidth="0.5" opacity="0.5" />
         </g>
       ))}
@@ -151,13 +151,13 @@ export function PortalPhone({ className }) {
         <div className="border-b border-stone-200 bg-white px-5 pt-9 pb-4">
           <div className="font-mono text-[10px] tracking-wide text-stone-500 uppercase">Client portal</div>
           <div className="mt-1 text-[17px] font-semibold text-stone-950">My loan</div>
-          <div className="mt-3 flex items-center gap-1">{LOAN_STEPS.map(([n, s]) => <span key={n} className={cx('h-1 flex-1', s === 'done' ? 'bg-[#0F6E56]' : s === 'current' ? 'bg-[#F5B82E]' : 'bg-stone-200')} />)}</div>
+          <div className="mt-3 flex items-center gap-1">{LOAN_STEPS.map(([n, s]) => <span key={n} className={cx('h-1 flex-1', s === 'done' ? 'bg-[#1D4ED8]' : s === 'current' ? 'bg-[#F5B82E]' : 'bg-stone-200')} />)}</div>
           <div className="mt-2 flex justify-between text-[11px] text-stone-500"><span>2 of 4 steps</span><span>State Bank of India</span></div>
         </div>
         <ol className="divide-y divide-stone-200 bg-white">
           {LOAN_STEPS.map(([name, s]) => (
             <li key={name} className="flex items-center gap-3 px-5 py-3 text-[12.5px]">
-              <span className={cx('grid h-5 w-5 shrink-0 place-items-center rounded-full border', s === 'done' ? 'border-[#0F6E56] bg-[#0F6E56] text-white' : s === 'current' ? 'border-[#F5B82E] bg-white' : 'border-stone-300 bg-white')}>
+              <span className={cx('grid h-5 w-5 shrink-0 place-items-center rounded-full border', s === 'done' ? 'border-[#1D4ED8] bg-[#1D4ED8] text-white' : s === 'current' ? 'border-[#F5B82E] bg-white' : 'border-stone-300 bg-white')}>
                 {s === 'done' && <Check className="h-3 w-3" />}
                 {s === 'current' && <span className="h-2 w-2 rounded-full bg-[#F5B82E]" />}
               </span>

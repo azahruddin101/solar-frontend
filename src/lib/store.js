@@ -7,8 +7,8 @@ import { buildingIdOf, buildingList, nextBuildingName } from './buildings.js';
 
 export const STEPS = ['Project Setup', 'Draw Roof', 'Roof Details', 'Obstructions', 'Panel & Mounting', 'Manual Edit', '3D View & Shadows', 'Electrical Design', 'Financials', 'Report & Drawings'];
 
-// Location → Building → Package → Panels → Strings → Products → Proposal: the roof comes from Google's measurements (see
-// lib/solarModel.js) and is adjusted on the Building step; nothing is drawn
+// Location → Building → Package → Panels → Strings → Products → Proposal: the roof outline is marked on the map (Location) and the
+// type of house and its floors are picked on the Building step (see lib/solarModel.js)
 export const SIMPLE_SLUGS = ['location', 'building', 'system', 'panels', 'strings', 'products', 'proposal'];
 export const PRO_SLUGS = ['location', 'roof', 'roof-details', 'obstructions', 'panels', 'layout', 'view-3d', 'electrical', 'financials', 'report'];
 export const SIMPLE_STEPS = ['Location', 'Building', 'Package', 'Panels', 'Strings', 'Products', 'Proposal'];
@@ -23,11 +23,10 @@ const initial = {
   place: null, // {address, location}
   origin: null, // confirmed {lat, lng}
   roofArea: null, // the first roof the user marked on the map: [{lat, lng}] (older designs have only this one)
-  roofAreas: null, // every roof marked on the map, one outline per building: [[{lat, lng}]] (Google is read inside them only)
+  roofAreas: null, // every roof marked on the map, one outline per building: [[{lat, lng}]]
   markedDraft: null, // transient: the outlines marked on the location step but not yet confirmed with Continue
   catalog: null,
   solar: { status: 'idle', data: null, error: null },
-  solarModel: { status: 'idle', data: null, error: null, key: '' }, // Google's measured house (planes + height map), not saved
   buildings: [], // {id, name} — several for a campus; empty = one building (see lib/buildings.js)
   buildingId: null, // transient: the building being edited on the roof step
   sections: [], // {id, name, building, points, height, parapetH, parapetT}

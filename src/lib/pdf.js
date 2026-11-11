@@ -657,7 +657,7 @@ export async function generatePdf({ design, project, place, finance, snapshot, c
     y = doc.lastAutoTable.finalY + 10;
   }
   y = section(doc, r, 'Roof', y);
-  autoTable(doc, { ...table(), startY: y, head: [['Roof section', 'Shape', 'Plan area', 'Wall height', 'Parapet (h x t)']], body: design.sections.map((s) => [campus ? `${buildingName(s.building)} - ${s.name}` : s.name, roofShapeLabel(s), `${(Math.abs(s.poly.reduce((a, p, i) => a + p.x * s.poly[(i + 1) % s.poly.length].y - s.poly[(i + 1) % s.poly.length].x * p.y, 0)) / 2).toFixed(1)} m²`, `${s.height} m`, s.frame ? 'none (pitched roof)' : `${s.parapetH} m x ${s.parapetT} m`]) });
+  autoTable(doc, { ...table(), startY: y, head: [['Roof section', 'Shape', 'Plan area', 'Wall height', 'Parapet (h x t)']], body: design.sections.map((s) => [campus ? `${buildingName(s.building)} - ${s.name}` : s.name, roofShapeLabel(s), `${(Math.abs(s.poly.reduce((a, p, i) => a + p.x * s.poly[(i + 1) % s.poly.length].y - s.poly[(i + 1) % s.poly.length].x * p.y, 0)) / 2).toFixed(1)} m²`, s.ground ? 'on the ground' : `${s.height} m`, s.ground ? 'none' : s.frame ? 'none (pitched roof)' : `${s.parapetH} m x ${s.parapetT} m`]) });
   y = section(doc, r, 'Array orientation', ensure(doc, r, doc.lastAutoTable.finalY + 10, 30));
   autoTable(doc, { ...table(), startY: y, head: [['Modules', 'Tilt', 'Facing', 'Energy per year', 'Share']], body: totals.groups.map((g) => [g.count, `${g.tilt}°`, `${g.azimuth}° ${compassLabel(g.azimuth)}`, `${formatNumber((g.dc * finance.efficiency) / 100)} kWh`, `${totals.count ? ((g.count / totals.count) * 100).toFixed(0) : 0} %`]) });
   y = section(doc, r, 'Mounting structure schedule', ensure(doc, r, doc.lastAutoTable.finalY + 10, 30));
@@ -1120,3 +1120,6 @@ function onlineBlock(doc, r, y) {
 
 /** Building blocks for the other branded documents (bills, invoices). */
 export const pdfKit = { text, clip, wrap, tableStyle, numeric, placeImage, logoOrName, pageSize: { W, H, M, CW }, colors: { INK, BODY, MUTED, LINE, SOFT, WHITE } };
+// the page furniture of a proposal (header, footers, numbered sections, tiles, sign-off), for other documents that
+// must look like one: the free proposal maker's PDF (freeProposalPdf.js)
+export const pdfPage = { newPage, footers, section, ensure, statTiles, specGrid, signOff };

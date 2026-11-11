@@ -1,7 +1,7 @@
 import { Sun } from 'lucide-react';
 import { cx } from '../kit';
 
-export const PRODUCT_NAME = 'Innovbit';
+export const PRODUCT_NAME = 'SolarDesy';
 
 export function BrandMark({ size = 32, className }) {
   return (
